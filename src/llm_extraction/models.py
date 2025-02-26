@@ -1,13 +1,19 @@
 from argparse import Action
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 from enum import StrEnum
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING, ForwardRef
 import json
 from json_repair import repair_json
 from src.postgres.db_utils import find_cluster_id
 from datetime import datetime
 
-from sql_models.models import CitationExtraction, OpinionClusterExtraction
+# Use TYPE_CHECKING to avoid circular imports
+if TYPE_CHECKING:
+    from src.postgres.models import CitationExtraction, OpinionClusterExtraction
+else:
+    # Forward references for type hints
+    CitationExtraction = ForwardRef('CitationExtraction')
+    OpinionClusterExtraction = ForwardRef('OpinionClusterExtraction')
 
 # https://www.law.cornell.edu/citation/6-300
 # https://support.vlex.com/how-to/navigate-documents/case-law/treatment-types#undefined
@@ -50,6 +56,16 @@ class OpinionSection(StrEnum):
     majority = "MAJORITY"
     concurring = "CONCURRING"
     dissenting = "DISSENTING"
+
+
+class OpinionType(StrEnum):
+    """Type of opinion document."""
+    majority = "MAJORITY"
+    concurring = "CONCURRING"
+    dissenting = "DISSENTING"
+    per_curiam = "PER_CURIAM"
+    seriatim = "SERIATIM"
+    unknown = "UNKNOWN"
 
 
 class CitationType(StrEnum):
@@ -101,6 +117,11 @@ class Citation(BaseModel):
 
     class Config:
         use_enum_values = True
+
+    # Add method to count citation length
+    def count_citation_length(self) -> int:
+        """Count the length of all string fields in this citation."""
+        return len(self.citation_text) + len(self.reasoning)
 
     @field_validator("type", mode="before")
     @classmethod
@@ -155,7 +176,7 @@ class CitationAnalysis(BaseModel):
         ...,
         description="List of citations from the majority opinion, including footnotes.",
     )
-    concurrent_opinion_citations: List[Citation] = Field(
+    concurring_opinion_citations: List[Citation] = Field(
         ...,
         description="List of citations from concurring opinions, including footnotes.",
     )
@@ -218,7 +239,7 @@ class CombinedResolvedCitationAnalysis(BaseModel):
     cluster_id: int
     brief_summary: str
     majority_opinion_citations: list[CitationResolved]
-    concurrent_opinion_citations: list[CitationResolved]
+    concurring_opinion_citations: list[CitationResolved]  # Changed from concurrent to concurring for consistency
     dissenting_citations: list[CitationResolved]
 
     @classmethod
@@ -264,11 +285,11 @@ class CombinedResolvedCitationAnalysis(BaseModel):
         # print(citation_data)
         # Convert to CitationAnalysis model and use existing from_citations method
         majority_opinion_citations = []
-        concurrent_opinion_citations = []
+        concurring_opinion_citations = []
         dissenting_citations = []
         keys = [
             "majority_opinion_citations",
-            "concurrent_opinion_citations",
+            "concurring_opinion_citations",
             "dissenting_citations",
         ]
         # if not all keys are present, only lookup found keys
@@ -292,15 +313,15 @@ class CombinedResolvedCitationAnalysis(BaseModel):
                     )
                     if key == "majority_opinion_citations":
                         majority_opinion_citations.append(citation)
-                    elif key == "concurrent_opinion_citations":
-                        concurrent_opinion_citations.append(citation)
+                    elif key == "concurring_opinion_citations":
+                        concurring_opinion_citations.append(citation)
                     elif key == "dissenting_citations":
                         dissenting_citations.append(citation)
         citation_analysis = CitationAnalysis(
             date=citation_data["date"],
             brief_summary=citation_data["brief_summary"],
             majority_opinion_citations=majority_opinion_citations,
-            concurrent_opinion_citations=concurrent_opinion_citations,
+            concurring_opinion_citations=concurring_opinion_citations,
             dissenting_citations=dissenting_citations,
         )
 
@@ -323,10 +344,10 @@ class CombinedResolvedCitationAnalysis(BaseModel):
                 for citation_analysis in citations
                 for citation in citation_analysis.majority_opinion_citations
             ],
-            concurrent_opinion_citations=[
+            concurring_opinion_citations=[
                 resolve_citation(citation)
                 for citation_analysis in citations
-                for citation in citation_analysis.concurrent_opinion_citations
+                for citation in citation_analysis.concurring_opinion_citations
             ],
             dissenting_citations=[
                 resolve_citation(citation)
@@ -358,7 +379,7 @@ class CombinedResolvedCitationAnalysis(BaseModel):
                         }
 
         process_citations(self.majority_opinion_citations)
-        process_citations(self.concurrent_opinion_citations)
+        process_citations(self.concurring_opinion_citations)
         process_citations(self.dissenting_citations)
 
         return nodes
@@ -384,11 +405,11 @@ def to_sql_models(
     citations = []
 
     # Helper to process citations from a section
-    def process_section_citations(citation_list: list[CitationResolved]):
+    def process_section_citations(citation_list: list[CitationResolved], section: OpinionSection):
         for citation in citation_list:
             cite = CitationExtraction(
                 opinion_cluster_extraction_id=cluster.id,  # This will be set after DB insert
-                section=Action,
+                section=section,
                 citation_type=citation.type,
                 citation_text=citation.citation_text,
                 page_number=citation.page_number,
@@ -405,9 +426,11 @@ def to_sql_models(
         combined.majority_opinion_citations, OpinionSection.majority
     )
     process_section_citations(
-        combined.concurrent_opinion_citations, OpinionSection.concurrent
+        combined.concurring_opinion_citations, OpinionSection.concurring
     )
-    process_section_citations(combined.dissenting_citations, OpinionSection.dissenting)
+    process_section_citations(
+        combined.dissenting_citations, OpinionSection.dissenting
+    )
 
     return cluster, citations
 
@@ -422,7 +445,7 @@ def from_sql_models(
     """
     # Sort citations by section
     majority_citations = []
-    concurrent_citations = []
+    concurring_citations = []
     dissenting_citations = []
 
     for citation in cluster.citations:
@@ -440,8 +463,8 @@ def from_sql_models(
 
         if citation.section == OpinionSection.majority:
             majority_citations.append(resolved_citation)
-        elif citation.section == OpinionSection.concurrent:
-            concurrent_citations.append(resolved_citation)
+        elif citation.section == OpinionSection.concurring:
+            concurring_citations.append(resolved_citation)
         elif citation.section == OpinionSection.dissenting:
             dissenting_citations.append(resolved_citation)
 
@@ -450,6 +473,6 @@ def from_sql_models(
         cluster_id=cluster.cluster_id,
         brief_summary=cluster.brief_summary,
         majority_opinion_citations=majority_citations,
-        concurrent_opinion_citations=concurrent_citations,
+        concurring_opinion_citations=concurring_citations,
         dissenting_citations=dissenting_citations,
     )

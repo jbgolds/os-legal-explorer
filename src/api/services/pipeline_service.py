@@ -40,7 +40,7 @@ class PipelineJob:
         self.result_path = None
 
 # In-memory job storage (for demonstration)
-# In a production environment, this would be stored in a database
+# In a production environment, this would be stored in a database using SQLAlchemy models
 _jobs = {}
 _next_job_id = 1
 
