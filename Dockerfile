@@ -2,32 +2,36 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
+# Install only essential system dependencies
+RUN apt-get update && apt-get install -y \
     postgresql-client \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install dependencies
-COPY pyproject.toml .
-RUN pip install --no-cache-dir -e .
+# Mount the code as a volume instead of copying
+# (we'll mount the code from the host in docker-compose)
 
-# Copy application code
-COPY . .
+# Install project in development mode
+COPY pyproject.toml .
+RUN pip install -e .
 
 # Make entrypoint script executable
+COPY docker-entrypoint.sh .
 RUN chmod +x /app/docker-entrypoint.sh
 
-# Set environment variables
+# Basic environment settings
 ENV PYTHONPATH=/app
 ENV PORT=8000
+# Don't write .pyc files (cleaner)
+ENV PYTHONDONTWRITEBYTECODE=1
+# Don't buffer output (better logging)
+ENV PYTHONUNBUFFERED=1
 
 # Expose port
 EXPOSE ${PORT}
 
-# Set entrypoint
+# Use entrypoint script
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
-# Command to run the application
+# Simple development command
 CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"] 

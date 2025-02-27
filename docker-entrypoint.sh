@@ -1,22 +1,14 @@
 #!/bin/bash
 set -e
 
-# Wait for PostgreSQL to be ready
-echo "Waiting for PostgreSQL to be ready..."
-while ! pg_isready -h ${DB_HOST} -p ${DB_PORT} -U ${DB_USER}; do
-  sleep 2
-done
-echo "PostgreSQL is ready!"
+# Basic check for PostgreSQL
+echo "Checking connection to PostgreSQL..."
+pg_isready -h ${DB_HOST} -p ${DB_PORT} -U ${DB_USER} || echo "PostgreSQL not yet accessible - API will retry connections as needed"
 
-# Wait for Neo4j to be ready
-echo "Waiting for Neo4j to be ready..."
-while ! curl -s "http://${NEO4J_USER}:${NEO4J_PASSWORD}@neo4j:7474/browser/" > /dev/null; do
-  sleep 2
-done
-echo "Neo4j is ready!"
-
-# Run database migrations or initialization if needed
-# python -m src.some_migration_script
+# Basic check for Neo4j
+echo "Checking connection to Neo4j..."
+curl -s --head "http://${NEO4J_USER}:${NEO4J_PASSWORD}@neo4j:7474/browser/" > /dev/null || echo "Neo4j not yet accessible - API will retry connections as needed"
 
 # Start the application
+echo "Starting the application..."
 exec "$@" 

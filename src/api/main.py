@@ -1,6 +1,18 @@
+import os
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Configure simple logging
+logging.basicConfig(
+    level=getattr(logging, os.getenv("LOG_LEVEL", "INFO")),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 
 # Create FastAPI app
 app = FastAPI(
@@ -9,10 +21,10 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Configure CORS
+# Configure CORS - allows all origins for simplicity
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For development; restrict in production
+    allow_origins=["*"],  # Simple setting for development/hobby project
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,7 +42,12 @@ async def root():
 # Health check endpoint
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    from .database import verify_connections
+    db_status = verify_connections()
+    return {
+        "status": "healthy" if all(db_status.values()) else "unhealthy",
+        "database": db_status,
+    }
 
 # Import and include routers
 from .routers import opinions, citations, stats, pipeline
@@ -40,4 +57,9 @@ app.include_router(stats.router)
 app.include_router(pipeline.router)
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "main:app", 
+        host="0.0.0.0", 
+        port=int(os.getenv("PORT", 8000)),
+        reload=True
+    )

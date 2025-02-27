@@ -280,36 +280,36 @@ def run_extraction_job(db: Session, job_id: int, config: ExtractionConfig) -> No
         
         # In a production environment, this would use the actual database connection
         # For demonstration, we'll simulate the query result
-        # df = pd.read_sql(query, db.bind, params=params)
+        df = pd.read_sql(query, db.bind, params=params)
         
         # Simulate query result
-        df = pd.DataFrame({
-            "cluster_id": [1001, 1002, 1003],
-            "so_type": ["010combined", "010combined", "010combined"],
-            "so_id": [2001, 2002, 2003],
-            "so_page_count": [10, 15, 20],
-            "so_plain_text": [
-                "This is the text of opinion 1001...",
-                "This is the text of opinion 1002...",
-                "This is the text of opinion 1003..."
-            ],
-            "cluster_case_name": [
-                "Smith v. Jones",
-                "Brown v. Board of Education",
-                "Roe v. Wade"
-            ],
-            "soc_date_filed": [
-                "2020-01-01",
-                "2020-02-01",
-                "2020-03-01"
-            ],
-            "court_id": ["scotus", "scotus", "scotus"],
-            "court_name": [
-                "Supreme Court of the United States",
-                "Supreme Court of the United States",
-                "Supreme Court of the United States"
-            ]
-        })
+        # df = pd.DataFrame({
+        #     "cluster_id": [1001, 1002, 1003],
+        #     "so_type": ["010combined", "010combined", "010combined"],
+        #     "so_id": [2001, 2002, 2003],
+        #     "so_page_count": [10, 15, 20],
+        #     "so_plain_text": [
+        #         "This is the text of opinion 1001...",
+        #         "This is the text of opinion 1002...",
+        #         "This is the text of opinion 1003..."
+        #     ],
+        #     "cluster_case_name": [
+        #         "Smith v. Jones",
+        #         "Brown v. Board of Education",
+        #         "Roe v. Wade"
+        #     ],
+        #     "soc_date_filed": [
+        #         "2020-01-01",
+        #         "2020-02-01",
+        #         "2020-03-01"
+        #     ],
+        #     "court_id": ["scotus", "scotus", "scotus"],
+        #     "court_name": [
+        #         "Supreme Court of the United States",
+        #         "Supreme Court of the United States",
+        #         "Supreme Court of the United States"
+        #     ]
+        # })
         
         # Save to CSV
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -377,17 +377,17 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
         
         # In a production environment, this would load the actual CSV file
         # For demonstration, we'll simulate the data
-        # df = pd.read_csv(extraction_job["result_path"])
+        df = pd.read_csv(extraction_job["result_path"])
         
-        # Simulate data
-        df = pd.DataFrame({
-            "cluster_id": [1001, 1002, 1003],
-            "so_plain_text": [
-                "This is the text of opinion 1001...",
-                "This is the text of opinion 1002...",
-                "This is the text of opinion 1003..."
-            ]
-        })
+        # # Simulate data
+        # df = pd.DataFrame({
+        #     "cluster_id": [1001, 1002, 1003],
+        #     "so_plain_text": [
+        #         "This is the text of opinion 1001...",
+        #         "This is the text of opinion 1002...",
+        #         "This is the text of opinion 1003..."
+        #     ]
+        # })
         
         # Initialize Gemini client
         update_job_status(
@@ -400,11 +400,11 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
         
         # In a production environment, this would use the actual Gemini client
         # For demonstration, we'll simulate the processing
-        # gemini_client = GeminiClient(
-        #     api_key=os.getenv("GEMINI_API_KEY"),
-        #     rpm_limit=15,
-        #     max_concurrent=10
-        # )
+        gemini_client = GeminiClient(
+            api_key=os.getenv("GEMINI_API_KEY"),
+            rpm_limit=15,
+            max_concurrent=10
+        )
         
         # Process opinions
         update_job_status(
@@ -417,18 +417,18 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
         
         # In a production environment, this would process the opinions with Gemini
         # For demonstration, we'll simulate the results
-        # results = gemini_client.process_dataframe(
-        #     df,
-        #     text_column="so_plain_text",
-        #     max_workers=10
-        # )
+        results = gemini_client.process_dataframe(
+            df,
+            text_column="text",
+            max_workers=10
+        )
         
         # Simulate results
-        results = {
-            1001: [{"parsed": {"date": "2020-01-01", "brief_summary": "Summary 1", "majority_opinion_citations": []}}],
-            1002: [{"parsed": {"date": "2020-02-01", "brief_summary": "Summary 2", "majority_opinion_citations": []}}],
-            1003: [{"parsed": {"date": "2020-03-01", "brief_summary": "Summary 3", "majority_opinion_citations": []}}]
-        }
+        # results = {
+        #     1001: [{"parsed": {"date": "2020-01-01", "brief_summary": "Summary 1", "majority_opinion_citations": []}}],
+        #     1002: [{"parsed": {"date": "2020-02-01", "brief_summary": "Summary 2", "majority_opinion_citations": []}}],
+        #     1003: [{"parsed": {"date": "2020-03-01", "brief_summary": "Summary 3", "majority_opinion_citations": []}}]
+        # }
         
         # Save results
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
