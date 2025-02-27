@@ -1,9 +1,23 @@
-from pydantic import BaseModel, Field
+"""
+API models for opinions.
+
+This module refactors API models to use source-of-truth models from:
+- src.llm_extraction.models
+- src.neo4j.models 
+- src.postgres.models
+
+It uses them directly where possible and extends them where API-specific needs exist.
+"""
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 from datetime import date
 
 from src.neo4j.models import Opinion as Neo4jOpinion
-from src.llm_extraction.models import OpinionSection, CitationTreatment
+from src.llm_extraction.models import OpinionSection, CitationTreatment, Citation, OpinionType
+from src.api.models.converters import neo4j_opinion_to_core
+
+# Re-export models from source of truth for API use
+__all__ = ['Citation', 'OpinionSection', 'CitationTreatment', 'OpinionType', 'OpinionBase', 'OpinionResponse', 'OpinionDetail', 'OpinionText', 'OpinionCitation']
 
 class OpinionBase(BaseModel):
     """Base model for opinion data."""
@@ -17,8 +31,12 @@ class OpinionBase(BaseModel):
         return cls(
             cluster_id=opinion.cluster_id,
             case_name=opinion.case_name,
-            date_filed=opinion.date_filed
+            date_filed=opinion.date_filed  # use the original date object
         )
+    
+    model_config = ConfigDict(
+        from_attributes=True  # Replaces deprecated orm_mode=True
+    )
     
 class OpinionResponse(OpinionBase):
     """Model for opinion summary response."""
@@ -30,18 +48,14 @@ class OpinionResponse(OpinionBase):
     @classmethod
     def from_neo4j(cls, opinion: Neo4jOpinion):
         """Create an OpinionResponse from a Neo4j Opinion model."""
+        base = OpinionBase.from_neo4j(opinion)
         return cls(
-            cluster_id=opinion.cluster_id,
-            case_name=opinion.case_name,
-            date_filed=opinion.date_filed,
-            court_id=opinion.court_id,
-            court_name=opinion.court_name or "Unknown Court",
+            **base.model_dump(),
+            court_id=str(opinion.court_id),  # Ensure court_id is a string
+            court_name=opinion.court_name or 'Unknown Court',
             docket_number=opinion.docket_number,
             citation_count=len(opinion.cited_by.all()) if hasattr(opinion, 'cited_by') else 0
         )
-    
-    class Config:
-        orm_mode = True
 
 class OpinionDetail(OpinionResponse):
     """Model for detailed opinion information."""
@@ -49,29 +63,29 @@ class OpinionDetail(OpinionResponse):
     scdb_votes_majority: Optional[int] = Field(None, description="Supreme Court Database majority votes")
     scdb_votes_minority: Optional[int] = Field(None, description="Supreme Court Database minority votes")
     brief_summary: Optional[str] = Field(None, description="Brief summary of the opinion")
+    opinion_type: Optional[OpinionType] = Field(None, description="Type of opinion document")
     
     @classmethod
     def from_neo4j(cls, opinion: Neo4jOpinion):
         """Create an OpinionDetail from a Neo4j Opinion model."""
         base = OpinionResponse.from_neo4j(opinion)
         return cls(
-            **base.dict(),
+            **base.model_dump(),
             docket_id=opinion.docket_id,
             scdb_votes_majority=opinion.scdb_votes_majority,
             scdb_votes_minority=opinion.scdb_votes_minority,
-            brief_summary=opinion.ai_summary
+            brief_summary=opinion.ai_summary,
+            opinion_type=opinion.opinion_type
         )
-    
-    class Config:
-        orm_mode = True
 
 class OpinionText(BaseModel):
     """Model for opinion text."""
     cluster_id: int = Field(..., description="Opinion cluster identifier")
     text: str = Field(..., description="Full text of the opinion")
     
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(
+        from_attributes=True  # Replaces deprecated orm_mode=True
+    )
 
 class OpinionCitation(BaseModel):
     """Model for citation information within an opinion."""
@@ -79,10 +93,10 @@ class OpinionCitation(BaseModel):
     cited_id: int = Field(..., description="Cited opinion cluster identifier")
     citation_text: str = Field(..., description="Original citation text")
     page_number: Optional[int] = Field(None, description="Page number where the citation appears")
-    treatment: Optional[str] = Field(None, description="Citation treatment (POSITIVE, NEGATIVE, etc.)")
+    treatment: Optional[CitationTreatment] = Field(None, description="Citation treatment")
     relevance: Optional[int] = Field(None, description="Relevance score (1-4)")
     reasoning: Optional[str] = Field(None, description="Reasoning for the citation")
-    opinion_section: Optional[str] = Field(None, description="Section of the opinion (majority, dissent, etc.)")
+    opinion_section: Optional[OpinionSection] = Field(None, description="Section of the opinion")
     
     @classmethod
     def from_neo4j_rel(cls, rel, citing_id: int, cited_id: int):
@@ -98,5 +112,6 @@ class OpinionCitation(BaseModel):
             opinion_section=rel.opinion_section
         )
     
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(
+        from_attributes=True  # Replaces deprecated orm_mode=True
+    )

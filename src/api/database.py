@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 from neo4j import GraphDatabase
 from dotenv import load_dotenv
 
-# Import database connections from existing modules
-from src.postgres.db_utils import get_engine, get_session_factory
+# Import database connections from updated modules
+from src.postgres.database import get_engine, get_session_factory
 from src.neo4j.neomodel_loader import get_neo4j_driver
 
 # Load environment variables

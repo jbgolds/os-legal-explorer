@@ -10,7 +10,7 @@
 #########
 
 # Set password from environment variable
-export NEO4J_PASSWORD=courtlistener
+export NEO4J_PASSWORD=courtlistener # TODO Hardcoded variable
 
 # Create timestamp for the bad entries log
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)

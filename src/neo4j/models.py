@@ -94,6 +94,10 @@ class Opinion(Citation):
     """
     Specialized Citation node representing judicial opinions.
     Inherits base citation functionality and adds opinion-specific fields.
+    
+    IMPORTANT: The full text of opinions should NOT be stored in Neo4j.
+    Original opinion text is stored in the PostgreSQL database in the opinion_text table.
+    Neo4j should only contain metadata and citation relationships for efficient graph traversal.
     """
 
     # Set the type automatically for all Opinion instances

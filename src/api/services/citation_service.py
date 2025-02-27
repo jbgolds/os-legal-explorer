@@ -1,359 +1,295 @@
 from typing import List, Dict, Optional, Any
 import logging
+from datetime import datetime
 
-from ..models.citations import CitationNetwork, CitationDetail, CitationStats, Node, Edge
 from src.neo4j.models import Opinion as Neo4jOpinion, CitesRel
+from src.llm_extraction.models import Citation, CitationAnalysis
+from .db_utils import get_opinion_by_id, get_filtered_opinions
 
 logger = logging.getLogger(__name__)
 
+def opinion_to_node_dict(opinion: Neo4jOpinion, node_type: str = "opinion") -> dict:
+    """Helper to convert a Neo4j Opinion to a node dictionary."""
+    return {
+        "id": opinion.cluster_id,
+        "label": opinion.case_name or f"Opinion {opinion.cluster_id}",
+        "type": node_type,
+        "court_id": opinion.court_id,
+        "date_filed": opinion.date_filed.isoformat() if opinion.date_filed else None,
+        "citation_count": len(opinion.cited_by.all()) if hasattr(opinion, 'cited_by') else 0
+    }
+
 def get_citation_network(
-    neo4j_session,
+    neo4j_session,  # Kept for API compatibility but not used
     cluster_id: Optional[int] = None,
     court_id: Optional[str] = None,
     depth: int = 1,
     limit: int = 100
-) -> CitationNetwork:
-    """
-    Get a citation network centered around a specific opinion or court.
-    
-    Args:
-        neo4j_session: Neo4j session
-        cluster_id: Center the network on this opinion cluster ID
-        court_id: Filter by court ID
-        depth: Network depth (1-3)
-        limit: Maximum number of nodes to return
-        
-    Returns:
-        Citation network with nodes and edges
-    """
-    # Validate depth
-    if depth < 1 or depth > 3:
-        depth = 1  # Default to 1 if invalid
+) -> Dict[str, Any]:
+    """Get a citation network centered around a specific opinion or court using neomodel."""
+    depth = min(max(depth, 1), 3)  # Clamp depth between 1-3
+    nodes = []
+    edges = []
     
     try:
-        nodes = []
-        edges = []
-        
         if cluster_id:
-            # Get the center opinion
-            try:
-                center_opinion = Neo4jOpinion.nodes.get(cluster_id=cluster_id)
+            # Get center opinion using simplified db_utils
+            center_opinion = get_opinion_by_id(cluster_id)
+            if not center_opinion:
+                return {"nodes": [], "edges": [], "metadata": {}}
                 
-                # Add center node
-                center_node = Node.from_neo4j(center_opinion, node_type="center")
-                nodes.append(center_node)
-                
-                # Get outgoing citations (opinions cited by this opinion)
-                cited_opinions = []
-                for i in range(depth):
-                    if i == 0:
-                        # First level: direct citations
-                        new_cited = center_opinion.cites.all()[:limit]
-                        cited_opinions.extend(new_cited)
-                    else:
-                        # Deeper levels: citations of citations
-                        next_level = []
-                        for opinion in cited_opinions:
-                            next_level.extend(opinion.cites.all()[:limit // (i + 1)])
-                        cited_opinions.extend(next_level)
-                
-                # Add cited nodes and edges
-                for cited in cited_opinions:
-                    # Add node if not already added
-                    if not any(n.id == cited.cluster_id for n in nodes):
-                        nodes.append(Node.from_neo4j(cited))
-                    
-                    # Find the relationship and add edge
-                    for citing in [o for o in cited_opinions + [center_opinion] if hasattr(o, 'cites')]:
-                        rel = citing.cites.relationship(cited)
-                        if rel:
-                            edges.append(Edge.from_neo4j_rel(rel, citing.cluster_id, cited.cluster_id))
-                
-                # Get incoming citations (opinions citing this opinion)
-                citing_opinions = []
-                for i in range(depth):
-                    if i == 0:
-                        # First level: direct citations
-                        new_citing = center_opinion.cited_by.all()[:limit]
-                        citing_opinions.extend(new_citing)
-                    else:
-                        # Deeper levels: citations of citations
-                        next_level = []
-                        for opinion in citing_opinions:
-                            next_level.extend(opinion.cited_by.all()[:limit // (i + 1)])
-                        citing_opinions.extend(next_level)
-                
-                # Add citing nodes and edges
-                for citing in citing_opinions:
-                    # Add node if not already added
-                    if not any(n.id == citing.cluster_id for n in nodes):
-                        nodes.append(Node.from_neo4j(citing))
-                    
-                    # Find the relationship and add edge
-                    rel = citing.cites.relationship(center_opinion)
-                    if rel:
-                        edges.append(Edge.from_neo4j_rel(rel, citing.cluster_id, center_opinion.cluster_id))
-                    
-                    # Add edges between citing opinions
-                    for cited in [o for o in citing_opinions + [center_opinion] if hasattr(citing, 'cites')]:
-                        rel = citing.cites.relationship(cited)
-                        if rel:
-                            edges.append(Edge.from_neo4j_rel(rel, citing.cluster_id, cited.cluster_id))
+            nodes.append(opinion_to_node_dict(center_opinion, "center"))
             
-            except Neo4jOpinion.DoesNotExist:
-                logger.warning(f"Opinion with cluster_id {cluster_id} not found")
-        
+            # Get outgoing citations using relationship traversal
+            cited_opinions = set()
+            current_level = {center_opinion}
+            
+            for _ in range(depth):
+                next_level = set()
+                for opinion in current_level:
+                    # Get direct citations limited by the limit parameter
+                    new_cited = set(opinion.cites.all()[:limit // len(current_level)])
+                    
+                    for cited in new_cited:
+                        if cited.cluster_id not in {n["id"] for n in nodes}:
+                            nodes.append(opinion_to_node_dict(cited, "cited"))
+                        
+                        # Add edge using relationship properties
+                        rel = opinion.cites.relationship(cited)
+                        if rel:
+                            edges.append({
+                                "source": opinion.cluster_id,
+                                "target": cited.cluster_id,
+                                "treatment": rel.treatment,
+                                "relevance": rel.relevance
+                            })
+                    
+                    next_level.update(new_cited)
+                cited_opinions.update(next_level)
+                current_level = next_level
+                
+            # Get incoming citations similarly
+            citing_opinions = set()
+            current_level = {center_opinion}
+            
+            for _ in range(depth):
+                next_level = set()
+                for opinion in current_level:
+                    new_citing = set(opinion.cited_by.all()[:limit // len(current_level)])
+                    
+                    for citing in new_citing:
+                        if citing.cluster_id not in {n["id"] for n in nodes}:
+                            nodes.append(opinion_to_node_dict(citing, "citing"))
+                        
+                        rel = citing.cites.relationship(opinion)
+                        if rel:
+                            edges.append({
+                                "source": citing.cluster_id,
+                                "target": opinion.cluster_id,
+                                "treatment": rel.treatment,
+                                "relevance": rel.relevance
+                            })
+                    
+                    next_level.update(new_citing)
+                citing_opinions.update(next_level)
+                current_level = next_level
+
         elif court_id:
-            # Get opinions from this court
-            court_opinions = Neo4jOpinion.nodes.filter(court_id=court_id)[:limit]
+            # Get all opinions from this court using simplified db_utils
+            court_opinions = get_filtered_opinions(
+                court_id=court_id,
+                limit=limit
+            )
             
-            # Add court opinion nodes
             for opinion in court_opinions:
-                nodes.append(Node.from_neo4j(opinion, node_type="court"))
-            
-            # Get outgoing citations from court opinions
-            for opinion in court_opinions:
-                cited_opinions = opinion.cites.all()[:limit // len(court_opinions)]
+                if opinion.cluster_id not in {n["id"] for n in nodes}:
+                    nodes.append(opinion_to_node_dict(opinion, "court"))
                 
-                # Add cited nodes and edges
-                for cited in cited_opinions:
-                    # Add node if not already added
-                    if not any(n.id == cited.cluster_id for n in nodes):
-                        nodes.append(Node.from_neo4j(cited))
+                # Get direct citations and citing opinions
+                for cited in opinion.cites.all()[:limit // len(court_opinions)]:
+                    if cited.cluster_id not in {n["id"] for n in nodes}:
+                        nodes.append(opinion_to_node_dict(cited))
                     
-                    # Find the relationship and add edge
                     rel = opinion.cites.relationship(cited)
                     if rel:
-                        edges.append(Edge.from_neo4j_rel(rel, opinion.cluster_id, cited.cluster_id))
-            
-            # Get incoming citations to court opinions
-            for opinion in court_opinions:
-                citing_opinions = opinion.cited_by.all()[:limit // len(court_opinions)]
+                        edges.append({
+                            "source": opinion.cluster_id,
+                            "target": cited.cluster_id,
+                            "treatment": rel.treatment,
+                            "relevance": rel.relevance
+                        })
                 
-                # Add citing nodes and edges
-                for citing in citing_opinions:
-                    # Add node if not already added
-                    if not any(n.id == citing.cluster_id for n in nodes):
-                        nodes.append(Node.from_neo4j(citing))
+                for citing in opinion.cited_by.all()[:limit // len(court_opinions)]:
+                    if citing.cluster_id not in {n["id"] for n in nodes}:
+                        nodes.append(opinion_to_node_dict(citing))
                     
-                    # Find the relationship and add edge
                     rel = citing.cites.relationship(opinion)
                     if rel:
-                        edges.append(Edge.from_neo4j_rel(rel, citing.cluster_id, opinion.cluster_id))
+                        edges.append({
+                            "source": citing.cluster_id,
+                            "target": opinion.cluster_id,
+                            "treatment": rel.treatment,
+                            "relevance": rel.relevance
+                        })
         
-        # Create network
-        network = CitationNetwork(
-            nodes=nodes,
-            edges=edges,
-            metadata={
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "metadata": {
                 "center_id": cluster_id,
                 "court_id": court_id,
                 "depth": depth,
                 "node_count": len(nodes),
                 "edge_count": len(edges)
             }
-        )
-        
-        return network
-    
+        }
+    except Neo4jOpinion.DoesNotExist:
+        logger.warning(f"Opinion not found: cluster_id={cluster_id}")
+        return {"nodes": [], "edges": [], "metadata": {}}
     except Exception as e:
         logger.error(f"Error getting citation network: {str(e)}")
-        # Return empty network on error
-        return CitationNetwork(nodes=[], edges=[])
+        return {"nodes": [], "edges": [], "metadata": {}}
 
 def get_citation_detail(
-    neo4j_session,
+    neo4j_session,  # Kept for API compatibility but not used
     citing_id: int,
     cited_id: int
-) -> Optional[CitationDetail]:
-    """
-    Get detailed information about a specific citation relationship.
-    
-    Args:
-        neo4j_session: Neo4j session
-        citing_id: The citing opinion cluster ID
-        cited_id: The cited opinion cluster ID
-        
-    Returns:
-        Detailed citation information or None if not found
-    """
+) -> Optional[Dict[str, Any]]:
+    """Get citation details using neomodel relationship traversal."""
     try:
-        # Get the citing and cited opinions
-        citing_opinion = Neo4jOpinion.nodes.get(cluster_id=citing_id)
-        cited_opinion = Neo4jOpinion.nodes.get(cluster_id=cited_id)
+        # Use db_utils to get opinions by ID
+        citing_opinion = get_opinion_by_id(citing_id)
+        cited_opinion = get_opinion_by_id(cited_id)
         
-        # Get the relationship
-        rel = citing_opinion.cites.relationship(cited_opinion)
-        if not rel:
-            logger.warning(f"No citation relationship found between {citing_id} and {cited_id}")
+        if not citing_opinion or not cited_opinion:
             return None
         
-        # Create citation detail
-        citation = CitationDetail.from_neo4j_rel(rel, citing_opinion, cited_opinion)
+        rel = citing_opinion.cites.relationship(cited_opinion)
+        if not rel:
+            return None
         
-        return citation
-    
-    except Neo4jOpinion.DoesNotExist:
-        logger.warning(f"Opinion not found: citing_id={citing_id} or cited_id={cited_id}")
-        return None
-    
+        return {
+            "citing_opinion": opinion_to_node_dict(citing_opinion),
+            "cited_opinion": opinion_to_node_dict(cited_opinion),
+            "citation": {
+                "text": rel.citation_text,
+                "page_number": rel.page_number,
+                "treatment": rel.treatment,
+                "relevance": rel.relevance,
+                "reasoning": rel.reasoning,
+                "section": rel.opinion_section,
+                "source": rel.source
+            }
+        }
     except Exception as e:
         logger.error(f"Error getting citation detail: {str(e)}")
         return None
 
 def get_citation_stats(
-    neo4j_session,
+    neo4j_session,  # Kept for API compatibility but not used
     court_id: Optional[str] = None,
     year: Optional[int] = None
-) -> CitationStats:
-    """
-    Get citation statistics.
-    
-    Args:
-        neo4j_session: Neo4j session
-        court_id: Filter by court ID
-        year: Filter by year
-        
-    Returns:
-        Citation statistics
-    """
+) -> Dict[str, Any]:
+    """Get citation statistics using neomodel filters and relationship traversal."""
     try:
-        # Build query filters
-        query = {}
-        
+        # Build filter conditions
+        filters = {}
         if court_id:
-            query["court_id"] = court_id
-        
+            filters["court_id"] = court_id
         if year:
-            # This is a simplification - in a real implementation, we would need to filter by year
-            # For now, we'll just use the court_id filter
-            pass
+            filters["date_filed__year"] = year
+            
+        # Use db_utils to get filtered opinions
+        opinions = get_filtered_opinions(
+            court_id=court_id,
+            limit=None,  # No limit for stats calculation
+            **filters
+        )
         
-        # Get all opinions matching the query
-        if query:
-            opinions = Neo4jOpinion.nodes.filter(**query)
-        else:
-            opinions = Neo4jOpinion.nodes.all()
-        
-        # Calculate statistics
+        # Calculate stats using relationship traversal
         total_opinions = len(opinions)
         total_citations = 0
         treatment_counts = {}
         relevance_distribution = {}
         section_distribution = {}
         
-        # Process each opinion
         for opinion in opinions:
-            # Get outgoing citations
             citations = opinion.cites.all()
             total_citations += len(citations)
             
-            # Process each citation
             for cited in citations:
                 rel = opinion.cites.relationship(cited)
-                
-                # Count by treatment
-                treatment = rel.treatment
-                if treatment:
-                    treatment_counts[treatment] = treatment_counts.get(treatment, 0) + 1
-                
-                # Count by relevance
-                relevance = rel.relevance
-                if relevance:
-                    relevance_distribution[relevance] = relevance_distribution.get(relevance, 0) + 1
-                
-                # Count by section
-                section = rel.opinion_section
-                if section:
-                    section_distribution[section] = section_distribution.get(section, 0) + 1
+                if rel.treatment:
+                    treatment_counts[rel.treatment] = treatment_counts.get(rel.treatment, 0) + 1
+                if rel.relevance:
+                    relevance_distribution[rel.relevance] = relevance_distribution.get(rel.relevance, 0) + 1
+                if rel.opinion_section:
+                    section_distribution[rel.opinion_section] = section_distribution.get(rel.opinion_section, 0) + 1
         
-        # Calculate average citations per opinion
-        avg_citations_per_opinion = total_citations / total_opinions if total_opinions > 0 else 0
-        
-        # Create stats
-        stats = CitationStats(
-            total_citations=total_citations,
-            total_opinions=total_opinions,
-            avg_citations_per_opinion=avg_citations_per_opinion,
-            treatment_counts=treatment_counts,
-            relevance_distribution=relevance_distribution,
-            section_distribution=section_distribution,
-            metadata={
-                "court_id": court_id,
-                "year": year
-            }
-        )
-        
-        return stats
-    
+        return {
+            "total_citations": total_citations,
+            "total_opinions": total_opinions,
+            "avg_citations_per_opinion": total_citations / total_opinions if total_opinions > 0 else 0,
+            "treatment_counts": treatment_counts,
+            "relevance_distribution": relevance_distribution,
+            "section_distribution": section_distribution,
+            "metadata": {"court_id": court_id, "year": year}
+        }
     except Exception as e:
         logger.error(f"Error getting citation stats: {str(e)}")
-        # Return default stats on error
-        return CitationStats(
-            total_citations=0,
-            total_opinions=0,
-            avg_citations_per_opinion=0.0,
-            treatment_counts={},
-            relevance_distribution={},
-            section_distribution={}
-        )
+        return {
+            "total_citations": 0,
+            "total_opinions": 0,
+            "avg_citations_per_opinion": 0,
+            "treatment_counts": {},
+            "relevance_distribution": {},
+            "section_distribution": {},
+            "metadata": {}
+        }
 
 def get_influential_citations(
-    neo4j_session,
+    neo4j_session,  # Kept for API compatibility but not used
     court_id: Optional[str] = None,
     limit: int = 20
-) -> List[CitationDetail]:
-    """
-    Get the most influential citations based on citation count.
-    
-    Args:
-        neo4j_session: Neo4j session
-        court_id: Filter by court ID
-        limit: Maximum number of results to return
-        
-    Returns:
-        List of influential citations
-    """
+) -> List[Dict[str, Any]]:
+    """Get influential citations using neomodel filters and relationship traversal."""
     try:
-        # Build query filters
-        query = {}
+        # Use db_utils to get filtered opinions
+        opinions = get_filtered_opinions(court_id=court_id, limit=None)
         
-        if court_id:
-            query["court_id"] = court_id
+        # Get citation counts using relationship traversal
+        citation_counts = {
+            opinion.cluster_id: (opinion, len(opinion.cited_by.all()))
+            for opinion in opinions
+        }
         
-        # Get all opinions matching the query
-        if query:
-            opinions = Neo4jOpinion.nodes.filter(**query)
-        else:
-            opinions = Neo4jOpinion.nodes.all()
-        
-        # Calculate citation counts for each opinion
-        citation_counts = {}
-        for opinion in opinions:
-            citation_count = len(opinion.cited_by.all())
-            citation_counts[opinion.cluster_id] = (opinion, citation_count)
-        
-        # Sort by citation count and take top 'limit'
+        # Sort and get top cited
         top_cited = sorted(citation_counts.items(), key=lambda x: x[1][1], reverse=True)[:limit]
         
-        # Get the most recent citation for each top cited opinion
-        influential_citations = []
+        influential = []
         for _, (cited_opinion, citation_count) in top_cited:
-            # Get the most recent citing opinion
+            # Use neomodel's order_by for citing opinions
             citing_opinions = cited_opinion.cited_by.order_by("-date_filed")
             
             if citing_opinions:
                 recent_citing = citing_opinions[0]
-                
-                # Get the relationship
                 rel = recent_citing.cites.relationship(cited_opinion)
                 
                 if rel:
-                    # Create citation detail
-                    citation = CitationDetail.from_neo4j_rel(rel, recent_citing, cited_opinion)
-                    influential_citations.append(citation)
+                    influential.append({
+                        "cited_opinion": {
+                            "cluster_id": cited_opinion.cluster_id,
+                            "case_name": cited_opinion.case_name,
+                            "citation_count": citation_count
+                        },
+                        "recent_citation": {
+                            "citing_opinion": opinion_to_node_dict(recent_citing),
+                            "treatment": rel.treatment,
+                            "relevance": rel.relevance
+                        }
+                    })
         
-        return influential_citations
+        return influential
     
     except Exception as e:
         logger.error(f"Error getting influential citations: {str(e)}")

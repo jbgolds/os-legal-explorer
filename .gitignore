@@ -12,3 +12,4 @@ wheels/
 *.json
 *.csv
 *.log
+.env 

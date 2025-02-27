@@ -14,3 +14,48 @@ Needs to be done:
     2. web app using a python + htmx + d3.js + tailwindcss to create a nice looking website to display our rich graphs of information.
     
 
+## Docker Setup
+
+This project is fully dockerized for easy deployment. Follow these steps to get started:
+
+### Prerequisites
+
+- Docker and Docker Compose installed on your system
+
+### Quick Start
+
+1. Clone the repository
+2. Configure environment variables in `.env` file (optional - defaults are provided)
+3. Start the services:
+
+```bash
+docker-compose up -d
+```
+
+This will start the following services:
+- API service on port 8000
+- PostgreSQL database on port 5432
+- Neo4j database on ports 7474 (HTTP) and 7687 (Bolt)
+
+### Accessing Services
+
+- FastAPI documentation: http://localhost:8000/docs
+- Neo4j Browser: http://localhost:7474/browser/
+
+### Development
+
+For development, the code is mounted as a volume, so changes will be reflected immediately.
+When you make changes to the API code, the server will auto-reload.
+
+### Stopping Services
+
+```bash
+docker-compose down
+```
+
+To remove all data (volumes):
+
+```bash
+docker-compose down -v
+```
+

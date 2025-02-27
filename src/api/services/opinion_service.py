@@ -4,6 +4,7 @@ import logging
 
 from ..models.opinions import OpinionResponse, OpinionDetail, OpinionBase
 from src.neo4j.models import Opinion as Neo4jOpinion
+from .db_utils import get_opinion_by_id, get_filtered_opinions, get_postgres_entity_by_id
 
 logger = logging.getLogger(__name__)
 
@@ -29,34 +30,17 @@ def get_opinions(
     Returns:
         List of opinion summaries
     """
-    # Build the query based on filters
-    query = {}
+    # Use the db_utils function for filtered queries
+    opinions = get_filtered_opinions(
+        court_id=court_id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        offset=offset
+    )
     
-    if court_id:
-        query["court_id"] = court_id
-    
-    if start_date:
-        query["date_filed__gte"] = start_date
-    
-    if end_date:
-        query["date_filed__lte"] = end_date
-    
-    try:
-        # Get all opinions matching the query
-        if query:
-            opinions = Neo4jOpinion.nodes.filter(**query).order_by("-date_filed")
-        else:
-            opinions = Neo4jOpinion.nodes.order_by("-date_filed")
-        
-        # Apply pagination
-        paginated_opinions = opinions[offset:offset + limit]
-        
-        # Convert to response models
-        return [OpinionResponse.from_neo4j(opinion) for opinion in paginated_opinions]
-    
-    except Exception as e:
-        logger.error(f"Error getting opinions: {str(e)}")
-        return []
+    # Convert to response models
+    return [OpinionResponse.from_neo4j(opinion) for opinion in opinions]
 
 def get_opinion_by_cluster_id(db, cluster_id: int) -> Optional[OpinionDetail]:
     """
@@ -69,47 +53,41 @@ def get_opinion_by_cluster_id(db, cluster_id: int) -> Optional[OpinionDetail]:
     Returns:
         Detailed opinion information or None if not found
     """
-    try:
-        # Get the opinion by cluster_id
-        opinion = Neo4jOpinion.nodes.get(cluster_id=cluster_id)
-        
-        # Convert to response model
+    # Use the db_utils function to get entity by ID
+    opinion = get_opinion_by_id(cluster_id)
+    
+    # Convert to response model if found
+    if opinion:
         return OpinionDetail.from_neo4j(opinion)
-    
-    except Neo4jOpinion.DoesNotExist:
-        logger.warning(f"Opinion with cluster_id {cluster_id} not found")
-        return None
-    
-    except Exception as e:
-        logger.error(f"Error getting opinion {cluster_id}: {str(e)}")
-        return None
+    return None
 
 def get_opinion_text(db, cluster_id: int) -> Optional[str]:
     """
-    Get the full text of an opinion.
+    Get the full text of an opinion from PostgreSQL.
     
     Args:
-        db: Database session (unused, kept for API compatibility)
+        db: PostgreSQL database session
         cluster_id: The opinion cluster ID
         
     Returns:
         Full text of the opinion or None if not found
     """
-    try:
-        # Get the opinion by cluster_id
-        opinion = Neo4jOpinion.nodes.get(cluster_id=cluster_id)
+    # Import models here to avoid circular imports
+    from src.postgres.models import OpinionClusterExtraction, OpinionText
+    
+    # Get the opinion cluster using the db_utils function
+    opinion_cluster = get_postgres_entity_by_id(
+        db, 
+        OpinionClusterExtraction, 
+        "cluster_id", 
+        cluster_id
+    )
+    
+    if not opinion_cluster or not opinion_cluster.opinion_text:
+        logger.warning(f"Opinion text for cluster_id {cluster_id} not found in PostgreSQL")
+        return None
         
-        # Return the text if available
-        # In a real implementation, this might be stored in a separate field or related node
-        return opinion.metadata.get("text", "Opinion text not available.")
-    
-    except Neo4jOpinion.DoesNotExist:
-        logger.warning(f"Opinion with cluster_id {cluster_id} not found")
-        return None
-    
-    except Exception as e:
-        logger.error(f"Error getting opinion text for {cluster_id}: {str(e)}")
-        return None
+    return opinion_cluster.opinion_text.text
 
 def get_opinion_citations(
     db,
@@ -130,10 +108,13 @@ def get_opinion_citations(
     Returns:
         List of related opinions
     """
+    # Use db_utils to get the opinion by ID
+    opinion = get_opinion_by_id(cluster_id)
+    
+    if not opinion:
+        return []
+    
     try:
-        # Get the opinion by cluster_id
-        opinion = Neo4jOpinion.nodes.get(cluster_id=cluster_id)
-        
         # Get related opinions based on direction
         if direction == "outgoing":
             # Get opinions cited by this opinion
@@ -144,10 +125,6 @@ def get_opinion_citations(
         
         # Convert to response models
         return [OpinionResponse.from_neo4j(related) for related in related_opinions]
-    
-    except Neo4jOpinion.DoesNotExist:
-        logger.warning(f"Opinion with cluster_id {cluster_id} not found")
-        return []
     
     except Exception as e:
         logger.error(f"Error getting citations for opinion {cluster_id}: {str(e)}")

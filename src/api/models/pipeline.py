@@ -1,10 +1,44 @@
-from pydantic import BaseModel, Field, validator
+"""
+API models for pipeline operations.
+
+This module refactors API models to use source-of-truth models from:
+- src.llm_extraction.models
+- src.neo4j.models 
+- src.postgres.models
+
+It uses them directly where possible and extends them where API-specific needs exist.
+"""
+from pydantic import BaseModel, Field, validator, ConfigDict
 from typing import List, Dict, Optional, Any, Union
 from datetime import datetime, date
 from enum import Enum
 
-from src.llm_extraction.models import CitationAnalysis, CombinedResolvedCitationAnalysis
+# Import source-of-truth models
+from src.llm_extraction.models import (
+    CitationAnalysis, 
+    CombinedResolvedCitationAnalysis, 
+    Citation, 
+    CitationResolved
+)
 from src.neo4j.neomodel_loader import NeomodelLoader
+
+# Re-export source-of-truth models for API use
+__all__ = [
+    'CitationAnalysis', 
+    'CombinedResolvedCitationAnalysis', 
+    'Citation', 
+    'CitationResolved',
+    'JobStatus',
+    'JobType',
+    'ExtractionConfig',
+    'PipelineJob',
+    'PipelineStatus',
+    'LLMProcessResult',
+    'ResolutionResult',
+    'Neo4jLoadResult',
+    'PipelineResult',
+    'PipelineStats'
+]
 
 class JobStatus(str, Enum):
     """Enum for pipeline job status."""
@@ -50,6 +84,7 @@ class PipelineJob(BaseModel):
     """Model for pipeline job information."""
     job_id: int = Field(..., description="Job identifier")
     status: JobStatus = Field(..., description="Job status")
+    message: Optional[str] = Field(None, description="Status message")
 
 class PipelineStatus(BaseModel):
     """Model for pipeline job status."""
@@ -65,8 +100,9 @@ class PipelineStatus(BaseModel):
     error: Optional[str] = Field(None, description="Error message if job failed")
     result_path: Optional[str] = Field(None, description="Path to job result file")
     
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(
+        from_attributes=True  # Replaces deprecated orm_mode=True
+    )
 
 class LLMProcessResult(BaseModel):
     """Model for LLM processing result."""
@@ -75,40 +111,44 @@ class LLMProcessResult(BaseModel):
     
     @classmethod
     def from_gemini_response(cls, cluster_id: int, response: Dict[str, Any]):
-        """Create an LLMProcessResult from a Gemini API response."""
-        # Extract the citation analysis from the response
+        """Create LLMProcessResult from Gemini response."""
+        import json
+        from json_repair import repair_json
+        
+        citation_data = None
+        if not cluster_id:
+            raise ValueError("Cluster ID is required")
+        
+        # Handle the response based on its structure
         if "parsed" in response and response["parsed"] is not None:
             citation_data = response["parsed"]
+            
+            # If citation_data is still a string, parse it
+            if isinstance(citation_data, str):
+                try:
+                    citation_data = json.loads(citation_data)
+                except json.JSONDecodeError:
+                    # Try to repair malformed JSON
+                    citation_data = json.loads(repair_json(citation_data))
         else:
-            # Try to extract from candidates if parsed is not available
+            # Try to extract from the candidate content
             try:
-                text = response["candidates"][0]["content"]["parts"][0]["text"]
-                # In a real implementation, we would parse the text into a CitationAnalysis
-                # For now, we'll create a minimal CitationAnalysis
-                citation_data = {
-                    "date": "2020-01-01",
-                    "brief_summary": "Summary extracted from LLM",
-                    "majority_opinion_citations": [],
-                    "concurrent_opinion_citations": [],
-                    "dissenting_citations": []
-                }
-            except Exception:
-                # Default empty citation analysis
-                citation_data = {
-                    "date": "2020-01-01",
-                    "brief_summary": "No summary available",
-                    "majority_opinion_citations": [],
-                    "concurrent_opinion_citations": [],
-                    "dissenting_citations": []
-                }
+                raw_text = response["candidates"][0]["content"]["parts"][0]["text"]
+                repaired_json = repair_json(raw_text)
+                citation_data = json.loads(repaired_json)
+            except (KeyError, IndexError, json.JSONDecodeError) as e:
+                raise ValueError(f"Could not extract citation data from response: {str(e)}")
         
-        # Convert to CitationAnalysis
-        citation_analysis = CitationAnalysis.model_validate(citation_data)
-        
-        return cls(
-            cluster_id=cluster_id,
-            citation_analysis=citation_analysis
+        # Validate and create CitationAnalysis
+        citation_analysis = CitationAnalysis(
+            date=citation_data["date"],
+            brief_summary=citation_data["brief_summary"],
+            majority_opinion_citations=citation_data.get("majority_opinion_citations", []),
+            concurring_opinion_citations=citation_data.get("concurring_opinion_citations", []),
+            dissenting_citations=citation_data.get("dissenting_citations", [])
         )
+        
+        return cls(cluster_id=cluster_id, citation_analysis=citation_analysis)
 
 class ResolutionResult(BaseModel):
     """Model for citation resolution result."""
@@ -117,17 +157,18 @@ class ResolutionResult(BaseModel):
     
     @classmethod
     def from_llm_result(cls, llm_result: LLMProcessResult):
-        """Create a ResolutionResult from an LLMProcessResult."""
-        # In a real implementation, we would resolve the citations
-        # For now, we'll create a minimal CombinedResolvedCitationAnalysis
-        resolved_citations = CombinedResolvedCitationAnalysis.from_citations(
+        """Create ResolutionResult from LLMProcessResult."""
+        from src.llm_extraction.models import CombinedResolvedCitationAnalysis
+        
+        # Use the built-in method from CombinedResolvedCitationAnalysis
+        resolved = CombinedResolvedCitationAnalysis.from_citations(
             [llm_result.citation_analysis], 
             llm_result.cluster_id
         )
         
         return cls(
             cluster_id=llm_result.cluster_id,
-            resolved_citations=resolved_citations
+            resolved_citations=resolved
         )
 
 class Neo4jLoadResult(BaseModel):
@@ -137,7 +178,7 @@ class Neo4jLoadResult(BaseModel):
     
     @classmethod
     def from_loader_result(cls, loader_result: Dict[str, Any]):
-        """Create a Neo4jLoadResult from a NeomodelLoader result."""
+        """Create Neo4jLoadResult from loader result."""
         return cls(
             cluster_ids=loader_result.get("cluster_ids", []),
             citation_count=loader_result.get("citation_count", 0)
@@ -152,8 +193,9 @@ class PipelineResult(BaseModel):
     completed_at: Optional[datetime] = Field(None, description="Job completion timestamp")
     result: Dict[str, Any] = Field(..., description="Job result data")
     
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(
+        from_attributes=True  # Replaces deprecated orm_mode=True
+    )
 
 class PipelineStats(BaseModel):
     """Model for pipeline statistics."""

@@ -1,8 +1,27 @@
-from pydantic import BaseModel, Field
+"""
+API models for statistics.
+
+This module refactors API models to use source-of-truth models from:
+- src.llm_extraction.models
+- src.neo4j.models 
+- src.postgres.models
+
+It uses them directly where possible and extends them where API-specific needs exist.
+"""
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Dict, Optional, Any
 from datetime import date
 
 from src.neo4j.models import Opinion as Neo4jOpinion
+
+__all__ = [
+    'NetworkStats',
+    'CourtStats',
+    'YearlyStats',
+    'TimelineStats',
+    'TopCitedOpinion',
+    'TopCitedOpinions'
+]
 
 class NetworkStats(BaseModel):
     """Model for overall network statistics."""
@@ -59,15 +78,23 @@ class TopCitedOpinion(BaseModel):
     
     @classmethod
     def from_neo4j(cls, opinion: Neo4jOpinion, citation_count: int):
-        """Create a TopCitedOpinion from a Neo4j Opinion model."""
+        """Create a TopCitedOpinion from a Neo4j Opinion model and citation count."""
         return cls(
             cluster_id=opinion.cluster_id,
             case_name=opinion.case_name or f"Opinion {opinion.cluster_id}",
-            court_id=opinion.court_id or "unknown",
+            court_id=str(opinion.court_id),
             court_name=opinion.court_name or "Unknown Court",
             date_filed=opinion.date_filed,
-            citation_count=citation_count
+            citation_count=citation_count,
+            metadata={
+                "docket_number": opinion.docket_number,
+                "brief_summary": opinion.ai_summary
+            }
         )
+    
+    model_config = ConfigDict(
+        from_attributes=True  # Replaces deprecated orm_mode=True
+    )
 
 class TopCitedOpinions(BaseModel):
     """Model for top cited opinions."""

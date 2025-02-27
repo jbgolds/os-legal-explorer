@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import List, Optional, TYPE_CHECKING, ForwardRef
 import json
 from json_repair import repair_json
-from src.postgres.db_utils import find_cluster_id
+from src.postgres.database import find_cluster_id
 from datetime import datetime
 
 # Use TYPE_CHECKING to avoid circular imports

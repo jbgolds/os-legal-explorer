@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum as SQLAEnum
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum as SQLAEnum, Text, Boolean
 from sqlalchemy.orm import declarative_base, relationship
 
 from src.llm_extraction.models import CitationType, CitationTreatment, OpinionSection, OpinionType
@@ -36,6 +36,9 @@ class OpinionClusterExtraction(Base):
     )
 
     citations = relationship("CitationExtraction", back_populates="opinion_cluster")
+   #  opinion_text = relationship("OpinionText", back_populates="opinion_cluster", uselist=False)
+
+
 
 
 class CitationExtraction(Base):
