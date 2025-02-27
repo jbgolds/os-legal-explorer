@@ -24,10 +24,12 @@ import json
 load_dotenv()
 
 # Neo4j Configuration
-NEO4J_URI = os.getenv("NEO4J_URI", "neo4j://localhost:7687")
+NEO4J_URI = os.getenv("NEO4J_URI", "localhost:7474")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "courtlistener")
-NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "courtlistener")
+
+# Set neomodel connection URL early on
+config.DATABASE_URL = f"bolt://{NEO4J_USER}:{NEO4J_PASSWORD}@{NEO4J_URI}"
 
 # Neo4j driver instance
 _neo4j_driver = None
@@ -43,7 +45,7 @@ def get_neo4j_driver():
     global _neo4j_driver
     if _neo4j_driver is None:
         _neo4j_driver = GraphDatabase.driver(
-            NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD), database=NEO4J_DATABASE
+            NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD)
         )
     return _neo4j_driver
 
@@ -66,40 +68,24 @@ class NeomodelLoader:
         uri: str,
         username: str,
         password: str,
-        database: str = "courtlistener",
         batch_size: int = 1000,
     ):
         """
-        Initialize the loader with connection details and settings.
+        Initialize the loader with Neo4j connection details.
 
         Args:
             uri: Neo4j server URI
             username: Neo4j username
             password: Neo4j password
-            database: Name of the Neo4j database to use
-            batch_size: Default batch size for operations
+            batch_size: Number of nodes to process in each batch
         """
         self.uri = uri
-        self.database = database
+        self.username = username
+        self.password = password
         self.batch_size = batch_size
 
-        # Configure neomodel connection
-        config.DATABASE_URL = f"bolt://{username}:{password}@{uri}/{database}"
-
-        # Install constraints and indexes defined in the models
-        self.setup_schema()
-
-    def setup_schema(self) -> None:
-        """
-        Install all constraints and indexes defined in the models.
-        This is handled automatically by neomodel based on model definitions.
-        """
-        try:
-            install_all_labels()
-            logger.info("Successfully installed schema constraints and indexes")
-        except Exception as e:
-            logger.error(f"Error setting up schema: {str(e)}")
-            raise
+        # Configure neomodel - always use neo4j database for Community Edition
+        # 'bolt://neo4j_username:neo4j_password@localhost:7687'  # default
 
     def create_or_update_opinion(self, data: Dict[str, Any]) -> Opinion:
         """

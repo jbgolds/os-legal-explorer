@@ -1,12 +1,15 @@
 import os
 import logging
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from dotenv import load_dotenv
-from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+
+# Import and include routers
+from .routers import opinions, citations, stats, pipeline
+from .views.views import router as views_router
 
 # Load environment variables
 load_dotenv()
@@ -38,22 +41,6 @@ templates = Jinja2Templates(directory="src/frontend/templates")
 app.mount("/static", StaticFiles(directory="src/frontend/static"), name="static")
 
 
-# Root endpoint to serve the frontend
-@app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-
-# API root endpoint
-@app.get("/api")
-async def api_root():
-    return {
-        "message": "Welcome to the OS Legal Explorer API",
-        "docs": "/docs",
-        "version": "0.1.0",
-    }
-
-
 # Health check endpoint
 @app.get("/health")
 async def health_check():
@@ -66,13 +53,12 @@ async def health_check():
     }
 
 
-# Import and include routers
-from .routers import opinions, citations, stats, pipeline
-
+# Include all routers
 app.include_router(opinions.router)
 app.include_router(citations.router)
 app.include_router(stats.router)
 app.include_router(pipeline.router)
+app.include_router(views_router)
 
 if __name__ == "__main__":
     uvicorn.run(

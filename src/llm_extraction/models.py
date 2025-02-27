@@ -1,19 +1,22 @@
 from argparse import Action
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 from enum import StrEnum
-from typing import List, Optional, TYPE_CHECKING, ForwardRef
+from typing import List, Optional, TYPE_CHECKING, ForwardRef, Union, Dict
 import json
 from json_repair import repair_json
 from src.postgres.database import find_cluster_id
 from datetime import datetime
+import logging
 
 # Use TYPE_CHECKING to avoid circular imports
 if TYPE_CHECKING:
     from src.postgres.models import CitationExtraction, OpinionClusterExtraction
 else:
     # Forward references for type hints
-    CitationExtraction = ForwardRef('CitationExtraction')
-    OpinionClusterExtraction = ForwardRef('OpinionClusterExtraction')
+    CitationExtraction = ForwardRef("CitationExtraction")
+    OpinionClusterExtraction = ForwardRef("OpinionClusterExtraction")
+
+logger = logging.getLogger(__name__)
 
 # https://www.law.cornell.edu/citation/6-300
 # https://support.vlex.com/how-to/navigate-documents/case-law/treatment-types#undefined
@@ -60,6 +63,7 @@ class OpinionSection(StrEnum):
 
 class OpinionType(StrEnum):
     """Type of opinion document."""
+
     majority = "MAJORITY"
     concurring = "CONCURRING"
     dissenting = "DISSENTING"
@@ -90,6 +94,7 @@ class CitationTreatment(StrEnum):
 
 class Citation(BaseModel):
     """Model for a single citation extracted from a court opinion."""
+
     page_number: int = Field(
         ...,
         description="The page number where this citation appears (must be a positive integer).",
@@ -165,6 +170,7 @@ class Citation(BaseModel):
 
 class CitationAnalysis(BaseModel):
     """Model for a single court opinions complete citation analysis, including the date, brief summary, and citations."""
+
     date: str = Field(
         ...,
         description="The date of the day the opinion was published, in format YYYY-MM-DD",
@@ -207,6 +213,7 @@ class CitationAnalysis(BaseModel):
 
 class CitationResolved(Citation):
     """This is for the resolved citation, which includes the cluster_id of the resolved citation for case law;"""
+
     resolved_opinion_cluster: int | None = Field(
         ...,
         description="The cluster_id of the resolved citation for case law; not for statutes or regulations.",
@@ -239,94 +246,72 @@ class CombinedResolvedCitationAnalysis(BaseModel):
     cluster_id: int
     brief_summary: str
     majority_opinion_citations: list[CitationResolved]
-    concurring_opinion_citations: list[CitationResolved]  # Changed from concurrent to concurring for consistency
+    concurring_opinion_citations: list[
+        CitationResolved
+    ]  # Changed from concurrent to concurring for consistency
     dissenting_citations: list[CitationResolved]
 
     @classmethod
-    def from_citations_json(cls, citations: str, cluster_id: int):
-        """Expects a JSON string representing the CitationAnalysis model, from a
-        request to Gemini, so checks the `parsed` key."""
-        citation_data = None
+    def from_citations_json(
+        cls, citations: Union[str, Dict, CitationAnalysis], cluster_id: int
+    ) -> Optional["CombinedResolvedCitationAnalysis"]:
+        """
+        Create a CombinedResolvedCitationAnalysis from a CitationAnalysis object or its JSON representation.
+
+        Args:
+            citations: CitationAnalysis object, its JSON string, or dict representation
+            cluster_id: The cluster ID for the citing opinion
+
+        Returns:
+            CombinedResolvedCitationAnalysis or None if parsing fails
+        """
         if not cluster_id:
             raise ValueError("Cluster ID is required")
 
-        # Handle string input
-        if isinstance(citations, str):
-            citations = json.loads(citations)
+        try:
+            # If already a CitationAnalysis, use directly
+            if isinstance(citations, CitationAnalysis):
+                return cls.from_citations([citations], cluster_id)
 
-        # If citations is a dict with 'parsed' key, use that
-        if isinstance(citations, dict):
+            # If string, try to parse as JSON
+            if isinstance(citations, str):
+                try:
+                    citation_data = json.loads(citations)
+                except json.JSONDecodeError:
+                    citation_data = repair_json(citations)
+                    citation_data = json.loads(citation_data)
+            else:
+                citation_data = citations
 
-            if "parsed" in citations and citations["parsed"] is not None:
-                citation_data = citations["parsed"]
+            # Validate the data structure
+            if not isinstance(citation_data, dict):
+                raise ValueError(f"Invalid citation data format: {type(citation_data)}")
 
-                # if something happened with response, and json malformed, try to parse the text
-            if isinstance(citation_data, str):
-                citation_data = json.loads(citation_data)
-        else:
-            citation_data = citations
+            # Create CitationAnalysis object
+            citation_analysis = CitationAnalysis(
+                date=citation_data.get("date", ""),
+                brief_summary=citation_data.get("brief_summary", ""),
+                majority_opinion_citations=[
+                    Citation(**c) if isinstance(c, dict) else c
+                    for c in citation_data.get("majority_opinion_citations", [])
+                ],
+                concurring_opinion_citations=[
+                    Citation(**c) if isinstance(c, dict) else c
+                    for c in citation_data.get("concurring_opinion_citations", [])
+                ],
+                dissenting_citations=[
+                    Citation(**c) if isinstance(c, dict) else c
+                    for c in citation_data.get("dissenting_citations", [])
+                ],
+            )
 
-        if citation_data is None:
-            # try and parse the text
-            try:
-                citation_data = citations["candidates"][0]["content"]["parts"][0][
-                    "text"
-                ]
+            return cls.from_citations([citation_analysis], cluster_id)
 
-                citation_data = repair_json(citation_data)
-                # step 3, load into json
-                citation_data = json.loads(citation_data)
-
-            except Exception as e:
-                print("Could not parse citation for cluster_id: %s, %s", cluster_id, e)
-                citation_data = None
-
-        # print(type(citation_data))
-        # print(citation_data)
-        # Convert to CitationAnalysis model and use existing from_citations method
-        majority_opinion_citations = []
-        concurring_opinion_citations = []
-        dissenting_citations = []
-        keys = [
-            "majority_opinion_citations",
-            "concurring_opinion_citations",
-            "dissenting_citations",
-        ]
-        # if not all keys are present, only lookup found keys
-        if not all(key in citation_data.keys() for key in keys):
-            keys = [key for key in keys if key in citation_data.keys()]
-
-        for key in keys:
-            for citation in citation_data[key]:
-                # compare dictionary keys of citation with Citation model
-                if not all(
-                    field in citation.keys() for field in Citation.model_fields.keys()
-                ):
-                    continue
-                else:
-                    Citation(
-                        citation_text=citation["citation_text"],
-                        reasoning=citation["reasoning"],
-                        type=citation["type"],
-                        treatment=citation["treatment"],
-                        relevance=citation["relevance"],
-                    )
-                    if key == "majority_opinion_citations":
-                        majority_opinion_citations.append(citation)
-                    elif key == "concurring_opinion_citations":
-                        concurring_opinion_citations.append(citation)
-                    elif key == "dissenting_citations":
-                        dissenting_citations.append(citation)
-        citation_analysis = CitationAnalysis(
-            date=citation_data["date"],
-            brief_summary=citation_data["brief_summary"],
-            majority_opinion_citations=majority_opinion_citations,
-            concurring_opinion_citations=concurring_opinion_citations,
-            dissenting_citations=dissenting_citations,
-        )
-
-        # citation_analysis = CitationAnalysis.model_validate(citation_data)
-        return cls.from_citations([citation_analysis], cluster_id)
+        except Exception as e:
+            logger.error(
+                f"Failed to create CitationAnalysis for cluster {cluster_id}: {e}"
+            )
+            return None
 
     @classmethod
     def from_citations(
@@ -405,7 +390,9 @@ def to_sql_models(
     citations = []
 
     # Helper to process citations from a section
-    def process_section_citations(citation_list: list[CitationResolved], section: OpinionSection):
+    def process_section_citations(
+        citation_list: list[CitationResolved], section: OpinionSection
+    ):
         for citation in citation_list:
             cite = CitationExtraction(
                 opinion_cluster_extraction_id=cluster.id,  # This will be set after DB insert
@@ -428,9 +415,7 @@ def to_sql_models(
     process_section_citations(
         combined.concurring_opinion_citations, OpinionSection.concurring
     )
-    process_section_citations(
-        combined.dissenting_citations, OpinionSection.dissenting
-    )
+    process_section_citations(combined.dissenting_citations, OpinionSection.dissenting)
 
     return cluster, citations
 

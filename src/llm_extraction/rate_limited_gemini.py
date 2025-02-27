@@ -14,7 +14,7 @@ from tqdm import tqdm
 from datetime import datetime
 from threading import local
 
-from src.llm_extraction.models import CitationAnalysis
+from src.llm_extraction.models import CitationAnalysis, CombinedResolvedCitationAnalysis
 from src.llm_extraction.prompts import system_prompt
 
 # Configure logging
@@ -162,43 +162,76 @@ class RateLimiter:
 
 
 class ResponseSerializer:
-    """Handles serialization of Gemini API responses."""
+    """Handles serialization of Gemini API responses with direct CitationAnalysis parsing."""
 
     @staticmethod
-    def serialize(response: GenerateContentResponse | None) -> Dict[str, Any]:
-        """Serialize a response to a consistent dictionary format."""
+    def serialize(response: GenerateContentResponse | None) -> CitationAnalysis:
+        """
+        Serialize a response directly to CitationAnalysis with fallback mechanisms.
+
+        Args:
+            response: Raw Gemini API response
+
+        Returns:
+            CitationAnalysis: Validated citation analysis object
+
+        Raises:
+            ValueError: If response cannot be parsed into CitationAnalysis
+        """
         if response is None:
-            raise ValueError("Invalid input type")
+            raise ValueError("Response cannot be None")
 
+        # First try: Direct parsing if response.parsed exists
         if response.parsed:
-            # doubt this will be the case, think OpenAI client does this casting automatically.
             if isinstance(response.parsed, CitationAnalysis):
-                return response.parsed.model_dump()
-
-            if isinstance(response.parsed, str):
-                try:
-                    return json.loads(response.parsed)
-                except json.JSONDecodeError:
-                    raise ValueError("Failed to parse response as JSON")
-            if isinstance(response.parsed, dict):
                 return response.parsed
 
-            raise ValueError(
-                f"Unexpected response type for response.parsed: {type(response.parsed)}"
-            )
-
-        # try and decode from `text` field, which may be invalid json
-        if response.text is not None:
             try:
-                return json.loads(response.text)
-            except json.JSONDecodeError:
-                try:
-                    return repair_json(response.text)
-                except Exception as e:
-                    logging.error(f"Failed to parse response as JSON: {str(e)}")
-                    return {"error": str(e)}
+                if isinstance(response.parsed, str):
+                    return CitationAnalysis.model_validate_json(response.parsed)
+                elif isinstance(response.parsed, dict):
+                    return CitationAnalysis.model_validate(response.parsed)
+            except Exception as e:
+                logging.warning(f"Failed direct parsing of response.parsed: {str(e)}")
 
-        return {"error": "No response data available"}
+        # Second try: Parse from response.text
+        if response.text:
+            try:
+                return CitationAnalysis.model_validate_json(response.text)
+            except Exception as e:
+                logging.warning(f"Failed parsing response.text as JSON: {str(e)}")
+
+                # Fallback 1: Try repairing malformed JSON
+                try:
+                    repaired_json = repair_json(response.text)
+                    return CitationAnalysis.model_validate_json(repaired_json)
+                except Exception as e:
+                    logging.warning(f"Failed parsing repaired JSON: {str(e)}")
+
+                # Fallback 2: Try extracting from candidates structure
+                try:
+                    candidates_data = response.text
+                    if isinstance(candidates_data, str):
+                        candidates_data = json.loads(candidates_data)
+
+                    if (
+                        isinstance(candidates_data, dict)
+                        and "candidates" in candidates_data
+                    ):
+                        content_text = candidates_data["candidates"][0]["content"][
+                            "parts"
+                        ][0]["text"]
+                        if isinstance(content_text, str):
+                            content_text = repair_json(content_text)
+                            return CitationAnalysis.model_validate_json(content_text)
+                        return CitationAnalysis.model_validate(content_text)
+                except Exception as e:
+                    logging.error(f"All parsing attempts failed: {str(e)}")
+                    raise ValueError(
+                        "Could not parse response into CitationAnalysis format"
+                    ) from e
+
+        raise ValueError("No parseable content found in response")
 
 
 class GeminiClient:
@@ -213,7 +246,14 @@ class GeminiClient:
         model: str = DEFAULT_MODEL,
     ):
         self.client = genai.Client(api_key=api_key)
-        self.config = config
+        # Ensure we have a valid config
+
+        self.config = GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=CitationAnalysis,
+            system_instruction=system_prompt,
+        )
+
         self.rate_limiter = RateLimiter(
             rpm_limit=rpm_limit, max_concurrent=max_concurrent
         )
@@ -239,30 +279,64 @@ class GeminiClient:
                 self.worker_data.worker_id = self.worker_counter
         return self.worker_data.worker_id
 
+    def combine_chunk_responses(self, responses: List[CitationAnalysis]) -> Dict:
+        """
+        Combine multiple chunk responses into a single citation analysis result.
+
+        Args:
+            responses: List of CitationAnalysis objects from processing chunks
+
+        Returns:
+            Dict: Combined citation analysis in dictionary format
+
+        Raises:
+            ValueError: If no valid CitationAnalysis objects are provided
+        """
+        if not responses:
+            raise ValueError("No responses provided to combine")
+
+        # Use the cluster_id from the first response if available
+        cluster_id = getattr(responses[0], "cluster_id", 0)
+
+        # Create combined analysis using from_citations
+        combined = CombinedResolvedCitationAnalysis.from_citations(
+            responses, cluster_id
+        )
+
+        return combined.model_dump()
+
     def generate_content_with_chat(
         self, text: str, model: str = "gemini-2.0-flash-001"
-    ) -> Union[List[Dict]]:
+    ) -> Union[List[Dict], Dict]:
         """Generate content using chat history for better context preservation."""
         model = model or self.model
         worker_id = self.get_worker_id()
 
+        if not text or not text.strip():
+            raise ValueError("Empty or invalid text input")
+
         word_count = self.chunker.count_words(text)
 
+        # Ensure we have a valid config before proceeding
+        if not self.config:
+            raise ValueError("Configuration is required but not provided")
+
         # Create a copy of the config with chunking instructions if needed
-        if word_count > 10000:
-            config = GenerateContentConfig(
-                response_mime_type=self.config.response_mime_type,
-                response_schema=self.config.response_schema,
-                system_instruction=(
-                    self.config.system_instruction
-                    + "\n\n The document will be sent in multiple parts. "
+        config_chunking = GenerateContentConfig(
+            response_mime_type=self.config.response_mime_type or "application/json",
+            response_schema=self.config.response_schema,
+            system_instruction=(
+                (self.config.system_instruction or system_prompt)
+                + (
+                    "\n\n The document will be sent in multiple parts. "
                     "For each part, analyze the citations and legal arguments while maintaining context "
                     "from previous parts. Please provide your analysis in the same structured format "
                     "filling in the lists of citation analysis for each response."
-                ),
-            )
-        else:
-            config = self.config
+                    if word_count > 10000
+                    else ""
+                )
+            ),
+        )
 
         if word_count <= 10000:
             try:
@@ -270,7 +344,7 @@ class GeminiClient:
                 response: GenerateContentResponse | None = (
                     self.client.models.generate_content(
                         model=model,
-                        config=config,
+                        config=self.config,
                         contents=text.strip(),
                     )
                 )
@@ -296,7 +370,7 @@ class GeminiClient:
 
         try:
             # Create a chat session with chunked config
-            chat: Chat = self.client.chats.create(model=model, config=config)
+            chat: Chat = self.client.chats.create(model=model, config=config_chunking)
             responses: List[Dict] = []
             for i, chunk in enumerate(chunks, 1):
                 chunk_words = self.chunker.count_words(chunk)
@@ -324,6 +398,10 @@ class GeminiClient:
             if not responses:
                 raise ValueError("No valid responses were collected during processing")
 
+            # If multiple responses were collected, merge them into one consolidated result
+            if len(responses) > 1:
+                merged = self.combine_chunk_responses(responses)
+                return [merged]
             return responses
 
         except Exception as e:
@@ -437,33 +515,33 @@ class GeminiClient:
 
 
 # Example usage:
-def main():
-    config = GenerateContentConfig(
-        response_mime_type="application/json",
-        response_schema=CitationAnalysis,
-        system_instruction=system_prompt,
-    )
+# def main():
+#     config = GenerateContentConfig(
+#         response_mime_type="application/json",
+#         response_schema=CitationAnalysis,
+#         system_instruction=system_prompt,
+#     )
 
-    client = GeminiClient(
-        api_key=os.getenv("GEMINI_API_KEY"),
-        rpm_limit=10,  # Conservative limits for testing
-        max_concurrent=10,  # Respect AFC limit
-        config=config,
-    )
+#     client = GeminiClient(
+#         api_key=os.getenv("GEMINI_API_KEY"),
+#         rpm_limit=10,  # Conservative limits for testing
+#         max_concurrent=10,  # Respect AFC limit
+#         config=config,
+#     )
 
-    df = pd.read_csv("data_final/supreme_court_1950_some_processing.csv")
-    df = df.sample(250)  # Take first 25 rows for testing
+#     df = pd.read_csv("data_final/supreme_court_1950_some_processing.csv")
+#     df = df.sample(250)  # Take first 25 rows for testing
 
-    # Process DataFrame with max_workers respecting AFC limit
-    results = client.process_dataframe(
-        df,
-        text_column="text",
-        output_file=f"responses_trial_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-        max_workers=10,  # Match AFC limit
-    )
+#     # Process DataFrame with max_workers respecting AFC limit
+#     results = client.process_dataframe(
+#         df,
+#         text_column="text",
+#         output_file=f"responses_trial_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+#         max_workers=10,  # Match AFC limit
+#     )
 
-    print(f"Processed {len(results)} items")
+#     print(f"Processed {len(results)} items")
 
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()

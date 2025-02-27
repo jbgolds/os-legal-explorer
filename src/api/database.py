@@ -33,17 +33,14 @@ def get_db() -> Generator[Session, None, None]:
 
 
 # Dependency to get Neo4j session
-def get_neo4j() -> Generator:
-    """
-    Get a Neo4j database session.
-
-    Yields:
-        Neo4j session object
-    """
-    session = neo4j_driver.session(
-        database=os.getenv("NEO4J_DATABASE", "courtlistener")
-    )
+def get_neo4j():
+    """Get Neo4j session."""
     try:
+        # Create a new session for each request
+        session = neo4j_driver.session(
+            # Always use neo4j database for Community Edition
+            database="neo4j"
+        )
         yield session
     finally:
         session.close()

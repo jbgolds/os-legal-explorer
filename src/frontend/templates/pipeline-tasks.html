@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Pipeline Tasks</title>
+    <style>
+        :root {
+            --primary-color: #0d6efd;
+            --success-color: #198754;
+            --warning-color: #ffc107;
+            --danger-color: #dc3545;
+            --gray-100: #f8f9fa;
+            --gray-200: #e9ecef;
+            --gray-600: #6c757d;
+            --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: var(--gray-100);
+            line-height: 1.5;
+        }
+
+        h1,
+        h2 {
+            color: #2c3e50;
+            margin-bottom: 1rem;
+        }
+
+        .task-grid {
+            display: grid;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .task-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: var(--shadow-sm);
+            transition: transform 0.2s;
+        }
+
+        .task-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .task-id {
+            font-weight: bold;
+            color: var(--gray-600);
+        }
+
+        .task-type {
+            font-weight: 500;
+        }
+
+        .status {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 500;
+        }
+
+        .status-QUEUED {
+            background: var(--gray-200);
+        }
+
+        .status-STARTED {
+            background: #fff3cd;
+            color: #997404;
+        }
+
+        .status-PROCESSING {
+            background: #cfe2ff;
+            color: #084298;
+        }
+
+        .status-COMPLETED {
+            background: #d1e7dd;
+            color: var(--success-color);
+        }
+
+        .status-FAILED {
+            background: #f8d7da;
+            color: var(--danger-color);
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: var(--gray-200);
+            border-radius: 4px;
+            margin: 15px 0;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--primary-color);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .task-details {
+            margin-top: 15px;
+            font-size: 0.9em;
+            color: var(--gray-600);
+        }
+
+        /* Form styling */
+        .form-container {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: var(--shadow-sm);
+            margin-bottom: 30px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #2c3e50;
+        }
+
+        .form-group input[type="text"],
+        .form-group input[type="number"],
+        .form-group input[type="password"] {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.1);
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+        }
+
+        .button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .button-primary {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .button-primary:hover {
+            background: #0b5ed7;
+            transform: translateY(-1px);
+        }
+
+        .refresh-button {
+            background: var(--gray-600);
+            color: white;
+        }
+
+        .refresh-button:hover {
+            background: #5a6268;
+        }
+
+        .status-message {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+
+        .status-message.success {
+            background: #d1e7dd;
+            color: var(--success-color);
+        }
+
+        .status-message.error {
+            background: #f8d7da;
+            color: var(--danger-color);
+        }
+
+        .auto-refresh-label {
+            margin-top: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .auto-refresh-label input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Pipeline Tasks</h1>
+
+    <div class="form-container">
+        <h2>Trigger Full Pipeline</h2>
+        <form id="pipeline-form">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="api_key">API Key:</label>
+                    <input type="password" id="api_key" name="api_key" required>
+                </div>
+                <div class="form-group">
+                    <label for="court_id">Court ID:</label>
+                    <input type="text" id="court_id" name="court_id" placeholder="e.g., ca1">
+                </div>
+                <div class="form-group">
+                    <label for="start_date">Start Date:</label>
+                    <input type="text" id="start_date" name="start_date" placeholder="YYYY-MM-DD">
+                </div>
+                <div class="form-group">
+                    <label for="end_date">End Date:</label>
+                    <input type="text" id="end_date" name="end_date" placeholder="YYYY-MM-DD">
+                </div>
+                <div class="form-group">
+                    <label for="limit">Limit:</label>
+                    <input type="number" id="limit" name="limit" value="100">
+                </div>
+                <div class="form-group">
+                    <label for="offset">Offset:</label>
+                    <input type="number" id="offset" name="offset" value="0">
+                </div>
+            </div>
+            <div class="form-group checkbox-group">
+                <input type="checkbox" id="include_text" name="include_text" checked>
+                <label for="include_text">Include Text</label>
+            </div>
+            <div class="form-group checkbox-group">
+                <input type="checkbox" id="include_metadata" name="include_metadata" checked>
+                <label for="include_metadata">Include Metadata</label>
+            </div>
+            <button type="button" id="trigger-btn" class="button button-primary">Run Full Pipeline</button>
+        </form>
+        <p id="trigger-status" class="status-message"></p>
+    </div>
+
+    <button class="button refresh-button" onclick="window.location.reload()">Refresh Task List</button>
+    <label class="auto-refresh-label">
+        <input type="checkbox" id="auto-refresh" checked>
+        Auto-refresh (5s)
+    </label>
+
+    <div class="task-grid">
+        {% for task in tasks %}
+        <div class="task-card">
+            <div class="task-header">
+                <span class="task-id">#{{ task.job_id }}</span>
+                <span class="task-type">{{ task.job_type }}</span>
+                <span class="status status-{{ task.status }}">{{ task.status }}</span>
+            </div>
+
+            <div class="progress-bar">
+                <div class="progress-fill" {% if task.progress %}style="width: {{ task.progress }}%" {% else
+                    %}style="width: 0%" {% endif %}></div>
+            </div>
+
+            {% if task.message %}
+            <div class="task-message">{{ task.message }}</div>
+            {% endif %}
+
+            {% if task.error %}
+            <div class="task-error">Error: {{ task.error }}</div>
+            {% endif %}
+
+            <div class="task-details">
+                Created: {{ task.created_at.strftime('%Y-%m-%d %H:%M:%S') }}
+                {% if task.started_at %}
+                <br>Started: {{ task.started_at.strftime('%Y-%m-%d %H:%M:%S') }}
+                {% endif %}
+                {% if task.completed_at %}
+                <br>Completed: {{ task.completed_at.strftime('%Y-%m-%d %H:%M:%S') }}
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <script>
+        document.getElementById('trigger-btn').addEventListener('click', function () {
+            const statusEl = document.getElementById('trigger-status');
+            statusEl.innerText = 'Triggering full pipeline...';
+            statusEl.className = 'status-message';
+
+            // Retrieve form values
+            const apiKey = document.getElementById('api_key').value;
+            const courtId = document.getElementById('court_id').value;
+            const startDate = document.getElementById('start_date').value;
+            const endDate = document.getElementById('end_date').value;
+            const limit = document.getElementById('limit').value;
+            const offset = document.getElementById('offset').value;
+            const includeText = document.getElementById('include_text').checked;
+            const includeMetadata = document.getElementById('include_metadata').checked;
+
+            if (!apiKey) {
+                statusEl.innerText = 'Error: API Key is required';
+                statusEl.className = 'status-message error';
+                return;
+            }
+
+            // Build payload matching the ExtractionConfig API contract
+            const payload = {
+                config: {
+                    court_id: courtId || null,
+                    start_date: startDate || null,
+                    end_date: endDate || null,
+                    limit: limit ? parseInt(limit) : 100,
+                    offset: offset ? parseInt(offset) : 0,
+                    include_text: includeText,
+                    include_metadata: includeMetadata
+                }
+            };
+
+            fetch('/api/pipeline/run-full-pipeline', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify(payload)
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.job_id) {
+                        statusEl.innerText = 'Full pipeline triggered! Job ID: ' + data.job_id;
+                        statusEl.className = 'status-message success';
+                        setTimeout(() => window.location.reload(), 2000);
+                    } else {
+                        statusEl.innerText = 'Full pipeline triggered, but no job ID returned.';
+                        statusEl.className = 'status-message error';
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    statusEl.innerText = `Error triggering full pipeline: ${err.message}`;
+                    statusEl.className = 'status-message error';
+                });
+        });
+
+        // Auto-refresh functionality
+        let autoRefreshInterval;
+        const autoRefreshCheckbox = document.getElementById('auto-refresh');
+
+        function updateTaskGrid(tasks) {
+            const taskGrid = document.querySelector('.task-grid');
+            let newHtml = '';
+
+            tasks.forEach(task => {
+                newHtml += `
+                    <div class="task-card">
+                        <div class="task-header">
+                            <span class="task-id">#${task.job_id}</span>
+                            <span class="task-type">${task.job_type}</span>
+                            <span class="status status-${task.status}">${task.status}</span>
+                        </div>
+
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${task.progress || 0}%"></div>
+                        </div>
+
+                        ${task.message ? `<div class="task-message">${task.message}</div>` : ''}
+                        ${task.error ? `<div class="task-error">Error: ${task.error}</div>` : ''}
+
+                        <div class="task-details">
+                            Created: ${new Date(task.created_at).toLocaleString()}
+                            ${task.started_at ? `<br>Started: ${new Date(task.started_at).toLocaleString()}` : ''}
+                            ${task.completed_at ? `<br>Completed: ${new Date(task.completed_at).toLocaleString()}` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+
+            taskGrid.innerHTML = newHtml;
+        }
+
+        async function fetchTasks() {
+            try {
+                const apiKey = document.getElementById('api_key').value;
+                if (!apiKey) return;
+
+                const response = await fetch('/api/pipeline/jobs?limit=50', {
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const tasks = await response.json();
+                updateTaskGrid(tasks);
+            } catch (error) {
+                console.error('Error fetching tasks:', error);
+            }
+        }
+
+        function startAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+            autoRefreshInterval = setInterval(fetchTasks, 5000);
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+        }
+
+        autoRefreshCheckbox.addEventListener('change', function () {
+            if (this.checked) {
+                startAutoRefresh();
+            } else {
+                stopAutoRefresh();
+            }
+        });
+
+        // Start auto-refresh by default
+        startAutoRefresh();
+    </script>
+</body>
+
+</html>
