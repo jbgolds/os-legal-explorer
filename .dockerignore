@@ -48,3 +48,7 @@ neo4j_data/
 neo4j_config/
 neo4j_plugins/
 postgres_data/ 
+
+*.csv
+*.json
+*.jsonl

@@ -16,11 +16,12 @@ engine = get_engine()
 SessionLocal = get_session_factory(engine)
 neo4j_driver = get_neo4j_driver()
 
+
 # Dependency to get DB session
 def get_db() -> Generator[Session, None, None]:
     """
     Get a PostgreSQL database session.
-    
+
     Yields:
         Session: SQLAlchemy session
     """
@@ -30,33 +31,34 @@ def get_db() -> Generator[Session, None, None]:
     finally:
         db.close()
 
+
 # Dependency to get Neo4j session
-def get_neo4j() -> Generator[GraphDatabase.session, None, None]:
+def get_neo4j() -> Generator:
     """
     Get a Neo4j database session.
-    
+
     Yields:
-        GraphDatabase.session: Neo4j session
+        Neo4j session object
     """
-    session = neo4j_driver.session()
+    session = neo4j_driver.session(
+        database=os.getenv("NEO4J_DATABASE", "courtlistener")
+    )
     try:
         yield session
     finally:
         session.close()
 
+
 # Verify database connections
 def verify_connections() -> dict:
     """
     Verify connections to both databases.
-    
+
     Returns:
         dict: Connection status for each database
     """
-    status = {
-        "postgresql": False,
-        "neo4j": False
-    }
-    
+    status = {"postgresql": False, "neo4j": False}
+
     # Check PostgreSQL
     try:
         db = SessionLocal()
@@ -65,7 +67,7 @@ def verify_connections() -> dict:
         db.close()
     except Exception as e:
         print(f"PostgreSQL connection error: {e}")
-    
+
     # Check Neo4j
     try:
         with neo4j_driver.session() as session:
@@ -73,8 +75,9 @@ def verify_connections() -> dict:
             status["neo4j"] = True
     except Exception as e:
         print(f"Neo4j connection error: {e}")
-    
+
     return status
+
 
 # Close connections on application shutdown
 def close_connections():

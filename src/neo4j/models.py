@@ -26,12 +26,12 @@ class CitesRel(StructuredRel):
     """
 
     # Required fields
-    source = StringProperty(required=True)  # Source dataset identifier
+    data_source = StringProperty(required=True)  # Source dataset identifier
     version = IntegerProperty(default=1)
 
     # Metadata fields - index only treatment as it's commonly queried
     treatment = StringProperty(
-        choices=CitationTreatment, index=True, default=None
+        choices=CitationTreatment._member_map_, index=True, default=None
     )  # Frequently filtered
     relevance = IntegerProperty(default=None)
     reasoning = StringProperty(default=None)
@@ -70,7 +70,7 @@ class Citation(BaseNode):
 
     # Core fields with indexes
     citation_text = StringProperty(unique_index=True, required=True)
-    type = StringProperty(required=True, choices=CitationType, index=True)
+    type = StringProperty(required=True, choices=CitationType._member_map_, index=True)
     metadata = JSONProperty(default=dict)
 
     # Relationships
@@ -94,14 +94,14 @@ class Opinion(Citation):
     """
     Specialized Citation node representing judicial opinions.
     Inherits base citation functionality and adds opinion-specific fields.
-    
+
     IMPORTANT: The full text of opinions should NOT be stored in Neo4j.
     Original opinion text is stored in the PostgreSQL database in the opinion_text table.
     Neo4j should only contain metadata and citation relationships for efficient graph traversal.
     """
 
     # Set the type automatically for all Opinion instances
-    type = StringProperty(default=CitationType.judicial_opinion, required=True)
+    type = StringProperty(default=CitationType.judicial_opinion.value)
 
     def pre_save(self):
         """Ensure opinion type is always correct"""
@@ -121,7 +121,7 @@ class Opinion(Citation):
     court_name = StringProperty(default=None)
 
     # Opinion type and voting data
-    opinion_type = StringProperty(choices=OpinionType, default=None)
+    opinion_type = StringProperty(choices=OpinionType._member_map_, default=None)
     scdb_votes_majority = IntegerProperty(default=None)
     scdb_votes_minority = IntegerProperty(default=None)
 

@@ -32,21 +32,21 @@ NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "courtlistener")
 # Neo4j driver instance
 _neo4j_driver = None
 
+
 def get_neo4j_driver():
     """
     Get the Neo4j driver instance, creating it if it doesn't exist.
-    
+
     Returns:
         GraphDatabase.driver: Neo4j driver
     """
     global _neo4j_driver
     if _neo4j_driver is None:
         _neo4j_driver = GraphDatabase.driver(
-            NEO4J_URI, 
-            auth=(NEO4J_USER, NEO4J_PASSWORD),
-            database=NEO4J_DATABASE
+            NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD), database=NEO4J_DATABASE
         )
     return _neo4j_driver
+
 
 # Configure logging
 logging.basicConfig(
@@ -287,121 +287,103 @@ class NeomodelLoader:
         return results
 
     def _process_citation_pair(
-        self, citing_id: int, cited_id: int, metadata: Dict[str, Any]
-    ) -> None:
-        """
-        Process a single citation pair.
+        self,
+        citing_id: int,
+        cited_id: int,
+        metadata: dict,
+        data_source: str,
+    ):
+        """Process a single citation pair."""
+        citing = Opinion.nodes.get_or_none(cluster_id=citing_id)
+        cited = Opinion.nodes.get_or_none(cluster_id=cited_id)
 
-        Args:
-            citing_id: Cluster ID of the citing opinion
-            cited_id: Cluster ID of the cited opinion
-            metadata: Metadata for the citation relationship
-        """
-        try:
-            # Use create_or_update_opinion for both opinions to ensure metadata preservation
-            citing_opinion = self.create_or_update_opinion({"cluster_id": citing_id})
-            cited_opinion = self.create_or_update_opinion({"cluster_id": cited_id})
-
-            # Create the citation relationship
-            self.create_citation(citing_opinion, cited_opinion, metadata)
-
-        except Exception as e:
-            logger.error(f"Error processing citation {citing_id}->{cited_id}: {str(e)}")
-            raise
+        if citing and cited:
+            rel = citing.cites.relationship(cited)
+            if not rel:
+                citing.cites.connect(
+                    cited,
+                    {
+                        "data_source": data_source,
+                        **metadata,
+                    },
+                )
 
     def load_citation_pairs(
         self,
         citation_pairs: List[Tuple[int, int]],
-        source: str,
-        batch_size: Optional[int] = None,
-    ) -> None:
+        data_source: str,
+    ):
         """
-        Load basic citation relationships between opinions.
+        Load citation pairs into Neo4j.
 
         Args:
             citation_pairs: List of (citing_id, cited_id) tuples
-            source: Source identifier for the citations
-            batch_size: Optional override for batch size
+            data_source: Source identifier for the citations
         """
-        batch_size = batch_size or self.batch_size
-        total_processed = 0
-
-        for i in range(0, len(citation_pairs), batch_size):
-            batch = citation_pairs[i : i + batch_size]
-
-            for citing_id, cited_id in batch:
-                try:
-                    self._process_citation_pair(citing_id, cited_id, {"source": source})
-                    total_processed += 1
-                except Exception:
-                    pass
-
-            logger.info(f"Processed {total_processed} citation relationships")
+        for citing_id, cited_id in citation_pairs:
+            self._process_citation_pair(citing_id, cited_id, {}, data_source)
 
     def load_enriched_citations(
-        self, citations_data: List[CombinedResolvedCitationAnalysis], source: str
-    ) -> None:
+        self, citations_data: List[CombinedResolvedCitationAnalysis], data_source: str
+    ):
         """
-        Load enriched citation data including metadata and AI-generated summaries.
+        Load enriched citation data into Neo4j.
 
         Args:
-            citations_data: List of citation analysis objects
-            source: Source identifier for the citations
+            citations_data: List of citation data with metadata
+            data_source: Source identifier for the citations
         """
-        for citation_analysis in citations_data:
-            try:
-                # Create or update the citing opinion with AI summary
-                citing_opinion = self.create_or_update_opinion(
-                    {
-                        "cluster_id": citation_analysis.cluster_id,
-                        "ai_summary": citation_analysis.brief_summary,
-                        "date_filed": citation_analysis.date,
-                    }
-                )
+        for citation in citations_data:
+            metadata = {
+                "treatment": citation.treatment,
+                "relevance": citation.relevance,
+                "reasoning": citation.reasoning,
+                "citation_text": citation.citation_text,
+                "data_source": data_source,
+            }
 
-                # Make this a dict with the section name as the key and the citations as the value
-                sections = {
-                    "majority": citation_analysis.majority_opinion_citations,
-                    "concurrent": citation_analysis.concurrent_opinion_citations,
-                    "dissent": citation_analysis.dissenting_citations,
+            # Create or update the citing opinion with AI summary
+            citing_opinion = self.create_or_update_opinion(
+                {
+                    "cluster_id": citation.cluster_id,
+                    "ai_summary": citation.brief_summary,
+                    "date_filed": citation.date,
                 }
+            )
 
-                for section_name, citations in sections.items():
-                    for citation in citations:
-                        if citation.resolved_opinion_cluster:
-                            # Create or update the cited opinion
-                            cited_opinion = self.create_or_update_opinion(
-                                {
-                                    "cluster_id": citation.resolved_opinion_cluster,
-                                    "type": citation.type,
-                                }
-                            )
+            # Make this a dict with the section name as the key and the citations as the value
+            sections = {
+                "majority": citation.majority_opinion_citations,
+                "concurrent": citation.concurrent_opinion_citations,
+                "dissent": citation.dissenting_citations,
+            }
 
-                            # Create the enriched citation relationship
-                            metadata = {
-                                "source": source,
-                                "opinion_section": section_name,
-                                "treatment": citation.treatment,
-                                "relevance": citation.relevance,
-                                "reasoning": citation.reasoning,
-                                "citation_text": citation.citation_text,
-                                "page_number": citation.page_number,
+            for section_name, citations in sections.items():
+                for citation in citations:
+                    if citation.resolved_opinion_cluster:
+                        # Create or update the cited opinion
+                        cited_opinion = self.create_or_update_opinion(
+                            {
+                                "cluster_id": citation.resolved_opinion_cluster,
+                                "type": citation.type,
                             }
+                        )
 
-                            # Filter out None values
-                            metadata = {
-                                k: v for k, v in metadata.items() if v is not None
-                            }
+                        # Create the enriched citation relationship
+                        metadata = {
+                            "data_source": data_source,
+                            "opinion_section": section_name,
+                            "treatment": citation.treatment,
+                            "relevance": citation.relevance,
+                            "reasoning": citation.reasoning,
+                            "citation_text": citation.citation_text,
+                            "page_number": citation.page_number,
+                        }
 
-                            self.create_citation(
-                                citing_opinion, cited_opinion, metadata
-                            )
+                        # Filter out None values
+                        metadata = {k: v for k, v in metadata.items() if v is not None}
 
-            except Exception as e:
-                logger.error(
-                    f"Error processing citations for opinion {citation_analysis.cluster_id}: {str(e)}"
-                )
-                continue
+                        self.create_citation(citing_opinion, cited_opinion, metadata)
 
 
 # Example usage (synchronous):

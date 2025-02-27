@@ -13,18 +13,14 @@ RUN apt-get update && apt-get install -y \
     npm \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+# Mount the code as a volume instead of copying
+# (we'll mount the code from the host in docker-compose)
 
-# Copy dependency files
-COPY pyproject.toml uv.lock ./
+# Install project in development mode
+COPY pyproject.toml .
+RUN pip install -e .
 
-# Install project dependencies using uv
-RUN /root/.cargo/bin/uv pip install -r uv.lock
-
-# Copy the source code
 COPY src/ ./src/
-
 # Make entrypoint script executable
 COPY docker-entrypoint.sh .
 RUN chmod +x /app/docker-entrypoint.sh
