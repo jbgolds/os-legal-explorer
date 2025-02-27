@@ -1,0 +1,129 @@
+/* Custom styles that extend Tailwind */
+
+/* Search Component Styles */
+.search-input {
+    @apply transition-all duration-200 focus:ring-2 focus:ring-blue-400 focus:outline-none;
+}
+
+.search-results {
+    @apply max-h-96 overflow-y-auto w-full md:w-96 z-50;
+}
+
+.search-result-item {
+    @apply p-3 hover:bg-gray-100 cursor-pointer border-b border-gray-200 transition-colors;
+}
+
+/* Case Content Styles */
+.case-content {
+    @apply prose prose-lg max-w-none prose-headings:text-blue-900;
+}
+
+.case-title {
+    @apply text-2xl font-bold mb-4 text-blue-900;
+}
+
+.case-metadata {
+    @apply bg-gray-50 p-4 rounded-lg mb-6 shadow-sm;
+}
+
+/* Button Styles */
+.btn-primary {
+    @apply bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2;
+}
+
+.btn-secondary {
+    @apply bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2;
+}
+
+/* Citation Graph Styles */
+.citation-graph {
+    @apply w-full h-[600px] bg-white rounded-lg shadow-lg p-4;
+}
+
+.graph-node {
+    fill: theme('colors.blue.500');
+    transition: fill 0.2s ease;
+}
+
+.graph-node:hover {
+    fill: theme('colors.blue.600');
+    cursor: pointer;
+}
+
+.graph-link {
+    stroke-opacity: 0.6;
+    transition: stroke-opacity 0.2s ease;
+}
+
+.graph-link:hover {
+    stroke-opacity: 1;
+}
+
+.graph-arrow {
+    fill: theme('colors.gray.400');
+}
+
+/* Custom Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .citation-graph {
+        @apply h-[400px];
+    }
+
+    .search-results {
+        @apply w-full;
+    }
+}
+
+/* Accessibility Enhancements */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+.focus-visible:focus {
+    @apply outline-none ring-2 ring-blue-400 ring-offset-2;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .citation-graph {
+        @apply bg-gray-900;
+    }
+
+    .graph-node {
+        fill: theme('colors.blue.400');
+    }
+
+    .graph-node:hover {
+        fill: theme('colors.blue.300');
+    }
+
+    .graph-link {
+        stroke: theme('colors.gray.600');
+    }
+
+    .graph-arrow {
+        fill: theme('colors.gray.500');
+    }
+}
