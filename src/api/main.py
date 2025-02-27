@@ -8,16 +8,13 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
-from api.services.db_utils import get_opinion_by_id
-from api.services.opinion_service import get_opinion_citations
-
 # Load environment variables
 load_dotenv()
 
 # Configure simple logging
 logging.basicConfig(
     level=getattr(logging, os.getenv("LOG_LEVEL", "INFO")),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 
 # Create FastAPI app
@@ -36,7 +33,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Root endpoint
+# Configure templates and static files
+templates = Jinja2Templates(directory="src/frontend/templates")
+app.mount("/static", StaticFiles(directory="src/frontend/static"), name="static")
+
+
+# Root endpoint to serve the frontend
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
+# API root endpoint
 @app.get("/api")
 async def api_root():
     return {
@@ -45,31 +53,28 @@ async def api_root():
         "version": "0.1.0",
     }
 
+
 # Health check endpoint
 @app.get("/health")
 async def health_check():
     from .database import verify_connections
+
     db_status = verify_connections()
     return {
         "status": "healthy" if all(db_status.values()) else "unhealthy",
         "database": db_status,
     }
 
+
 # Import and include routers
 from .routers import opinions, citations, stats, pipeline
+
 app.include_router(opinions.router)
 app.include_router(citations.router)
 app.include_router(stats.router)
 app.include_router(pipeline.router)
 
-templates = Jinja2Templates(directory="frontend/templates")
-app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
-
-
 if __name__ == "__main__":
     uvicorn.run(
-        "main:app", 
-        host="0.0.0.0", 
-        port=int(os.getenv("PORT", 8000)),
-        reload=True
+        "main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=True
     )
