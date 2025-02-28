@@ -7,7 +7,9 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 import time
-from eyecite.clean import clean_text
+
+# Use the consolidated citation parser
+from src.citation.parser import clean_text, repair_json, JSON_REPAIR_AVAILABLE
 
 from ..models.pipeline import JobStatus, JobType, ExtractionConfig
 from src.llm_extraction.rate_limited_gemini import GeminiClient

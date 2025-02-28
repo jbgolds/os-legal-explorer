@@ -41,7 +41,7 @@ class APICitation(Citation):
 ```
 """
 
-from . import opinions, citations, stats, pipeline, converters
+from . import opinions, citations, stats, pipeline
 
 # Export all modules
-__all__ = ["opinions", "citations", "stats", "pipeline", "converters"]
+__all__ = ["opinions", "citations", "stats", "pipeline"]
