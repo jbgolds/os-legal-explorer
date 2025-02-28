@@ -28,8 +28,9 @@ NEO4J_URI = os.getenv("NEO4J_URI", "localhost:7474")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "courtlistener")
 
-# Set neomodel connection URL early on
-config.DATABASE_URL = f"bolt://{NEO4J_USER}:{NEO4J_PASSWORD}@{NEO4J_URI}"
+# Set connection URLs - NEO4J_URI already includes the protocol
+config.DATABASE_URL = "bolt://neo4j:courtlistener@localhost:7687"
+
 
 # Neo4j driver instance
 _neo4j_driver = None
@@ -320,12 +321,33 @@ class NeomodelLoader:
             data_source: Source identifier for the citations
         """
         for citation in citations_data:
+            # Skip invalid cluster IDs
+            if (
+                not citation.cluster_id
+                or citation.cluster_id < 0
+                or citation.cluster_id == -999999
+            ):
+                logging.warning(
+                    f"Skipping citation with invalid cluster ID: {citation.cluster_id}"
+                )
+                continue
+
+            # Check if this is a default citation (created during error handling)
+            is_default = False
+            if (
+                citation.date.startswith("1500-")
+                or "[DEFAULT]" in citation.brief_summary
+            ):
+                is_default = True
+                logging.warning(
+                    f"Loading default citation for cluster {citation.cluster_id}"
+                )
+
+            # Top-level metadata for the citing opinion node
+            # No treatment/relevance at the citation analysis level - only at individual citation level
             metadata = {
-                "treatment": citation.treatment,
-                "relevance": citation.relevance,
-                "reasoning": citation.reasoning,
-                "citation_text": citation.citation_text,
                 "data_source": data_source,
+                "is_default_data": is_default,
             }
 
             # Create or update the citing opinion with AI summary
@@ -334,42 +356,56 @@ class NeomodelLoader:
                     "cluster_id": citation.cluster_id,
                     "ai_summary": citation.brief_summary,
                     "date_filed": citation.date,
+                    "is_default_data": is_default,
                 }
             )
 
             # Make this a dict with the section name as the key and the citations as the value
             sections = {
                 "majority": citation.majority_opinion_citations,
-                "concurrent": citation.concurrent_opinion_citations,
+                "concurring": citation.concurring_opinion_citations,
                 "dissent": citation.dissenting_citations,
             }
 
-            for section_name, citations in sections.items():
-                for citation in citations:
-                    if citation.resolved_opinion_cluster:
-                        # Create or update the cited opinion
-                        cited_opinion = self.create_or_update_opinion(
-                            {
-                                "cluster_id": citation.resolved_opinion_cluster,
-                                "type": citation.type,
-                            }
-                        )
+            for section_name, section_citations in sections.items():
+                for cite in section_citations:
+                    # Skip citations with invalid resolved_opinion_cluster
+                    if (
+                        not cite.resolved_opinion_cluster
+                        or cite.resolved_opinion_cluster < 0
+                    ):
+                        continue
 
-                        # Create the enriched citation relationship
-                        metadata = {
-                            "data_source": data_source,
-                            "opinion_section": section_name,
-                            "treatment": citation.treatment,
-                            "relevance": citation.relevance,
-                            "reasoning": citation.reasoning,
-                            "citation_text": citation.citation_text,
-                            "page_number": citation.page_number,
+                    # Check if this is a default citation
+                    citation_is_default = (
+                        is_default or cite.page_number < 0 or cite.relevance < 0
+                    )
+
+                    # Create or update the cited opinion
+                    cited_opinion = self.create_or_update_opinion(
+                        {
+                            "cluster_id": cite.resolved_opinion_cluster,
+                            "type": cite.type,
+                            "is_default_data": citation_is_default,
                         }
+                    )
 
-                        # Filter out None values
-                        metadata = {k: v for k, v in metadata.items() if v is not None}
+                    # Create the enriched citation relationship
+                    metadata = {
+                        "data_source": data_source,
+                        "opinion_section": section_name,
+                        "treatment": cite.treatment,
+                        "relevance": cite.relevance,
+                        "reasoning": cite.reasoning,
+                        "citation_text": cite.citation_text,
+                        "page_number": cite.page_number,
+                        "is_default_data": citation_is_default,
+                    }
 
-                        self.create_citation(citing_opinion, cited_opinion, metadata)
+                    # Filter out None values
+                    metadata = {k: v for k, v in metadata.items() if v is not None}
+
+                    self.create_citation(citing_opinion, cited_opinion, metadata)
 
 
 # Example usage (synchronous):

@@ -5,6 +5,7 @@ from google import genai
 from google.genai.types import GenerateContentConfig, GenerateContentResponse
 from google.genai.chats import Chat
 from json_repair import repair_json
+import re
 import os
 import pandas as pd
 import logging
@@ -14,7 +15,11 @@ from tqdm import tqdm
 from datetime import datetime
 from threading import local
 
-from src.llm_extraction.models import CitationAnalysis, CombinedResolvedCitationAnalysis
+from src.llm_extraction.models import (
+    Citation,
+    CitationAnalysis,
+    CombinedResolvedCitationAnalysis,
+)
 from src.llm_extraction.prompts import system_prompt
 
 # Configure logging
@@ -161,28 +166,57 @@ class RateLimiter:
         self.concurrent_semaphore.release()
 
 
+def repair_json_string(json_str: str) -> str:
+    """
+    Simple JSON repair function that tries to fix common issues.
+
+    Args:
+        json_str: Potentially malformed JSON string
+
+    Returns:
+        Repaired JSON string or None if repair fails
+    """
+    try:
+        # First try standard repair
+        repaired = repair_json(json_str)
+        # Test if it's valid JSON
+        json.loads(repaired)
+        return repaired
+    except Exception as e:
+        logging.error(f"JSON repair failed: {str(e)}")
+        return None
+
+
 class ResponseSerializer:
     """Handles serialization of Gemini API responses with direct CitationAnalysis parsing."""
 
     @staticmethod
-    def serialize(response: GenerateContentResponse | None) -> CitationAnalysis:
+    def serialize(
+        response: GenerateContentResponse | None,
+    ) -> Optional[CitationAnalysis]:
         """
-        Serialize a response directly to CitationAnalysis with fallback mechanisms.
+        Serialize a response directly to CitationAnalysis with simple error handling.
 
         Args:
             response: Raw Gemini API response
 
         Returns:
-            CitationAnalysis: Validated citation analysis object
-
-        Raises:
-            ValueError: If response cannot be parsed into CitationAnalysis
+            CitationAnalysis or None if parsing fails
         """
         if response is None:
-            raise ValueError("Response cannot be None")
+            logging.error("Response is None")
+            return None
+
+        # Save raw response for debugging
+        raw_response = {
+            "text": response.text if hasattr(response, "text") else None,
+            "parsed": response.parsed if hasattr(response, "parsed") else None,
+        }
+
+        validation_errors = []
 
         # First try: Direct parsing if response.parsed exists
-        if response.parsed:
+        if hasattr(response, "parsed") and response.parsed:
             if isinstance(response.parsed, CitationAnalysis):
                 return response.parsed
 
@@ -192,46 +226,130 @@ class ResponseSerializer:
                 elif isinstance(response.parsed, dict):
                     return CitationAnalysis.model_validate(response.parsed)
             except Exception as e:
+                validation_errors.append(
+                    {
+                        "stage": "direct_parsing",
+                        "error": str(e),
+                        "input": response.parsed,
+                    }
+                )
                 logging.warning(f"Failed direct parsing of response.parsed: {str(e)}")
 
         # Second try: Parse from response.text
-        if response.text:
+        if hasattr(response, "text") and response.text:
             try:
-                return CitationAnalysis.model_validate_json(response.text)
+                # Try to parse as JSON
+                try:
+                    json_data = json.loads(response.text)
+
+                    # Handle list responses (common from LLM)
+                    if isinstance(json_data, list) and len(json_data) > 0:
+                        if isinstance(json_data[0], dict):
+                            try:
+                                return CitationAnalysis.model_validate(json_data[0])
+                            except Exception as e:
+                                validation_errors.append(
+                                    {
+                                        "stage": "list_validation",
+                                        "error": str(e),
+                                        "input": json_data[0],
+                                    }
+                                )
+                                logging.warning(
+                                    f"Failed to validate first item in list: {str(e)}"
+                                )
+
+                    # Handle dict responses
+                    if isinstance(json_data, dict):
+                        try:
+                            return CitationAnalysis.model_validate(json_data)
+                        except Exception as e:
+                            validation_errors.append(
+                                {
+                                    "stage": "dict_validation",
+                                    "error": str(e),
+                                    "input": json_data,
+                                }
+                            )
+                            logging.warning(f"Failed to validate dict: {str(e)}")
+
+                except json.JSONDecodeError:
+                    # If can't parse as JSON, try repair
+                    repaired_json = repair_json_string(response.text)
+                    if repaired_json:
+                        try:
+                            json_data = json.loads(repaired_json)
+
+                            # Handle list responses
+                            if isinstance(json_data, list) and len(json_data) > 0:
+                                if isinstance(json_data[0], dict):
+                                    try:
+                                        return CitationAnalysis.model_validate(
+                                            json_data[0]
+                                        )
+                                    except Exception as e:
+                                        validation_errors.append(
+                                            {
+                                                "stage": "repaired_list_validation",
+                                                "error": str(e),
+                                                "input": json_data[0],
+                                            }
+                                        )
+                                        logging.warning(
+                                            f"Failed to validate first item in repaired list: {str(e)}"
+                                        )
+
+                            # Handle dict responses
+                            if isinstance(json_data, dict):
+                                try:
+                                    return CitationAnalysis.model_validate(json_data)
+                                except Exception as e:
+                                    validation_errors.append(
+                                        {
+                                            "stage": "repaired_dict_validation",
+                                            "error": str(e),
+                                            "input": json_data,
+                                        }
+                                    )
+                                    logging.warning(
+                                        f"Failed to validate repaired dict: {str(e)}"
+                                    )
+                        except json.JSONDecodeError:
+                            validation_errors.append(
+                                {
+                                    "stage": "json_repair",
+                                    "error": "Failed to parse repaired JSON",
+                                    "input": repaired_json,
+                                }
+                            )
+                            logging.warning("Failed to parse repaired JSON")
             except Exception as e:
-                logging.warning(f"Failed parsing response.text as JSON: {str(e)}")
+                validation_errors.append(
+                    {"stage": "text_parsing", "error": str(e), "input": response.text}
+                )
+                logging.warning(f"Failed parsing response.text: {str(e)}")
 
-                # Fallback 1: Try repairing malformed JSON
-                try:
-                    repaired_json = repair_json(response.text)
-                    return CitationAnalysis.model_validate_json(repaired_json)
-                except Exception as e:
-                    logging.warning(f"Failed parsing repaired JSON: {str(e)}")
+        # Store debug info in thread-local storage
+        if not hasattr(ResponseSerializer, "_thread_local"):
+            ResponseSerializer._thread_local = local()
 
-                # Fallback 2: Try extracting from candidates structure
-                try:
-                    candidates_data = response.text
-                    if isinstance(candidates_data, str):
-                        candidates_data = json.loads(candidates_data)
+        ResponseSerializer._thread_local.last_raw_response = raw_response
+        ResponseSerializer._thread_local.last_validation_errors = validation_errors
 
-                    if (
-                        isinstance(candidates_data, dict)
-                        and "candidates" in candidates_data
-                    ):
-                        content_text = candidates_data["candidates"][0]["content"][
-                            "parts"
-                        ][0]["text"]
-                        if isinstance(content_text, str):
-                            content_text = repair_json(content_text)
-                            return CitationAnalysis.model_validate_json(content_text)
-                        return CitationAnalysis.model_validate(content_text)
-                except Exception as e:
-                    logging.error(f"All parsing attempts failed: {str(e)}")
-                    raise ValueError(
-                        "Could not parse response into CitationAnalysis format"
-                    ) from e
+        # If all attempts fail, return None
+        logging.warning("All parsing attempts failed, returning None")
+        return None
 
-        raise ValueError("No parseable content found in response")
+    @staticmethod
+    def get_last_debug_info():
+        """Get the debug information from the last serialization attempt."""
+        if not hasattr(ResponseSerializer, "_thread_local"):
+            return None, None
+
+        return (
+            getattr(ResponseSerializer._thread_local, "last_raw_response", None),
+            getattr(ResponseSerializer._thread_local, "last_validation_errors", None),
+        )
 
 
 class GeminiClient:
@@ -279,7 +397,9 @@ class GeminiClient:
                 self.worker_data.worker_id = self.worker_counter
         return self.worker_data.worker_id
 
-    def combine_chunk_responses(self, responses: List[CitationAnalysis]) -> Dict:
+    def combine_chunk_responses(
+        self, responses: List[CitationAnalysis]
+    ) -> Optional[Dict]:
         """
         Combine multiple chunk responses into a single citation analysis result.
 
@@ -287,23 +407,29 @@ class GeminiClient:
             responses: List of CitationAnalysis objects from processing chunks
 
         Returns:
-            Dict: Combined citation analysis in dictionary format
+            Optional[Dict]: Combined citation analysis in dictionary format, or None if no valid responses
 
         Raises:
             ValueError: If no valid CitationAnalysis objects are provided
         """
-        if not responses:
-            raise ValueError("No responses provided to combine")
+        # Filter out None responses and ensure we have valid ones
+        valid_responses = [r for r in responses if r is not None]
+        if not valid_responses:
+            logging.warning("No valid responses to combine")
+            return None
 
         # Use the cluster_id from the first response if available
-        cluster_id = getattr(responses[0], "cluster_id", 0)
+        cluster_id = getattr(valid_responses[0], "cluster_id", 0)
 
-        # Create combined analysis using from_citations
-        combined = CombinedResolvedCitationAnalysis.from_citations(
-            responses, cluster_id
-        )
-
-        return combined.model_dump()
+        try:
+            # Create combined analysis using from_citations
+            combined = CombinedResolvedCitationAnalysis.from_citations(
+                valid_responses, cluster_id
+            )
+            return combined.model_dump()
+        except Exception as e:
+            logging.error(f"Error combining responses: {str(e)}")
+            return None
 
     def generate_content_with_chat(
         self, text: str, model: str = "gemini-2.0-flash-001"
@@ -353,7 +479,14 @@ class GeminiClient:
                         f"Received empty response from API for text of length {word_count}"
                     )
                 # Use the serializer to convert response to a proper dict
-                return [self.serializer.serialize(response)]
+                result = self.serializer.serialize(response)
+                if result:
+                    return [result]
+                else:
+                    logging.warning(
+                        "Failed to serialize response, returning empty list"
+                    )
+                    return []
             except Exception as e:
                 logging.error(
                     f"Worker {worker_id}: API call failed for text of length {word_count}: {str(e)}"
@@ -371,7 +504,7 @@ class GeminiClient:
         try:
             # Create a chat session with chunked config
             chat: Chat = self.client.chats.create(model=model, config=config_chunking)
-            responses: List[Dict] = []
+            responses: List[CitationAnalysis] = []
             for i, chunk in enumerate(chunks, 1):
                 chunk_words = self.chunker.count_words(chunk)
                 logging.info(
@@ -382,26 +515,35 @@ class GeminiClient:
                 try:
                     response: GenerateContentResponse = chat.send_message(chunk.strip())
                     if not response or not hasattr(response, "text"):
-                        raise ValueError(
+                        logging.warning(
                             f"Invalid or empty response from chunk {i} (length: {chunk_words})"
                         )
-                    responses.append(self.serializer.serialize(response))
+                        continue
+
+                    result = self.serializer.serialize(response)
+                    if result:
+                        responses.append(result)
                 except Exception as e:
                     logging.error(
                         f"Worker {worker_id}: Failed to process chunk {i}/{len(chunks)} "
                         f"(length: {chunk_words}): {str(e)}"
                     )
-                    raise
                 finally:
                     self.rate_limiter.release()
 
             if not responses:
-                raise ValueError("No valid responses were collected during processing")
+                logging.warning("No valid responses were collected during processing")
+                return []
 
             # If multiple responses were collected, merge them into one consolidated result
             if len(responses) > 1:
-                merged = self.combine_chunk_responses(responses)
-                return [merged]
+                try:
+                    merged = self.combine_chunk_responses(responses)
+                    return [merged]
+                except Exception as e:
+                    logging.error(f"Failed to combine chunk responses: {str(e)}")
+                    # Return the first valid response if combining fails
+                    return [responses[0]]
             return responses
 
         except Exception as e:
@@ -426,31 +568,53 @@ class GeminiClient:
         batch_size: int = 10,
     ) -> Dict[Any, Any]:
         """Process a DataFrame of content generation requests using thread pool."""
+        # Adjust max_workers based on DataFrame size and rate limit
         if max_workers is None:
             max_workers = min(
-                10, self.rate_limiter.token_bucket.rate
-            )  # Conservative default
+                10,  # Default max
+                self.rate_limiter.token_bucket.rate,  # Rate limit
+                len(df),  # Don't use more workers than rows
+            )
+
+        # Adjust batch_size to be no larger than the DataFrame
+        batch_size = min(batch_size, len(df))
 
         results = {}
         errors = []
         total_processed = 0
 
-        def process_row(row) -> tuple[str, List[Dict], Optional[str]]:
+        # Add debug collection
+        debug_info = {
+            "raw_responses": {},
+            "validation_errors": {},
+        }
+
+        def process_row(row) -> tuple[str, List[Dict], Optional[str], dict]:
             worker_id = self.get_worker_id()
             try:
                 logging.info(
                     f"Worker {worker_id}: Starting processing cluster_id {row['cluster_id']}"
                 )
                 result = self.generate_content_with_chat(row[text_column], model)
+
+                # Collect debug info
+                raw_response, validation_errors = (
+                    ResponseSerializer.get_last_debug_info()
+                )
+                row_debug = {
+                    "raw_response": raw_response,
+                    "validation_errors": validation_errors,
+                }
+
                 logging.info(
                     f"Worker {worker_id}: Finished processing cluster_id {row['cluster_id']}"
                 )
-                return row["cluster_id"], result, None
+                return row["cluster_id"], result, None, row_debug
             except Exception as e:
                 logging.error(
                     f"Worker {worker_id}: Error processing cluster_id {row['cluster_id']}: {str(e)}"
                 )
-                return row["cluster_id"], None, str(e)
+                return row["cluster_id"], None, str(e), {}
 
         logging.info(
             f"Processing {len(df)} rows with {max_workers} workers in batches of {batch_size}"
@@ -480,9 +644,18 @@ class GeminiClient:
                     leave=True,
                 ):
                     try:
-                        cluster_id, result, error = future.result()
+                        cluster_id, result, error, row_debug = future.result()
                         results[cluster_id] = result
                         total_processed += 1
+
+                        # Store debug info
+                        if row_debug:
+                            debug_info["raw_responses"][cluster_id] = row_debug.get(
+                                "raw_response"
+                            )
+                            debug_info["validation_errors"][cluster_id] = row_debug.get(
+                                "validation_errors"
+                            )
 
                         if error:
                             errors.append(
@@ -507,6 +680,16 @@ class GeminiClient:
 
                 # Clear the futures list after batch is done
                 futures.clear()
+
+        # Save debug info
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        debug_file = f"gemini_debug_{timestamp}.json"
+        debug_path = os.path.join("/tmp", debug_file)
+
+        with open(debug_path, "w") as f:
+            json.dump(debug_info, f, indent=2)
+
+        logging.info(f"Debug information saved to {debug_path}")
 
         if errors:
             logging.warning(f"Encountered {len(errors)} errors during processing")

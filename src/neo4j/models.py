@@ -45,6 +45,9 @@ class CitesRel(StructuredRel):
     # Audit trail
     other_metadata_versions = JSONProperty(default=list)
 
+    # Flag for default data created during error handling
+    is_default_data = BooleanProperty(default=False, index=True)
+
 
 class BaseNode(StructuredNode):
     """Base class for all nodes with common properties and methods."""
@@ -132,6 +135,9 @@ class Opinion(Citation):
 
     # Enhanced metadata
     ai_summary = StringProperty(default=None)
+
+    # Flag for default data created during error handling
+    is_default_data = BooleanProperty(default=False, index=True)
 
     # Strategic composite indexes for common query patterns
     __indexes__ = {
