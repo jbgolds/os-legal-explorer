@@ -1,6 +1,6 @@
 import time
 import json
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Tuple
 from google import genai
 from google.genai.types import GenerateContentConfig, GenerateContentResponse
 from google.genai.chats import Chat
@@ -207,188 +207,220 @@ class ResponseSerializer:
             logging.error("Response is None")
             return None
 
-        # Save raw response for debugging (including full text for inspection)
+        # Save raw response and initialize tracking variables
+        raw_response, validation_errors = ResponseSerializer._initialize_debug_tracking(
+            response
+        )
+
+        # Try each parsing strategy in order until one succeeds
+
+        # Strategy 1: Direct parsing from response.parsed
+        result = ResponseSerializer._try_parse_from_parsed(response, validation_errors)
+        if result:
+            ResponseSerializer._save_debug_info(raw_response, validation_errors)
+            return result
+
+        # Strategy 2: Parse from response.text as JSON
+        result = ResponseSerializer._try_parse_from_text(response, validation_errors)
+        if result:
+            ResponseSerializer._save_debug_info(raw_response, validation_errors)
+            return result
+
+        # Strategy 3: Attempt to create fallback from collected data
+        result = ResponseSerializer._try_create_fallback(validation_errors)
+
+        # Save debug info regardless of outcome
+        ResponseSerializer._save_debug_info(raw_response, validation_errors)
+
+        if not result:
+            logging.warning("All parsing attempts failed, returning None")
+
+        return result
+
+    @staticmethod
+    def _initialize_debug_tracking(
+        response: GenerateContentResponse,
+    ) -> Tuple[Dict, List]:
+        """Initialize raw response and validation error tracking."""
         raw_response = {
             "text": response.text if hasattr(response, "text") else None,
             "parsed": response.parsed if hasattr(response, "parsed") else None,
         }
-
         validation_errors = []
-        input_data = None  # Store the data that failed validation
+        return raw_response, validation_errors
 
-        # First try: Direct parsing if response.parsed exists
-        if hasattr(response, "parsed") and response.parsed:
-            if isinstance(response.parsed, CitationAnalysis):
-                return response.parsed
+    @staticmethod
+    def _try_parse_from_parsed(
+        response: GenerateContentResponse, validation_errors: List
+    ) -> Optional[CitationAnalysis]:
+        """Attempt to parse from response.parsed field."""
+        if not response.parsed:
+            return None
 
+        # If already correct type, return immediately
+        if isinstance(response.parsed, CitationAnalysis):
+            return response.parsed
+
+        try:
+            if isinstance(response.parsed, str):
+                return CitationAnalysis.model_validate_json(response.parsed)
+            elif isinstance(response.parsed, dict):
+                return CitationAnalysis.model_validate(response.parsed)
+        except Exception as e:
+            validation_errors.append(
+                {
+                    "stage": "direct_parsing",
+                    "error": str(e),
+                    "input": response.parsed,
+                }
+            )
+            logging.warning(f"Failed direct parsing of response.parsed: {str(e)}")
+
+        return None
+
+    @staticmethod
+    def _try_parse_from_text(
+        response: GenerateContentResponse, validation_errors: List
+    ) -> Optional[CitationAnalysis]:
+        """Attempt to parse from response.text field."""
+        if not hasattr(response, "text") or not response.text:
+            return None
+
+        # First, try to parse the text as JSON directly
+        try:
+            json_data = json.loads(response.text)
+            result = ResponseSerializer._validate_json_data(
+                json_data, validation_errors
+            )
+            if result:
+                return result
+        except json.JSONDecodeError:
+            # If direct parsing fails, try repair
+            repaired_json = repair_json_string(response.text)
+            if repaired_json:
+                try:
+                    json_data = json.loads(repaired_json)
+                    result = ResponseSerializer._validate_json_data(
+                        json_data, validation_errors, repaired=True
+                    )
+                    if result:
+                        return result
+                except json.JSONDecodeError:
+                    validation_errors.append(
+                        {
+                            "stage": "json_repair",
+                            "error": "Failed to parse repaired JSON",
+                            "input": repaired_json,
+                        }
+                    )
+                    logging.warning("Failed to parse repaired JSON")
+        except Exception as e:
+            validation_errors.append(
+                {"stage": "text_parsing", "error": str(e), "input": response.text}
+            )
+            logging.warning(f"Failed parsing response.text: {str(e)}")
+
+        return None
+
+    @staticmethod
+    def _validate_json_data(
+        json_data: Union[Dict, List], validation_errors: List, repaired: bool = False
+    ) -> Optional[CitationAnalysis]:
+        """Validate and convert JSON data (dict or list) to CitationAnalysis."""
+        prefix = "repaired_" if repaired else ""
+
+        # Handle list responses (common from LLM)
+        if (
+            isinstance(json_data, list)
+            and len(json_data) > 0
+            and isinstance(json_data[0], dict)
+        ):
             try:
-                if isinstance(response.parsed, str):
-                    return CitationAnalysis.model_validate_json(response.parsed)
-                elif isinstance(response.parsed, dict):
-                    return CitationAnalysis.model_validate(response.parsed)
+                return CitationAnalysis.model_validate(json_data[0])
             except Exception as e:
                 validation_errors.append(
                     {
-                        "stage": "direct_parsing",
+                        "stage": f"{prefix}list_validation",
                         "error": str(e),
-                        "input": response.parsed,
+                        "input": json_data[0],
                     }
                 )
-                input_data = response.parsed
-                logging.warning(f"Failed direct parsing of response.parsed: {str(e)}")
+                logging.warning(
+                    f"Failed to validate first item in {prefix}list: {str(e)}"
+                )
 
-        # Second try: Parse from response.text
-        if hasattr(response, "text") and response.text:
+        # Handle dict responses
+        elif isinstance(json_data, dict):
             try:
-                # Try to parse as JSON
-                try:
-                    json_data = json.loads(response.text)
-                    input_data = json_data  # Store for potential fallback
-
-                    # Handle list responses (common from LLM)
-                    if isinstance(json_data, list) and len(json_data) > 0:
-                        if isinstance(json_data[0], dict):
-                            try:
-                                return CitationAnalysis.model_validate(json_data[0])
-                            except Exception as e:
-                                validation_errors.append(
-                                    {
-                                        "stage": "list_validation",
-                                        "error": str(e),
-                                        "input": json_data[0],
-                                    }
-                                )
-                                logging.warning(
-                                    f"Failed to validate first item in list: {str(e)}"
-                                )
-
-                    # Handle dict responses
-                    if isinstance(json_data, dict):
-                        try:
-                            return CitationAnalysis.model_validate(json_data)
-                        except Exception as e:
-                            validation_errors.append(
-                                {
-                                    "stage": "dict_validation",
-                                    "error": str(e),
-                                    "input": json_data,
-                                }
-                            )
-                            logging.warning(f"Failed to validate dict: {str(e)}")
-
-                except json.JSONDecodeError:
-                    # If can't parse as JSON, try repair
-                    repaired_json = repair_json_string(response.text)
-                    if repaired_json:
-                        try:
-                            json_data = json.loads(repaired_json)
-                            input_data = json_data  # Store for potential fallback
-
-                            # Handle list responses
-                            if isinstance(json_data, list) and len(json_data) > 0:
-                                if isinstance(json_data[0], dict):
-                                    try:
-                                        return CitationAnalysis.model_validate(
-                                            json_data[0]
-                                        )
-                                    except Exception as e:
-                                        validation_errors.append(
-                                            {
-                                                "stage": "repaired_list_validation",
-                                                "error": str(e),
-                                                "input": json_data[0],
-                                            }
-                                        )
-                                        logging.warning(
-                                            f"Failed to validate first item in repaired list: {str(e)}"
-                                        )
-
-                            # Handle dict responses
-                            if isinstance(json_data, dict):
-                                try:
-                                    return CitationAnalysis.model_validate(json_data)
-                                except Exception as e:
-                                    validation_errors.append(
-                                        {
-                                            "stage": "repaired_dict_validation",
-                                            "error": str(e),
-                                            "input": json_data,
-                                        }
-                                    )
-                                    logging.warning(
-                                        f"Failed to validate repaired dict: {str(e)}"
-                                    )
-                        except json.JSONDecodeError:
-                            validation_errors.append(
-                                {
-                                    "stage": "json_repair",
-                                    "error": "Failed to parse repaired JSON",
-                                    "input": repaired_json,
-                                }
-                            )
-                            logging.warning("Failed to parse repaired JSON")
+                return CitationAnalysis.model_validate(json_data)
             except Exception as e:
                 validation_errors.append(
-                    {"stage": "text_parsing", "error": str(e), "input": response.text}
+                    {
+                        "stage": f"{prefix}dict_validation",
+                        "error": str(e),
+                        "input": json_data,
+                    }
                 )
-                logging.warning(f"Failed parsing response.text: {str(e)}")
+                logging.warning(f"Failed to validate {prefix}dict: {str(e)}")
 
-        # Store debug info in thread-local storage
+        # Store for potential fallback
+        ResponseSerializer._thread_local.input_data = json_data
+        return None
+
+    @staticmethod
+    def _try_create_fallback(validation_errors: List) -> Optional[CitationAnalysis]:
+        """Attempt to create a minimal valid CitationAnalysis as fallback."""
+        if not hasattr(ResponseSerializer, "_thread_local") or not hasattr(
+            ResponseSerializer._thread_local, "input_data"
+        ):
+            return None
+
+        input_data = ResponseSerializer._thread_local.input_data
+        if not input_data:
+            return None
+
+        try:
+            # Try to construct a minimal valid CitationAnalysis from whatever we have
+            if isinstance(input_data, dict):
+                return ResponseSerializer._create_minimal_citation_analysis(input_data)
+            elif (
+                isinstance(input_data, list)
+                and len(input_data) > 0
+                and isinstance(input_data[0], dict)
+            ):
+                return ResponseSerializer._create_minimal_citation_analysis(
+                    input_data[0]
+                )
+        except Exception as e:
+            validation_errors.append(
+                {"stage": "fallback_creation", "error": str(e), "input": input_data}
+            )
+            logging.warning(f"Failed to create fallback CitationAnalysis: {str(e)}")
+
+        return None
+
+    @staticmethod
+    def _create_minimal_citation_analysis(data: Dict) -> CitationAnalysis:
+        """Create a minimal valid CitationAnalysis from a dictionary."""
+        date = data.get("date", datetime.now().date().isoformat())
+        brief_summary = data.get("brief_summary", "No summary available")
+
+        return CitationAnalysis(
+            date=date,
+            brief_summary=brief_summary,
+            majority_opinion_citations=[],
+            concurring_opinion_citations=[],
+            dissenting_citations=[],
+        )
+
+    @staticmethod
+    def _save_debug_info(raw_response: Dict, validation_errors: List) -> None:
+        """Save debug information to thread-local storage."""
         if not hasattr(ResponseSerializer, "_thread_local"):
             ResponseSerializer._thread_local = local()
 
         ResponseSerializer._thread_local.last_raw_response = raw_response
         ResponseSerializer._thread_local.last_validation_errors = validation_errors
-
-        # Final fallback: Try to create a minimal valid CitationAnalysis
-        # Only if we have some data to work with
-        if input_data:
-            try:
-                # Try to construct a minimal valid CitationAnalysis from whatever we have
-                if isinstance(input_data, dict):
-                    # Extract what we can from the dict
-                    date = input_data.get("date", datetime.now().date().isoformat())
-                    brief_summary = input_data.get(
-                        "brief_summary", "No summary available"
-                    )
-
-                    # Try to create a minimal valid object
-                    return CitationAnalysis(
-                        date=date,
-                        brief_summary=brief_summary,
-                        majority_opinion_citations=[],
-                        concurring_opinion_citations=[],
-                        dissenting_citations=[],
-                    )
-                elif (
-                    isinstance(input_data, list)
-                    and len(input_data) > 0
-                    and isinstance(input_data[0], dict)
-                ):
-                    # Extract what we can from the first item in the list
-                    first_item = input_data[0]
-                    date = first_item.get("date", datetime.now().date().isoformat())
-                    brief_summary = first_item.get(
-                        "brief_summary", "No summary available"
-                    )
-
-                    # Try to create a minimal valid object
-                    return CitationAnalysis(
-                        date=date,
-                        brief_summary=brief_summary,
-                        majority_opinion_citations=[],
-                        concurring_opinion_citations=[],
-                        dissenting_citations=[],
-                    )
-            except Exception as e:
-                validation_errors.append(
-                    {"stage": "fallback_creation", "error": str(e), "input": input_data}
-                )
-                logging.warning(f"Failed to create fallback CitationAnalysis: {str(e)}")
-
-        # If all attempts fail, return None
-        logging.warning("All parsing attempts failed, returning None")
-        return None
 
     @staticmethod
     def get_last_debug_info():
