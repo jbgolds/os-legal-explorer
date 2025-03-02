@@ -166,7 +166,7 @@ class RateLimiter:
         self.concurrent_semaphore.release()
 
 
-def repair_json_string(json_str: str) -> str:
+def repair_json_string(json_str: str) -> Optional[str]:
     """
     Simple JSON repair function that tries to fix common issues.
 
@@ -174,7 +174,7 @@ def repair_json_string(json_str: str) -> str:
         json_str: Potentially malformed JSON string
 
     Returns:
-        Repaired JSON string or None if repair fails
+        Repaired JSON string if successful, otherwise None. Note: Although json.loads returns a dictionary, we use it here only for validation and still return the JSON string.
     """
     try:
         # First try standard repair
@@ -480,16 +480,17 @@ class GeminiClient:
         return self.worker_data.worker_id
 
     def combine_chunk_responses(
-        self, responses: List[CitationAnalysis]
-    ) -> Optional[Dict]:
+        self, responses: List[CitationAnalysis], cluster_id: int
+    ) -> Optional[CombinedResolvedCitationAnalysis]:
         """
         Combine multiple chunk responses into a single citation analysis result.
 
         Args:
             responses: List of CitationAnalysis objects from processing chunks
+            cluster_id: The cluster ID to associate with the combined response
 
         Returns:
-            Optional[Dict]: Combined citation analysis in dictionary format, or None if no valid responses
+            CombinedResolvedCitationAnalysis or None if no valid responses
 
         Raises:
             ValueError: If no valid CitationAnalysis objects are provided
@@ -500,22 +501,23 @@ class GeminiClient:
             logging.warning("No valid responses to combine")
             return None
 
-        # Use the cluster_id from the first response if available
-        cluster_id = getattr(valid_responses[0], "cluster_id", 0)
-
         try:
             # Create combined analysis using from_citations
             combined = CombinedResolvedCitationAnalysis.from_citations(
                 valid_responses, cluster_id
             )
-            return combined.model_dump()
+            return combined
         except Exception as e:
             logging.error(f"Error combining responses: {str(e)}")
             return None
 
     def generate_content_with_chat(
-        self, text: str, model: str = "gemini-2.0-flash-001", max_retries: int = 3
-    ) -> Union[List[Dict], Dict]:
+        self,
+        text: str,
+        cluster_id: int,
+        model: str = "gemini-2.0-flash-001",
+        max_retries: int = 3,
+    ) -> Optional[CombinedResolvedCitationAnalysis]:
         """Generate content using chat history for better context preservation."""
         model = model or self.model
         worker_id = self.get_worker_id()
@@ -611,7 +613,10 @@ class GeminiClient:
         if word_count <= 10000:
             try:
                 result = process_single_chunk(text, self.config)
-                return [result] if result else []
+                # Always run through combine_chunk_responses for consistent typing
+                if result:
+                    return self.combine_chunk_responses([result], cluster_id)
+                return None
             except Exception as e:
                 logging.error(
                     f"Worker {worker_id}: Processing failed for text of length {word_count}: {str(e)}"
@@ -723,8 +728,8 @@ class GeminiClient:
                 logging.warning(
                     f"Worker {worker_id}: No valid responses were collected during processing (all {len(chunks)} chunks failed)"
                 )
-                # Return an empty list instead of raising an error to maintain consistency
-                return []
+                # Return None instead of an empty list
+                return None
 
             # Log chunk success rate
             logging.info(
@@ -732,18 +737,15 @@ class GeminiClient:
                 f"({len(responses)/len(chunks)*100:.1f}% success rate)"
             )
 
-            # If multiple responses were collected, merge them into one consolidated result
-            if len(responses) > 1:
-                try:
-                    merged = self.combine_chunk_responses(responses)
-                    return [merged]
-                except Exception as e:
-                    logging.error(
-                        f"Worker {worker_id}: Failed to combine chunk responses: {str(e)}"
-                    )
-                    # Return the first valid response if combining fails
-                    return [responses[0]]
-            return responses
+            # Merge all responses into one consolidated result
+            try:
+                return self.combine_chunk_responses(responses, cluster_id)
+            except Exception as e:
+                logging.error(
+                    f"Worker {worker_id}: Failed to combine chunk responses: {str(e)}"
+                )
+                # Don't try to salvage partial responses, just return None so caller can retry
+                return None
 
         except Exception as e:
             logging.error(
@@ -767,7 +769,7 @@ class GeminiClient:
         max_workers: Optional[int] = None,
         output_file: Optional[str] = None,
         batch_size: int = 10,
-    ) -> Dict[Any, Any]:
+    ) -> Dict[int, Optional[CombinedResolvedCitationAnalysis]]:
         """Process a DataFrame of content generation requests using thread pool."""
         # Adjust max_workers based on DataFrame size and rate limit
         if max_workers is None:
@@ -780,7 +782,7 @@ class GeminiClient:
         # Adjust batch_size to be no larger than the DataFrame
         batch_size = min(batch_size, len(df))
 
-        results = {}
+        results: Dict[int, Optional[CombinedResolvedCitationAnalysis]] = {}
         errors = []
         total_processed = 0
 
@@ -790,13 +792,19 @@ class GeminiClient:
             "validation_errors": {},
         }
 
-        def process_row(row) -> tuple[str, List[Dict], Optional[str], dict]:
+        def process_row(
+            row,
+        ) -> tuple[
+            int, Optional[CombinedResolvedCitationAnalysis], Optional[str], dict
+        ]:
             worker_id = self.get_worker_id()
             try:
                 logging.info(
                     f"Worker {worker_id}: Starting processing cluster_id {row['cluster_id']}"
                 )
-                result = self.generate_content_with_chat(row[text_column], model)
+                result = self.generate_content_with_chat(
+                    row[text_column], row["cluster_id"], model
+                )
 
                 # Collect debug info
                 raw_response, validation_errors = (
@@ -810,12 +818,12 @@ class GeminiClient:
                 logging.info(
                     f"Worker {worker_id}: Finished processing cluster_id {row['cluster_id']}"
                 )
-                return row["cluster_id"], result, None, row_debug
+                return int(row["cluster_id"]), result, None, row_debug
             except Exception as e:
                 logging.error(
                     f"Worker {worker_id}: Error processing cluster_id {row['cluster_id']}: {str(e)}"
                 )
-                return row["cluster_id"], None, str(e), {}
+                return int(row["cluster_id"]), None, str(e), {}
 
         logging.info(
             f"Processing {len(df)} rows with {max_workers} workers in batches of {batch_size}"
@@ -859,18 +867,18 @@ class GeminiClient:
                             )
 
                         if error:
-                            errors.append(
-                                {"cluster_id": str(cluster_id), "error": error}
-                            )
+                            errors.append({"cluster_id": cluster_id, "error": error})
 
                         if output_file:
                             # Use atomic write to prevent corruption
                             tmp_file = f"{output_file}.tmp"
                             with open(tmp_file, "w") as f:
-                                json.dump(
-                                    {str(cid): resp for cid, resp in results.items()},
-                                    f,
-                                )
+                                # Only convert to dict when writing to file
+                                serialized_results = {
+                                    str(cid): (item.model_dump() if item else None)
+                                    for cid, item in results.items()
+                                }
+                                json.dump(serialized_results, f)
                             os.replace(tmp_file, output_file)
 
                     except Exception as e:

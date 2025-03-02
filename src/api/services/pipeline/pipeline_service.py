@@ -3,10 +3,12 @@ import json
 import logging
 from eyecite import clean_text
 import pandas as pd
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Union, Callable, TypeVar, cast
 from datetime import datetime
 from sqlalchemy.orm import Session
-
+from src.llm_extraction.models import CitationAnalysis
+from pydantic import TypeAdapter
+from typing import List
 
 # Use the consolidated citation parser
 from .pipeline_model import JobStatus, JobType, ExtractionConfig
@@ -50,6 +52,71 @@ class PipelineJob:
 # In a production environment, this would be stored in a database using SQLAlchemy models
 _jobs = {}
 _next_job_id = 1
+
+
+# Helper functions for common operations
+def save_to_tmp(
+    data: Any, filename_prefix: str, as_json: bool = True, ensure_ascii: bool = False
+) -> str:
+    """
+    Save data to a temporary file with timestamp.
+
+    Args:
+        data: Data to save
+        filename_prefix: Prefix for the filename
+        as_json: Whether to save as JSON (True) or CSV (False)
+        ensure_ascii: Whether to escape non-ASCII characters in JSON
+
+    Returns:
+        Path to the saved file
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{filename_prefix}_{timestamp}.{'json' if as_json else 'csv'}"
+    output_path = os.path.join("/tmp", filename)
+
+    if as_json:
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=ensure_ascii)
+    else:
+        # Assume pandas DataFrame for non-JSON data
+        data.to_csv(output_path, index=False)
+
+    return output_path
+
+
+T = TypeVar("T")
+
+
+def job_step(
+    db: Session, job_id: int, step_name: str, progress: float, fn: Callable[[], T]
+) -> T:
+    """
+    Execute a job step with automatic status updates.
+
+    Args:
+        db: Database session
+        job_id: Job ID
+        step_name: Name of the step
+        progress: Progress value (0-100)
+        fn: Function to execute during the step
+
+    Returns:
+        Result of the function execution
+    """
+    # Update status before executing
+    update_job_status(
+        db,
+        job_id,
+        JobStatus.PROCESSING,
+        progress=progress,
+        message=f"Starting {step_name}",
+    )
+
+    # Execute the function
+    result = fn()
+
+    # Return the result
+    return result
 
 
 def create_job(db: Session, job_type: str, config: Dict[str, Any]) -> int:
@@ -445,104 +512,45 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
         if extraction_job["status"] != JobStatus.COMPLETED:
             raise ValueError(f"Extraction job {extraction_job_id} is not completed")
 
-        # Load extracted opinions CSV
-        raw_csv_path = extraction_job["result_path"]
-        df = pd.read_csv(raw_csv_path)
+        # Load and clean data
+        df = pd.read_csv(extraction_job["result_path"])
+        cleaned_df = job_step(
+            db, job_id, "data cleaning", 20.0, lambda: clean_extracted_opinions(df)
+        )
 
-        # Clean and transform the dataframe using the helper function
-        cleaned_df = clean_extracted_opinions(df)
+        # Save intermediate CSV
+        cleaned_output_path = save_to_tmp(
+            cleaned_df, "extracted_opinions_cleaned", as_json=False
+        )
+        logger.info(f"Saved cleaned opinions to {cleaned_output_path}")
 
-        # Save cleaned CSV
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        cleaned_output_file = f"extracted_opinions_cleaned_{timestamp}.csv"
-        cleaned_output_path = os.path.join("/tmp", cleaned_output_file)
-        cleaned_df.to_csv(cleaned_output_path, index=False)
-
-        # Update job status
-        update_job_status(
+        # Process with LLM
+        gemini_client = job_step(
             db,
             job_id,
-            JobStatus.PROCESSING,
-            progress=20.0,
-            message=f"Cleaned extracted opinions: {len(cleaned_df)} records ready for LLM processing",
+            "LLM client initialization",
+            30.0,
+            lambda: GeminiClient(
+                api_key=os.getenv("GEMINI_API_KEY"), rpm_limit=15, max_concurrent=10
+            ),
         )
 
-        # Initialize Gemini client
-        update_job_status(
+        results = job_step(
             db,
             job_id,
-            JobStatus.PROCESSING,
-            progress=30.0,
-            message="Initializing LLM client",
+            f"LLM processing of {len(cleaned_df)} opinions",
+            40.0,
+            lambda: gemini_client.process_dataframe(
+                cleaned_df, text_column="text", max_workers=10
+            ),
         )
 
-        gemini_client = GeminiClient(
-            api_key=os.getenv("GEMINI_API_KEY"), rpm_limit=15, max_concurrent=10
-        )
-
-        # Process opinions using the cleaned text column
-        update_job_status(
-            db,
-            job_id,
-            JobStatus.PROCESSING,
-            progress=40.0,
-            message=f"Processing {len(cleaned_df)} opinions with LLM",
-        )
-
-        # Here we use the 'text' column from cleaned_df
-        results = gemini_client.process_dataframe(
-            cleaned_df, text_column="text", max_workers=10
-        )
-
-        # Note: The gemini_client already saves a comprehensive debug file with raw responses
-        # and validation errors to /tmp/gemini_debug_TIMESTAMP.json
-
-        # Save LLM results
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = f"llm_results_{timestamp}.json"
-        output_path = os.path.join("/tmp", output_file)
-
-        # Convert CitationAnalysis objects to dictionaries before serialization
-        serializable_results = {}
-        for cluster_id, result_list in results.items():
-            if result_list is not None:
-                # Handle both single objects and lists
-                if isinstance(result_list, list):
-                    serializable_results[cluster_id] = [
-                        item.model_dump() if hasattr(item, "model_dump") else item
-                        for item in result_list
-                    ]
-                else:
-                    serializable_results[cluster_id] = (
-                        result_list.model_dump()
-                        if hasattr(result_list, "model_dump")
-                        else result_list
-                    )
-
-        # Preprocess LLM results to ensure required fields are present and normalized
-        for cluster_id, results in serializable_results.items():
-            if results:
-                # If results is a list, process each citation dict
-                if isinstance(results, list):
-                    for item in results:
-                        if isinstance(item, dict):
-                            if "relevance" in item and item["relevance"] == "":
-                                item["relevance"] = -1
-                            if "dissenting_citations" not in item:
-                                item["dissenting_citations"] = []
-                            if "concurring_opinion_citations" not in item:
-                                item["concurring_opinion_citations"] = []
-                            if "majority_opinion_citations" not in item:
-                                item["majority_opinion_citations"] = []
-                # If results is a dict, process it directly
-                elif isinstance(results, dict):
-                    if "relevance" in results and results["relevance"] == "":
-                        results["relevance"] = -1
-                    if "dissenting_citations" not in results:
-                        results["dissenting_citations"] = []
-
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(serializable_results, f, indent=2, ensure_ascii=False)
+        # Prepare and save results
+        results_dump = {
+            str(k): v.model_dump() if v is not None else None
+            for k, v in results.items()
+        }
+        output_path = save_to_tmp(results_dump, "llm_results", ensure_ascii=False)
 
         # Update job status to completed
         update_job_status(
@@ -588,204 +596,86 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
         if llm_job["status"] != JobStatus.COMPLETED:
             raise ValueError(f"LLM job {llm_job_id} is not completed")
 
-        # Load LLM results
-        update_job_status(
-            db,
-            job_id,
-            JobStatus.PROCESSING,
-            progress=10.0,
-            message="Loading LLM results",
-        )
+        # Load and validate LLM results
+        def load_and_validate_llm_data():
+            with open(llm_job["result_path"], "r", encoding="utf-8") as f:
+                llm_json = json.load(f)
 
-        # Load the actual JSON file
-        with open(llm_job["result_path"], "r", encoding="utf-8") as f:
-            llm_results = json.load(f)
+            # Create type adapters for validation
+            list_adapter = TypeAdapter(List[CitationAnalysis])
+            single_adapter = TypeAdapter(CitationAnalysis)
 
-        # Resolve citations
-        update_job_status(
-            db,
-            job_id,
-            JobStatus.PROCESSING,
-            progress=30.0,
-            message="Resolving citations",
-        )
-
-        # Process and resolve citations
-        resolved_citations = []
-        resolution_errors = {}
-
-        def is_valid_cluster_id(cluster_id):
-            """Helper function to validate cluster IDs"""
-            if (
-                not cluster_id
-                or cluster_id == "null"
-                or cluster_id == "undefined"
-                or str(cluster_id).strip() == ""
-            ):
-                return False
-            return True
-
-        def process_citation(citation_data):
-            """Helper function to validate a citation and return a Citation object"""
-            try:
-                return Citation.model_validate(citation_data)
-            except Exception as e:
-                citation_text = (
-                    citation_data["citation_text"]
-                    if "citation_text" in citation_data
-                    else "unknown"
-                )
-                logger.warning(f"Invalid citation: {citation_text}: {str(e)}")
-                return None
-
-        # Create a direct mapping of cluster_id to valid CitationAnalysis objects
-        cluster_analyses = {}
-
-        for cluster_id, results in llm_results.items():
-            # Skip invalid cluster IDs
-            if not is_valid_cluster_id(cluster_id):
-                logger.warning(f"Invalid cluster ID: {cluster_id}, skipping")
-                resolution_errors[str(cluster_id)] = {
-                    "error": "Invalid cluster ID",
-                    "input_data": results,
-                }
-                continue
-
-            # Skip empty results
-            if not results:
-                logger.warning(f"Empty results for cluster {cluster_id}, skipping")
-                continue
-
-            try:
-                # Process items and create CitationAnalysis objects directly
-                items = results if isinstance(results, list) else [results]
-                analyses = []
-
-                for item in items:
-                    if not isinstance(item, dict):
-                        logger.warning(
-                            f"Skipping non-dictionary item for cluster {cluster_id}"
-                        )
+            validated_results = {}
+            for cluster_id, dumped in llm_json.items():
+                try:
+                    if dumped is None:
                         continue
 
-                    # Process citation lists directly with validation
-                    majority_citations = []
-                    if "majority_opinion_citations" in item and isinstance(
-                        item["majority_opinion_citations"], list
-                    ):
-                        for citation in item["majority_opinion_citations"]:
-                            citation_obj = process_citation(citation)
-                            if citation_obj:
-                                majority_citations.append(citation_obj)
+                    # Try parsing as a list first, then as a single object
+                    try:
+                        validated = list_adapter.validate_json(dumped)
+                    except Exception:
+                        single_obj = single_adapter.validate_json(dumped)
+                        validated = [single_obj]
 
-                    concurring_citations = []
-                    if "concurring_opinion_citations" in item and isinstance(
-                        item["concurring_opinion_citations"], list
-                    ):
-                        for citation in item["concurring_opinion_citations"]:
-                            citation_obj = process_citation(citation)
-                            if citation_obj:
-                                concurring_citations.append(citation_obj)
+                    validated_results[cluster_id] = validated
+                except Exception as e:
+                    logger.error(f"Error validating cluster {cluster_id}: {str(e)}")
 
-                    dissenting_citations = []
-                    if "dissenting_citations" in item and isinstance(
-                        item["dissenting_citations"], list
-                    ):
-                        for citation in item["dissenting_citations"]:
-                            citation_obj = process_citation(citation)
-                            if citation_obj:
-                                dissenting_citations.append(citation_obj)
+            return validated_results
 
-                    # Only create if we have required data
-                    if (
-                        "date" in item
-                        or "brief_summary" in item
-                        or majority_citations
-                        or concurring_citations
-                        or dissenting_citations
-                    ):
-                        try:
-                            # Use direct dictionary access with fallbacks
-                            date = (
-                                item["date"]
-                                if "date" in item
-                                else datetime.now().date().isoformat()
-                            )
-                            brief_summary = (
-                                item["brief_summary"]
-                                if "brief_summary" in item
-                                else f"Summary for cluster {cluster_id}"
-                            )
-
-                            # Create a validated CitationAnalysis object directly
-                            analysis = CitationAnalysis(
-                                date=date,
-                                brief_summary=brief_summary,
-                                majority_opinion_citations=majority_citations,
-                                concurring_opinion_citations=concurring_citations,
-                                dissenting_citations=dissenting_citations,
-                            )
-                            analyses.append(analysis)
-                        except Exception as e:
-                            logger.warning(
-                                f"Error creating CitationAnalysis for cluster {cluster_id}: {str(e)}"
-                            )
-
-                # Store analyses if any were successfully created
-                if analyses:
-                    cluster_analyses[cluster_id] = analyses
-
-            except Exception as e:
-                logger.warning(f"Error processing cluster {cluster_id}: {str(e)}")
-                resolution_errors[str(cluster_id)] = {
-                    "error": str(e),
-                    "input_data": results,
-                }
-
-        # Create CombinedResolvedCitationAnalysis objects from validated CitationAnalysis objects
-        for cluster_id, analyses in cluster_analyses.items():
-            try:
-                # Create the combined analysis
-                combined_analysis = CombinedResolvedCitationAnalysis.from_citations(
-                    analyses, int(cluster_id)
-                )
-                if combined_analysis:
-                    resolved_citations.append(combined_analysis)
-            except Exception as e:
-                logger.warning(
-                    f"Error creating combined analysis for cluster {cluster_id}: {str(e)}"
-                )
-                resolution_errors[str(cluster_id)] = {
-                    "error": f"Error in combined analysis: {str(e)}",
-                    "analyses_count": len(analyses),
-                }
-
-        # Log summary information
-        logger.info(
-            f"Processed {len(llm_results)} clusters, created {len(resolved_citations)} valid resolved citations"
+        validated_llm_results = job_step(
+            db, job_id, "data validation", 20.0, load_and_validate_llm_data
         )
-        if resolution_errors:
-            logger.warning(
-                f"Encountered {len(resolution_errors)} errors during citation resolution"
-            )
 
-        # Save results
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = f"resolved_citations_{timestamp}.json"
-        output_path = os.path.join("/tmp", output_file)
+        # Process all validated results and create combined analyses
+        def create_combined_analyses():
+            resolved = []
+            errors = {}
 
-        # Save only valid citation objects
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(
-                [
-                    citation.model_dump()
-                    for citation in resolved_citations
-                    if citation is not None
-                ],
-                f,
-                indent=2,
-                ensure_ascii=False,  # Preserve Unicode characters
+            for cluster_id, analyses in validated_llm_results.items():
+                if not analyses:
+                    continue
+
+                try:
+                    combined = CombinedResolvedCitationAnalysis.from_citations(
+                        analyses, int(cluster_id)
+                    )
+                    if combined:
+                        resolved.append(combined)
+                except Exception as e:
+                    logger.warning(
+                        f"Error creating combined analysis for cluster {cluster_id}: {str(e)}"
+                    )
+                    errors[str(cluster_id)] = {
+                        "error": f"Error in combined analysis: {str(e)}",
+                        "analyses_count": len(analyses),
+                    }
+
+            # Log summary information
+            logger.info(
+                f"Processed {len(validated_llm_results)} clusters, created {len(resolved)} valid citations"
             )
+            if errors:
+                logger.warning(
+                    f"Encountered {len(errors)} errors during citation resolution"
+                )
+
+            return resolved, errors
+
+        resolved_citations, resolution_errors = job_step(
+            db, job_id, "combining analyses", 50.0, create_combined_analyses
+        )
+
+        # Serialize and save results
+        serialized_citations = [
+            citation.model_dump()
+            for citation in resolved_citations
+            if citation is not None
+        ]
+        output_path = save_to_tmp(
+            serialized_citations, "resolved_citations", ensure_ascii=False
+        )
 
         # Update job status to complete
         update_job_status(
