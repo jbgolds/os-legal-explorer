@@ -1,19 +1,21 @@
 import os
 import json
 import logging
+from eyecite import clean_text
 import pandas as pd
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
-import time
+
 
 # Use the consolidated citation parser
-from src.citation.parser import clean_text, repair_json, JSON_REPAIR_AVAILABLE
-
-from ..models.pipeline import JobStatus, JobType, ExtractionConfig
+from .pipeline_model import JobStatus, JobType, ExtractionConfig
 from src.llm_extraction.rate_limited_gemini import GeminiClient
-from src.llm_extraction.models import CombinedResolvedCitationAnalysis
+from src.llm_extraction.models import (
+    CombinedResolvedCitationAnalysis,
+    CitationAnalysis,
+    Citation,
+)
 from src.neo4j.neomodel_loader import NeomodelLoader
 
 logger = logging.getLogger(__name__)
@@ -249,17 +251,17 @@ def clean_extracted_opinions(df: pd.DataFrame) -> pd.DataFrame:
     new_df = new_df[new_df["text_source"] != "no_text"]
 
     # Filter out cases with fewer than 250 words
-    new_df = new_df[new_df["text"].str.split().str.len() > 100]
+    # new_df = new_df[new_df["text"].str.split().str.len() > 100]
 
-    # Filter out rows containing specific petition phrases
-    petition_phrases = [
-        "Certiorari denied",
-        "Petition for writ of mandamus denied",
-        "Petitions for rehearing denied.",
-        "Petition for writ of habeas corpus denied",
-    ]
-    for phrase in petition_phrases:
-        new_df = new_df[~new_df["text"].fillna("").str.contains(phrase, na=False)]
+    # # Filter out rows containing specific petition phrases
+    # petition_phrases = [
+    #     "Certiorari denied",
+    #     "Petition for writ of mandamus denied",
+    #     "Petitions for rehearing denied.",
+    #     "Petition for writ of habeas corpus denied",
+    # ]
+    # for phrase in petition_phrases:
+    #     new_df = new_df[~new_df["text"].fillna("").str.contains(phrase, na=False)]
 
     if "soc_date_filed" in new_df.columns:
         new_df["soc_date_filed"] = pd.to_datetime(
@@ -487,26 +489,13 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
             message=f"Processing {len(cleaned_df)} opinions with LLM",
         )
 
-        # Save raw responses for debugging
-        raw_responses = {}
-        validation_errors = {}
-
         # Here we use the 'text' column from cleaned_df
         results = gemini_client.process_dataframe(
             cleaned_df, text_column="text", max_workers=10
         )
 
-        # Save raw responses and validation errors
-        debug_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        raw_responses_file = f"llm_raw_responses_{debug_timestamp}.json"
-        validation_errors_file = f"llm_validation_errors_{debug_timestamp}.json"
-        raw_responses_path = os.path.join("/tmp", raw_responses_file)
-        validation_errors_path = os.path.join("/tmp", validation_errors_file)
-
-        with open(raw_responses_path, "w") as f:
-            json.dump(raw_responses, f, indent=2)
-        with open(validation_errors_path, "w") as f:
-            json.dump(validation_errors, f, indent=2)
+        # Note: The gemini_client already saves a comprehensive debug file with raw responses
+        # and validation errors to /tmp/gemini_debug_TIMESTAMP.json
 
         # Save LLM results
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -541,10 +530,10 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
                                 item["relevance"] = -1
                             if "dissenting_citations" not in item:
                                 item["dissenting_citations"] = []
-                            if "concurring_citations" not in item:
-                                item["concurring_citations"] = []
-                            if "majority_citations" not in item:
-                                item["majority_citations"] = []
+                            if "concurring_opinion_citations" not in item:
+                                item["concurring_opinion_citations"] = []
+                            if "majority_opinion_citations" not in item:
+                                item["majority_opinion_citations"] = []
                 # If results is a dict, process it directly
                 elif isinstance(results, dict):
                     if "relevance" in results and results["relevance"] == "":
@@ -552,8 +541,8 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
                     if "dissenting_citations" not in results:
                         results["dissenting_citations"] = []
 
-        with open(output_path, "w") as f:
-            json.dump(serializable_results, f, indent=2)
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(serializable_results, f, indent=2, ensure_ascii=False)
 
         # Update job status to completed
         update_job_status(
@@ -561,14 +550,11 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
             job_id,
             JobStatus.COMPLETED,
             progress=100.0,
-            message=f"Processed {len(results)} opinions with LLM. Debug files: raw_responses={raw_responses_file}, validation_errors={validation_errors_file}",
+            message=f"Processed {len(results)} opinions with LLM",
             result_path=output_path,
         )
 
         logger.info(f"Completed LLM job {job_id}, saved to {output_path}")
-        logger.info(
-            f"Debug files saved: {raw_responses_path}, {validation_errors_path}"
-        )
 
     except Exception as e:
         logger.error(f"Error in LLM job {job_id}: {str(e)}")
@@ -612,35 +598,8 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
         )
 
         # Load the actual JSON file
-        with open(llm_job["result_path"], "r") as f:
+        with open(llm_job["result_path"], "r", encoding="utf-8") as f:
             llm_results = json.load(f)
-
-        # Preprocess LLM results to ensure required fields are present and normalized
-        for cluster_id, results in llm_results.items():
-            if results:
-                # If results is a list, process each citation dict
-                if isinstance(results, list):
-                    for item in results:
-                        if isinstance(item, dict):
-                            if "relevance" in item and item["relevance"] == "":
-                                item["relevance"] = -1
-                            if "dissenting_citations" not in item:
-                                item["dissenting_citations"] = []
-                # If results is a dict, process it directly
-                elif isinstance(results, dict):
-                    if "relevance" in results and results["relevance"] == "":
-                        results["relevance"] = -1
-                    if "dissenting_citations" not in results:
-                        results["dissenting_citations"] = []
-
-        # End preprocessing
-
-        # Save intermediate state for debugging
-        debug_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        intermediate_file = f"resolution_intermediate_{debug_timestamp}.json"
-        intermediate_path = os.path.join("/tmp", intermediate_file)
-        with open(intermediate_path, "w") as f:
-            json.dump(llm_results, f, indent=2)
 
         # Resolve citations
         update_job_status(
@@ -655,111 +614,168 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
         resolved_citations = []
         resolution_errors = {}
 
-        for cluster_id, results in llm_results.items():
+        def is_valid_cluster_id(cluster_id):
+            """Helper function to validate cluster IDs"""
+            if (
+                not cluster_id
+                or cluster_id == "null"
+                or cluster_id == "undefined"
+                or str(cluster_id).strip() == ""
+            ):
+                return False
+            return True
+
+        def process_citation(citation_data):
+            """Helper function to validate a citation and return a Citation object"""
             try:
-                # Skip invalid cluster IDs
-                if (
-                    not cluster_id
-                    or cluster_id == "null"
-                    or cluster_id == "undefined"
-                    or str(cluster_id).strip() == ""
-                ):
-                    logger.warning(f"Invalid cluster ID: {cluster_id}, skipping")
-                    resolution_errors[str(cluster_id)] = {
-                        "error": "Invalid cluster ID",
-                        "input_data": results,
-                    }
-                    continue
-
-                # For empty results, only create a default if we have a valid cluster ID
-                if not results:
-                    logger.warning(
-                        f"Empty results for cluster {cluster_id}, creating default"
-                    )
-                    resolution_errors[cluster_id] = {
-                        "error": "Empty LLM results",
-                        "input_data": results,
-                    }
-                    # Create a default citation analysis instead of skipping
-                    default_analysis = CombinedResolvedCitationAnalysis.from_citations_json(
-                        {
-                            "date": "1500-01-01",
-                            "brief_summary": f"[DEFAULT] Empty results for cluster {cluster_id}",
-                        },
-                        int(cluster_id),
-                    )
-                    if default_analysis:
-                        resolved_citations.append(default_analysis)
-                    continue
-
-                citation_analysis = (
-                    CombinedResolvedCitationAnalysis.from_citations_json(
-                        results, int(cluster_id)
-                    )
-                )
-                if citation_analysis:  # Only append if we got a valid result
-                    resolved_citations.append(citation_analysis)
-                else:
-                    logger.warning(
-                        f"Failed to create citation analysis for cluster {cluster_id}, creating default"
-                    )
-                    resolution_errors[cluster_id] = {
-                        "error": "Failed to create citation analysis",
-                        "input_data": results,
-                    }
-                    # Create a default citation analysis instead of skipping
-                    default_analysis = CombinedResolvedCitationAnalysis.from_citations_json(
-                        {
-                            "date": "1500-01-01",
-                            "brief_summary": f"[DEFAULT] Failed to create citation analysis for cluster {cluster_id}",
-                        },
-                        int(cluster_id),
-                    )
-                    if default_analysis:
-                        resolved_citations.append(default_analysis)
+                return Citation.model_validate(citation_data)
             except Exception as e:
-                error_msg = str(e)
-                logger.warning(
-                    f"Error resolving citations for cluster {cluster_id}: {error_msg}"
+                citation_text = (
+                    citation_data["citation_text"]
+                    if "citation_text" in citation_data
+                    else "unknown"
                 )
+                logger.warning(f"Invalid citation: {citation_text}: {str(e)}")
+                return None
+
+        # Create a direct mapping of cluster_id to valid CitationAnalysis objects
+        cluster_analyses = {}
+
+        for cluster_id, results in llm_results.items():
+            # Skip invalid cluster IDs
+            if not is_valid_cluster_id(cluster_id):
+                logger.warning(f"Invalid cluster ID: {cluster_id}, skipping")
                 resolution_errors[str(cluster_id)] = {
-                    "error": error_msg,
+                    "error": "Invalid cluster ID",
                     "input_data": results,
                 }
-                # Only create a default citation analysis if we have a valid cluster ID
-                try:
-                    # Check if cluster_id is valid
-                    if (
-                        cluster_id
-                        and str(cluster_id).strip()
-                        and str(cluster_id) not in ["null", "undefined"]
-                    ):
-                        default_analysis = CombinedResolvedCitationAnalysis.from_citations_json(
-                            {
-                                "date": "1500-01-01",
-                                "brief_summary": f"[DEFAULT] Error: {error_msg[:200]}",
-                            },
-                            int(cluster_id),
-                        )
-                        if default_analysis:
-                            resolved_citations.append(default_analysis)
-                except Exception as e2:
-                    logger.error(
-                        f"Failed to create default citation analysis: {str(e2)}"
-                    )
+                continue
 
-        # Save resolution errors for debugging
-        errors_file = f"resolution_errors_{debug_timestamp}.json"
-        errors_path = os.path.join("/tmp", errors_file)
-        with open(errors_path, "w") as f:
-            json.dump(resolution_errors, f, indent=2)
+            # Skip empty results
+            if not results:
+                logger.warning(f"Empty results for cluster {cluster_id}, skipping")
+                continue
+
+            try:
+                # Process items and create CitationAnalysis objects directly
+                items = results if isinstance(results, list) else [results]
+                analyses = []
+
+                for item in items:
+                    if not isinstance(item, dict):
+                        logger.warning(
+                            f"Skipping non-dictionary item for cluster {cluster_id}"
+                        )
+                        continue
+
+                    # Process citation lists directly with validation
+                    majority_citations = []
+                    if "majority_opinion_citations" in item and isinstance(
+                        item["majority_opinion_citations"], list
+                    ):
+                        for citation in item["majority_opinion_citations"]:
+                            citation_obj = process_citation(citation)
+                            if citation_obj:
+                                majority_citations.append(citation_obj)
+
+                    concurring_citations = []
+                    if "concurring_opinion_citations" in item and isinstance(
+                        item["concurring_opinion_citations"], list
+                    ):
+                        for citation in item["concurring_opinion_citations"]:
+                            citation_obj = process_citation(citation)
+                            if citation_obj:
+                                concurring_citations.append(citation_obj)
+
+                    dissenting_citations = []
+                    if "dissenting_citations" in item and isinstance(
+                        item["dissenting_citations"], list
+                    ):
+                        for citation in item["dissenting_citations"]:
+                            citation_obj = process_citation(citation)
+                            if citation_obj:
+                                dissenting_citations.append(citation_obj)
+
+                    # Only create if we have required data
+                    if (
+                        "date" in item
+                        or "brief_summary" in item
+                        or majority_citations
+                        or concurring_citations
+                        or dissenting_citations
+                    ):
+                        try:
+                            # Use direct dictionary access with fallbacks
+                            date = (
+                                item["date"]
+                                if "date" in item
+                                else datetime.now().date().isoformat()
+                            )
+                            brief_summary = (
+                                item["brief_summary"]
+                                if "brief_summary" in item
+                                else f"Summary for cluster {cluster_id}"
+                            )
+
+                            # Create a validated CitationAnalysis object directly
+                            analysis = CitationAnalysis(
+                                date=date,
+                                brief_summary=brief_summary,
+                                majority_opinion_citations=majority_citations,
+                                concurring_opinion_citations=concurring_citations,
+                                dissenting_citations=dissenting_citations,
+                            )
+                            analyses.append(analysis)
+                        except Exception as e:
+                            logger.warning(
+                                f"Error creating CitationAnalysis for cluster {cluster_id}: {str(e)}"
+                            )
+
+                # Store analyses if any were successfully created
+                if analyses:
+                    cluster_analyses[cluster_id] = analyses
+
+            except Exception as e:
+                logger.warning(f"Error processing cluster {cluster_id}: {str(e)}")
+                resolution_errors[str(cluster_id)] = {
+                    "error": str(e),
+                    "input_data": results,
+                }
+
+        # Create CombinedResolvedCitationAnalysis objects from validated CitationAnalysis objects
+        for cluster_id, analyses in cluster_analyses.items():
+            try:
+                # Create the combined analysis
+                combined_analysis = CombinedResolvedCitationAnalysis.from_citations(
+                    analyses, int(cluster_id)
+                )
+                if combined_analysis:
+                    resolved_citations.append(combined_analysis)
+            except Exception as e:
+                logger.warning(
+                    f"Error creating combined analysis for cluster {cluster_id}: {str(e)}"
+                )
+                resolution_errors[str(cluster_id)] = {
+                    "error": f"Error in combined analysis: {str(e)}",
+                    "analyses_count": len(analyses),
+                }
+
+        # Log summary information
+        logger.info(
+            f"Processed {len(llm_results)} clusters, created {len(resolved_citations)} valid resolved citations"
+        )
+        if resolution_errors:
+            logger.warning(
+                f"Encountered {len(resolution_errors)} errors during citation resolution"
+            )
 
         # Save results
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file = f"resolved_citations_{timestamp}.json"
         output_path = os.path.join("/tmp", output_file)
 
-        with open(output_path, "w") as f:
+        # Save only valid citation objects
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(
                 [
                     citation.model_dump()
@@ -768,20 +784,20 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
                 ],
                 f,
                 indent=2,
+                ensure_ascii=False,  # Preserve Unicode characters
             )
 
-        # Update job status
+        # Update job status to complete
         update_job_status(
             db,
             job_id,
             JobStatus.COMPLETED,
             progress=100.0,
-            message=f"Resolved citations for {len(resolved_citations)} opinions. Debug files: intermediate={intermediate_file}, errors={errors_file}",
+            message=f"Resolved citations for {len(resolved_citations)} opinions",
             result_path=output_path,
         )
 
         logger.info(f"Completed resolution job {job_id}, saved to {output_path}")
-        logger.info(f"Debug files saved: {intermediate_path}, {errors_path}")
 
     except Exception as e:
         logger.error(f"Error in resolution job {job_id}: {str(e)}")
@@ -830,10 +846,48 @@ def run_neo4j_job(
         # Load the actual JSON file
         with open(resolution_job["result_path"], "r") as f:
             resolved_citations_data = json.load(f)
-            resolved_citations = [
-                CombinedResolvedCitationAnalysis.model_validate(data)
-                for data in resolved_citations_data
-            ]
+
+            # DEBUG: Print the length and a sample of the raw data
+            logger.info(
+                f"Loaded {len(resolved_citations_data)} citation entries from JSON"
+            )
+            if len(resolved_citations_data) > 0:
+                logger.info(f"First item type: {type(resolved_citations_data[0])}")
+                logger.info(
+                    f"First item keys: {resolved_citations_data[0].keys() if isinstance(resolved_citations_data[0], dict) else 'Not a dict'}"
+                )
+
+            # Safer validation with debugging
+            resolved_citations = []
+            for i, data in enumerate(resolved_citations_data):
+                try:
+                    # DEBUG: Print information about each item
+                    if isinstance(data, list):
+                        logger.error(f"Item {i} is a list, not an object: {data[:100]}")
+                        continue
+
+                    # Check if required fields exist
+                    if not isinstance(data, dict):
+                        logger.error(f"Item {i} is not a dictionary: {type(data)}")
+                        continue
+
+                    if "cluster_id" not in data:
+                        logger.error(
+                            f"Item {i} missing cluster_id: {list(data.keys())}"
+                        )
+                        continue
+
+                    # Try validation
+                    citation = CombinedResolvedCitationAnalysis.model_validate(data)
+                    resolved_citations.append(citation)
+                except Exception as e:
+                    logger.error(f"Error validating item {i}: {str(e)}")
+                    logger.error(f"Item data: {str(data)[:200]}...")
+
+        # Log how many valid citations we found
+        logger.info(
+            f"Successfully validated {len(resolved_citations)} out of {len(resolved_citations_data)} citations"
+        )
 
         # Initialize Neo4j loader
         update_job_status(
@@ -845,7 +899,7 @@ def run_neo4j_job(
         )
 
         loader = NeomodelLoader(
-            uri=os.getenv("NEO4J_URI", "localhost:7687"),
+            uri=os.getenv("NEO4J_URI", "host.docker.internal:7687"),
             username=os.getenv("NEO4J_USER", "neo4j"),
             password=os.getenv("NEO4J_PASSWORD", "courtlistener"),
         )
@@ -858,6 +912,17 @@ def run_neo4j_job(
             progress=50.0,
             message="Loading citations into Neo4j",
         )
+
+        # DEBUG: Additional debugging for what we're passing to the loader
+        for i, citation in enumerate(resolved_citations):
+            if not hasattr(citation, "cluster_id"):
+                logger.error(
+                    f"Citation at index {i} has no cluster_id attribute: {type(citation)}"
+                )
+                if isinstance(citation, list):
+                    logger.error(f"It's a list of length {len(citation)}")
+                    if len(citation) > 0:
+                        logger.error(f"First element type: {type(citation[0])}")
 
         loader.load_enriched_citations(resolved_citations, data_source="gemini_api")
 

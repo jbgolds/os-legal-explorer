@@ -1,24 +1,16 @@
-from argparse import Action
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 from enum import StrEnum
-from typing import List, Optional, TYPE_CHECKING, ForwardRef, Union, Dict
+from typing import List, Optional, Union, Dict
 import json
 from json_repair import repair_json
-from src.postgres.database import (
-    find_cluster_id,
-    get_db_session,
-    Citation as DBCitation,
-)
 from datetime import datetime
 import logging
+from src.citation.parser import (
+    find_cluster_id,
+    clean_citation_text,
+    find_cluster_id_fuzzy,
+)
 
-# Use TYPE_CHECKING to avoid circular imports
-if TYPE_CHECKING:
-    from src.postgres.models import CitationExtraction, OpinionClusterExtraction
-else:
-    # Forward references for type hints
-    CitationExtraction = ForwardRef("CitationExtraction")
-    OpinionClusterExtraction = ForwardRef("OpinionClusterExtraction")
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +63,6 @@ class OpinionType(StrEnum):
     majority = "MAJORITY"
     concurring = "CONCURRING"
     dissenting = "DISSENTING"
-    per_curiam = "PER_CURIAM"
     seriatim = "SERIATIM"
     unknown = "UNKNOWN"
 
@@ -90,10 +81,10 @@ class CitationType(StrEnum):
 
 
 class CitationTreatment(StrEnum):
-    positive = "POSITIVE"  # Only when explicitly relied on as key basis
-    negative = "NEGATIVE"  # Explicitly disagrees with, distinguishes, or limits
-    caution = "CAUTION"  # Expresses doubts or declines to extend
-    neutral = "NEUTRAL"  # Default for background/general reference
+    POSITIVE = "POSITIVE"  # Only when explicitly relied on as key basis
+    NEGATIVE = "NEGATIVE"  # Explicitly disagrees with, distinguishes, or limits
+    CAUTION = "CAUTION"  # Expresses doubts or declines to extend
+    NEUTRAL = "NEUTRAL"  # Default for background/general reference
 
 
 class Citation(BaseModel):
@@ -245,11 +236,6 @@ def resolve_citation(citation: Citation) -> CitationResolved:
     This improved version adds a confidence score and handles more citation formats.
     """
     # Import the consolidated citation parser functions
-    from src.citation.parser import (
-        find_cluster_id,
-        clean_citation_text,
-        find_cluster_id_fuzzy,
-    )
 
     # Initialize with default values
     resolved_cluster_id = None
@@ -290,109 +276,6 @@ def resolve_citation(citation: Citation) -> CitationResolved:
         resolution_confidence=confidence_score,
         resolution_method=resolution_method,
     )
-
-
-def get_reporter_mappings() -> dict:
-    """
-    Get mappings between canonical reporter names and their variations.
-
-    This function is now a wrapper around the consolidated citation parser.
-
-    Returns:
-        Dictionary mapping canonical reporter names to lists of variations
-    """
-    # Import the consolidated citation parser
-    from src.citation.parser import (
-        get_reporter_mappings as consolidated_get_reporter_mappings,
-    )
-
-    # Use the consolidated function
-    return consolidated_get_reporter_mappings()
-
-
-def create_reporter_lookup(reporter_mappings: dict) -> dict:
-    """
-    Create a reverse lookup dictionary for reporter variations.
-
-    This function is now a wrapper around the consolidated citation parser.
-
-    Args:
-        reporter_mappings: Dictionary mapping canonical names to variations
-
-    Returns:
-        Dictionary mapping variations to canonical names
-    """
-    # Import the consolidated citation parser
-    from src.citation.parser import (
-        create_reporter_lookup as consolidated_create_reporter_lookup,
-    )
-
-    # Use the consolidated function
-    return consolidated_create_reporter_lookup(reporter_mappings)
-
-
-def normalize_reporter(reporter_raw: str, reporter_lookup: dict) -> str:
-    """
-    Normalize reporter abbreviation to canonical form.
-
-    This function is now a wrapper around the consolidated citation parser.
-
-    Args:
-        reporter_raw: Raw reporter string
-        reporter_lookup: Dictionary mapping variations to canonical names
-
-    Returns:
-        Normalized reporter string
-    """
-    # Import the consolidated citation parser
-    from src.citation.parser import (
-        normalize_reporter as consolidated_normalize_reporter,
-    )
-
-    # Use the consolidated function
-    return consolidated_normalize_reporter(reporter_raw, reporter_lookup)
-
-
-def extract_citation_components(citation_text: str) -> list:
-    """
-    Extract citation components (volume, reporter, page) from citation text.
-
-    This function is now a wrapper around the consolidated citation parser.
-
-    Args:
-        citation_text: Citation text to parse
-
-    Returns:
-        List of dictionaries containing extracted components
-    """
-    # Import the consolidated citation parser
-    from src.citation.parser import (
-        extract_citation_components as consolidated_extract_citation_components,
-    )
-
-    # Use the consolidated function
-    return consolidated_extract_citation_components(citation_text)
-
-
-def extract_parallel_citations(citation_text: str) -> list:
-    """
-    Extract components from parallel citations.
-
-    This function is now a wrapper around the consolidated citation parser.
-
-    Args:
-        citation_text: Citation text to parse
-
-    Returns:
-        List of dictionaries containing extracted components
-    """
-    # Import the consolidated citation parser
-    from src.citation.parser import (
-        extract_parallel_citations as consolidated_extract_parallel_citations,
-    )
-
-    # Use the consolidated function
-    return consolidated_extract_parallel_citations(citation_text)
 
 
 # TODO Overlap with CitationAnalysis.
@@ -470,7 +353,7 @@ class CombinedResolvedCitationAnalysis(BaseModel):
                 try:
                     citation_analysis = CitationAnalysis(
                         date=citation_data.get(
-                            "date", datetime.date.today().isoformat()
+                            "date", datetime.now().date().isoformat()
                         ),
                         brief_summary=citation_data.get(
                             "brief_summary", "No summary available"
@@ -498,9 +381,7 @@ class CombinedResolvedCitationAnalysis(BaseModel):
                     if isinstance(item, dict):
                         try:
                             citation_analysis = CitationAnalysis(
-                                date=item.get(
-                                    "date", datetime.date.today().isoformat()
-                                ),
+                                date=item.get("date", "1500-01-01"),
                                 brief_summary=item.get(
                                     "brief_summary", "No summary available"
                                 ),
@@ -587,96 +468,3 @@ class CombinedResolvedCitationAnalysis(BaseModel):
         process_citations(self.dissenting_citations)
 
         return nodes
-
-
-def to_sql_models(
-    combined: CombinedResolvedCitationAnalysis,
-) -> tuple[OpinionClusterExtraction, list[CitationExtraction]]:
-    """Convert a CombinedResolvedCitationAnalysis to SQL models.
-
-    Returns:
-        Tuple containing:
-        - OpinionClusterExtraction instance
-        - List of CitationExtraction instances
-    """
-    # Create the opinion cluster extraction
-    cluster = OpinionClusterExtraction(
-        cluster_id=combined.cluster_id,
-        date_filed=datetime.strptime(combined.date, "%Y-%m-%d"),
-        brief_summary=combined.brief_summary,
-    )
-
-    citations = []
-
-    # Helper to process citations from a section
-    def process_section_citations(
-        citation_list: list[CitationResolved], section: OpinionSection
-    ):
-        for citation in citation_list:
-            cite = CitationExtraction(
-                opinion_cluster_extraction_id=cluster.id,  # This will be set after DB insert
-                section=section,
-                citation_type=citation.type,
-                citation_text=citation.citation_text,
-                page_number=citation.page_number,
-                treatment=citation.treatment,
-                relevance=citation.relevance,
-                reasoning=citation.reasoning,
-                resolved_opinion_cluster=citation.resolved_opinion_cluster,
-                resolved_text=citation.citation_text,  # Using original text as resolved for now
-            )
-            citations.append(cite)
-
-    # Process each section
-    process_section_citations(
-        combined.majority_opinion_citations, OpinionSection.majority
-    )
-    process_section_citations(
-        combined.concurring_opinion_citations, OpinionSection.concurring
-    )
-    process_section_citations(combined.dissenting_citations, OpinionSection.dissenting)
-
-    return cluster, citations
-
-
-def from_sql_models(
-    cluster: OpinionClusterExtraction,
-) -> CombinedResolvedCitationAnalysis:
-    """Convert SQL models back to a CombinedResolvedCitationAnalysis.
-
-    Args:
-        cluster: OpinionClusterExtraction instance with citations relationship loaded
-    """
-    # Sort citations by section
-    majority_citations = []
-    concurring_citations = []
-    dissenting_citations = []
-
-    for citation in cluster.citations:
-        resolved_citation = CitationResolved(
-            page_number=citation.page_number or 1,  # Default to 1 if None
-            citation_text=citation.citation_text,
-            reasoning=citation.reasoning or "",  # Default to empty string if None
-            type=citation.citation_type,
-            treatment=citation.treatment
-            or CitationTreatment.neutral,  # Default to neutral if None
-            relevance=citation.relevance or 1,  # Default to 1 if None
-            resolved_opinion_cluster=citation.resolved_opinion_cluster,
-            resolved_statute_code_regulation_rule=None,  # Not implemented yet
-        )
-
-        if citation.section == OpinionSection.majority:
-            majority_citations.append(resolved_citation)
-        elif citation.section == OpinionSection.concurring:
-            concurring_citations.append(resolved_citation)
-        elif citation.section == OpinionSection.dissenting:
-            dissenting_citations.append(resolved_citation)
-
-    return CombinedResolvedCitationAnalysis(
-        date=cluster.date_filed.strftime("%Y-%m-%d"),
-        cluster_id=cluster.cluster_id,
-        brief_summary=cluster.brief_summary,
-        majority_opinion_citations=majority_citations,
-        concurring_opinion_citations=concurring_citations,
-        dissenting_citations=dissenting_citations,
-    )

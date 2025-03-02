@@ -111,36 +111,6 @@ def get_db_session():
         session.close()
 
 
-def init_db():
-    """
-    Initialize the database by creating all tables.
-
-    Note: In production, use alembic for migrations instead.
-    """
-    # Import models here to avoid circular imports
-    from .models import Base
-
-    Base.metadata.create_all(bind=engine)
-
-
-def verify_connection() -> bool:
-    """
-    Verify database connection.
-
-    Returns:
-        bool: True if connection is successful, False otherwise
-    """
-    try:
-        with get_db_session() as session:
-            result = session.execute(text("SELECT version()"))
-            version = result.scalar()
-            logger.info(f"Successfully connected to PostgreSQL. Version: {version}")
-            return True
-    except Exception as e:
-        logger.error(f"Failed to connect to database: {str(e)}")
-        return False
-
-
 # Citation lookup utility class and functions
 class Citation(Base):
     """Model representing citation records in the database."""
@@ -156,22 +126,3 @@ class Citation(Base):
 
     def __repr__(self):
         return f"<Citation(volume={self.volume}, reporter={self.reporter}, page={self.page})>"
-
-
-def find_cluster_id(citation_string: str) -> Optional[int]:
-    """
-    Find cluster_id for a given citation string using eyecite for parsing.
-
-    This function is now a wrapper around the consolidated citation parser.
-
-    Args:
-        citation_string: Citation text to look up
-
-    Returns:
-        Optional[int]: Cluster ID if found, None otherwise
-    """
-    # Import the consolidated citation parser
-    from src.citation.parser import find_cluster_id as consolidated_find_cluster_id
-
-    # Use the consolidated function
-    return consolidated_find_cluster_id(citation_string)

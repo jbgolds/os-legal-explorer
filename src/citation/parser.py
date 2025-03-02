@@ -11,32 +11,11 @@ It provides functions for:
 
 import re
 import logging
-from typing import List, Dict, Optional, Tuple, Union, Any
-from sqlalchemy import and_, or_
-import json
-
-# Import json_repair for fixing malformed JSON
-try:
-    from json_repair import repair_json
-
-    JSON_REPAIR_AVAILABLE = True
-except ImportError:
-    JSON_REPAIR_AVAILABLE = False
-
-    def repair_json(json_str):
-        """Fallback function when json_repair is not available"""
-        return json_str
-
-
-# Import eyecite for citation parsing
-try:
-    from eyecite import get_citations
-    from eyecite.resolve import resolve_citations
-    from eyecite.clean import clean_text
-
-    EYECITE_AVAILABLE = True
-except ImportError:
-    EYECITE_AVAILABLE = False
+from typing import List, Dict, Optional, Tuple, Any
+from sqlalchemy import and_
+from eyecite import get_citations
+from eyecite.resolve import resolve_citations
+from src.postgres.database import get_db_session, Citation
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +32,8 @@ def find_cluster_id(citation_string: str) -> Optional[int]:
     Returns:
         Optional[int]: Cluster ID if found, None otherwise
     """
-    if not citation_string or not EYECITE_AVAILABLE:
-        return None
+    if not citation_string:
+        raise ValueError("Citation string is required")
 
     try:
         # Extract citations using eyecite
@@ -85,7 +64,6 @@ def find_cluster_id(citation_string: str) -> Optional[int]:
             return None
 
         # Use database session with proper error handling
-        from src.postgres.database import get_db_session, Citation
 
         with get_db_session() as session:
             # Query the database with resolved components

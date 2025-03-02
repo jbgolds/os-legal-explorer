@@ -4,12 +4,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from dotenv import load_dotenv
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
+
+# from fastapi.templating import Jinja2Templates
+# from fastapi.staticfiles import StaticFiles
 
 # Import and include routers
-from .routers import opinions, citations, stats, pipeline
-from .views.views import router as views_router
+from .services.pipeline import pipeline_router
 
 # Load environment variables
 load_dotenv()
@@ -37,8 +37,8 @@ app.add_middleware(
 )
 
 # Configure templates and static files
-templates = Jinja2Templates(directory="src/frontend/templates")
-app.mount("/static", StaticFiles(directory="src/frontend/static"), name="static")
+# templates = Jinja2Templates(directory="src/frontend/templates")
+# app.mount("/static", StaticFiles(directory="src/frontend/static"), name="static")
 
 
 # Health check endpoint
@@ -53,12 +53,7 @@ async def health_check():
     }
 
 
-# Include all routers
-app.include_router(opinions.router)
-app.include_router(citations.router)
-app.include_router(stats.router)
-app.include_router(pipeline.router)
-app.include_router(views_router)
+app.include_router(pipeline_router.router)
 
 if __name__ == "__main__":
     uvicorn.run(

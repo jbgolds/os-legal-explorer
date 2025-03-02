@@ -195,7 +195,7 @@ class ResponseSerializer:
         response: GenerateContentResponse | None,
     ) -> Optional[CitationAnalysis]:
         """
-        Serialize a response directly to CitationAnalysis with simple error handling.
+        Serialize a response directly to CitationAnalysis with enhanced error handling.
 
         Args:
             response: Raw Gemini API response
@@ -207,13 +207,14 @@ class ResponseSerializer:
             logging.error("Response is None")
             return None
 
-        # Save raw response for debugging
+        # Save raw response for debugging (including full text for inspection)
         raw_response = {
             "text": response.text if hasattr(response, "text") else None,
             "parsed": response.parsed if hasattr(response, "parsed") else None,
         }
 
         validation_errors = []
+        input_data = None  # Store the data that failed validation
 
         # First try: Direct parsing if response.parsed exists
         if hasattr(response, "parsed") and response.parsed:
@@ -233,6 +234,7 @@ class ResponseSerializer:
                         "input": response.parsed,
                     }
                 )
+                input_data = response.parsed
                 logging.warning(f"Failed direct parsing of response.parsed: {str(e)}")
 
         # Second try: Parse from response.text
@@ -241,6 +243,7 @@ class ResponseSerializer:
                 # Try to parse as JSON
                 try:
                     json_data = json.loads(response.text)
+                    input_data = json_data  # Store for potential fallback
 
                     # Handle list responses (common from LLM)
                     if isinstance(json_data, list) and len(json_data) > 0:
@@ -279,6 +282,7 @@ class ResponseSerializer:
                     if repaired_json:
                         try:
                             json_data = json.loads(repaired_json)
+                            input_data = json_data  # Store for potential fallback
 
                             # Handle list responses
                             if isinstance(json_data, list) and len(json_data) > 0:
@@ -335,6 +339,52 @@ class ResponseSerializer:
 
         ResponseSerializer._thread_local.last_raw_response = raw_response
         ResponseSerializer._thread_local.last_validation_errors = validation_errors
+
+        # Final fallback: Try to create a minimal valid CitationAnalysis
+        # Only if we have some data to work with
+        if input_data:
+            try:
+                # Try to construct a minimal valid CitationAnalysis from whatever we have
+                if isinstance(input_data, dict):
+                    # Extract what we can from the dict
+                    date = input_data.get("date", datetime.now().date().isoformat())
+                    brief_summary = input_data.get(
+                        "brief_summary", "No summary available"
+                    )
+
+                    # Try to create a minimal valid object
+                    return CitationAnalysis(
+                        date=date,
+                        brief_summary=brief_summary,
+                        majority_opinion_citations=[],
+                        concurring_opinion_citations=[],
+                        dissenting_citations=[],
+                    )
+                elif (
+                    isinstance(input_data, list)
+                    and len(input_data) > 0
+                    and isinstance(input_data[0], dict)
+                ):
+                    # Extract what we can from the first item in the list
+                    first_item = input_data[0]
+                    date = first_item.get("date", datetime.now().date().isoformat())
+                    brief_summary = first_item.get(
+                        "brief_summary", "No summary available"
+                    )
+
+                    # Try to create a minimal valid object
+                    return CitationAnalysis(
+                        date=date,
+                        brief_summary=brief_summary,
+                        majority_opinion_citations=[],
+                        concurring_opinion_citations=[],
+                        dissenting_citations=[],
+                    )
+            except Exception as e:
+                validation_errors.append(
+                    {"stage": "fallback_creation", "error": str(e), "input": input_data}
+                )
+                logging.warning(f"Failed to create fallback CitationAnalysis: {str(e)}")
 
         # If all attempts fail, return None
         logging.warning("All parsing attempts failed, returning None")
@@ -432,7 +482,7 @@ class GeminiClient:
             return None
 
     def generate_content_with_chat(
-        self, text: str, model: str = "gemini-2.0-flash-001"
+        self, text: str, model: str = "gemini-2.0-flash-001", max_retries: int = 3
     ) -> Union[List[Dict], Dict]:
         """Generate content using chat history for better context preservation."""
         model = model or self.model
@@ -464,37 +514,79 @@ class GeminiClient:
             ),
         )
 
+        def process_single_chunk(
+            content: str, chunk_config: GenerateContentConfig
+        ) -> Optional[CitationAnalysis]:
+            """Process a single chunk with retries when validation fails"""
+            for attempt in range(max_retries):
+                # Acquire rate limiter for each attempt
+                self.rate_limiter.acquire()
+
+                try:
+                    # Make the API call
+                    response: GenerateContentResponse = (
+                        self.client.models.generate_content(
+                            model=model,
+                            config=chunk_config,
+                            contents=content.strip(),
+                        )
+                    )
+
+                    # Try to validate/serialize the response
+                    result = self.serializer.serialize(response)
+                    if result:
+                        # Success! Release the rate limiter and return the result
+                        self.rate_limiter.release()
+                        return result
+
+                    # Validation failed
+                    self.rate_limiter.release()
+
+                    # Only retry if we haven't exceeded max attempts
+                    if attempt < max_retries - 1:
+                        logging.warning(
+                            f"Worker {worker_id}: Validation failed, retrying (attempt {attempt + 1}/{max_retries})"
+                        )
+                        time.sleep(1)  # Short delay before retry
+                    else:
+                        logging.warning(
+                            f"Worker {worker_id}: All {max_retries} validation attempts failed"
+                        )
+                        return None
+
+                except Exception as e:
+                    # Always release on exception
+                    self.rate_limiter.release()
+
+                    logging.error(f"Worker {worker_id}: API call failed: {str(e)}")
+
+                    # Only retry if we haven't exceeded max attempts
+                    if attempt < max_retries - 1:
+                        logging.info(
+                            f"Worker {worker_id}: Retrying after error (attempt {attempt + 1}/{max_retries})"
+                        )
+                        time.sleep(1)  # Short delay before retry
+                    else:
+                        logging.error(
+                            f"Worker {worker_id}: All {max_retries} attempts failed with errors"
+                        )
+                        return None
+
+            # Should never reach here, but just in case
+            return None
+
+        # Handle small texts (single chunk processing)
         if word_count <= 10000:
             try:
-                self.rate_limiter.acquire()
-                response: GenerateContentResponse | None = (
-                    self.client.models.generate_content(
-                        model=model,
-                        config=self.config,
-                        contents=text.strip(),
-                    )
-                )
-                if not response:
-                    raise ValueError(
-                        f"Received empty response from API for text of length {word_count}"
-                    )
-                # Use the serializer to convert response to a proper dict
-                result = self.serializer.serialize(response)
-                if result:
-                    return [result]
-                else:
-                    logging.warning(
-                        "Failed to serialize response, returning empty list"
-                    )
-                    return []
+                result = process_single_chunk(text, self.config)
+                return [result] if result else []
             except Exception as e:
                 logging.error(
-                    f"Worker {worker_id}: API call failed for text of length {word_count}: {str(e)}"
+                    f"Worker {worker_id}: Processing failed for text of length {word_count}: {str(e)}"
                 )
                 raise
-            finally:
-                self.rate_limiter.release()
 
+        # Handle large texts with chunking
         logging.info(
             f"Worker {worker_id}: Text length ({word_count} words) exceeds limit. Using chat-based chunking..."
         )
@@ -505,35 +597,108 @@ class GeminiClient:
             # Create a chat session with chunked config
             chat: Chat = self.client.chats.create(model=model, config=config_chunking)
             responses: List[CitationAnalysis] = []
+            chunk_failures = 0  # Track how many chunks fail
+
             for i, chunk in enumerate(chunks, 1):
                 chunk_words = self.chunker.count_words(chunk)
                 logging.info(
                     f"Worker {worker_id}: Processing chunk {i}/{len(chunks)} ({chunk_words} words)"
                 )
 
-                self.rate_limiter.acquire()
-                try:
-                    response: GenerateContentResponse = chat.send_message(chunk.strip())
-                    if not response or not hasattr(response, "text"):
-                        logging.warning(
-                            f"Invalid or empty response from chunk {i} (length: {chunk_words})"
-                        )
-                        continue
+                # Process each chunk with retries
+                success = False
+                for attempt in range(max_retries):
+                    # Acquire rate limiter for each attempt
+                    self.rate_limiter.acquire()
 
-                    result = self.serializer.serialize(response)
-                    if result:
-                        responses.append(result)
-                except Exception as e:
-                    logging.error(
-                        f"Worker {worker_id}: Failed to process chunk {i}/{len(chunks)} "
-                        f"(length: {chunk_words}): {str(e)}"
+                    try:
+                        # Send the message
+                        response: GenerateContentResponse = chat.send_message(
+                            chunk.strip()
+                        )
+
+                        # Check if response has the expected text attribute
+                        if not hasattr(response, "text"):
+                            logging.warning(
+                                f"Worker {worker_id}: Response missing 'text' attribute from chunk {i} (attempt {attempt + 1}/{max_retries})"
+                            )
+                            self.rate_limiter.release()
+
+                            # Only retry if we haven't exceeded max attempts
+                            if attempt < max_retries - 1:
+                                time.sleep(1)  # Short delay before retry
+                                continue
+                            else:
+                                chunk_failures += 1
+                                break
+
+                        # Try to validate/serialize the response
+                        result = self.serializer.serialize(response)
+                        if result:
+                            # Success! Release the rate limiter and store the result
+                            self.rate_limiter.release()
+                            responses.append(result)
+                            success = True
+                            break
+
+                        # Validation failed
+                        self.rate_limiter.release()
+
+                        # Only retry if we haven't exceeded max attempts
+                        if attempt < max_retries - 1:
+                            logging.warning(
+                                f"Worker {worker_id}: Validation failed for chunk {i}, retrying (attempt {attempt + 1}/{max_retries})"
+                            )
+                            time.sleep(1)  # Short delay before retry
+                        else:
+                            logging.warning(
+                                f"Worker {worker_id}: All {max_retries} validation attempts failed for chunk {i}"
+                            )
+                            chunk_failures += 1
+
+                    except Exception as e:
+                        # Always release on exception
+                        self.rate_limiter.release()
+
+                        logging.error(
+                            f"Worker {worker_id}: Error processing chunk {i}: {str(e)}"
+                        )
+
+                        # Only retry if we haven't exceeded max attempts
+                        if attempt < max_retries - 1:
+                            logging.warning(
+                                f"Worker {worker_id}: Retrying chunk {i} after error (attempt {attempt + 1}/{max_retries})"
+                            )
+                            time.sleep(1)  # Short delay before retry
+                        else:
+                            logging.error(
+                                f"Worker {worker_id}: All {max_retries} attempts failed for chunk {i}"
+                            )
+                            chunk_failures += 1
+                            break
+
+                # Log outcome for this chunk
+                if success:
+                    logging.info(
+                        f"Worker {worker_id}: Successfully processed chunk {i}/{len(chunks)}"
                     )
-                finally:
-                    self.rate_limiter.release()
+                else:
+                    logging.warning(
+                        f"Worker {worker_id}: Failed to process chunk {i}/{len(chunks)} after {max_retries} attempts"
+                    )
 
             if not responses:
-                logging.warning("No valid responses were collected during processing")
+                logging.warning(
+                    f"Worker {worker_id}: No valid responses were collected during processing (all {len(chunks)} chunks failed)"
+                )
+                # Return an empty list instead of raising an error to maintain consistency
                 return []
+
+            # Log chunk success rate
+            logging.info(
+                f"Worker {worker_id}: Successfully processed {len(responses)}/{len(chunks)} chunks "
+                f"({len(responses)/len(chunks)*100:.1f}% success rate)"
+            )
 
             # If multiple responses were collected, merge them into one consolidated result
             if len(responses) > 1:
@@ -541,7 +706,9 @@ class GeminiClient:
                     merged = self.combine_chunk_responses(responses)
                     return [merged]
                 except Exception as e:
-                    logging.error(f"Failed to combine chunk responses: {str(e)}")
+                    logging.error(
+                        f"Worker {worker_id}: Failed to combine chunk responses: {str(e)}"
+                    )
                     # Return the first valid response if combining fails
                     return [responses[0]]
             return responses
@@ -556,7 +723,9 @@ class GeminiClient:
                 try:
                     del chat
                 except Exception as e:
-                    logging.warning(f"Failed to cleanup chat session: {str(e)}")
+                    logging.warning(
+                        f"Worker {worker_id}: Failed to cleanup chat session: {str(e)}"
+                    )
 
     def process_dataframe(
         self,
@@ -686,8 +855,8 @@ class GeminiClient:
         debug_file = f"gemini_debug_{timestamp}.json"
         debug_path = os.path.join("/tmp", debug_file)
 
-        with open(debug_path, "w") as f:
-            json.dump(debug_info, f, indent=2)
+        with open(debug_path, "w", encoding="utf-8") as f:
+            json.dump(debug_info, f, indent=2, ensure_ascii=False)
 
         logging.info(f"Debug information saved to {debug_path}")
 

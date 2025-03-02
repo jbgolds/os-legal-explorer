@@ -15,30 +15,7 @@ from datetime import datetime, date
 from enum import Enum
 
 # Import source-of-truth models
-from src.llm_extraction.models import (
-    CitationAnalysis,
-    CombinedResolvedCitationAnalysis,
-    Citation,
-    CitationResolved,
-)
-
-# Re-export source-of-truth models for API use
-__all__ = [
-    "CitationAnalysis",
-    "CombinedResolvedCitationAnalysis",
-    "Citation",
-    "CitationResolved",
-    "JobStatus",
-    "JobType",
-    "ExtractionConfig",
-    "PipelineJob",
-    "PipelineStatus",
-    "LLMProcessResult",
-    "ResolutionResult",
-    "Neo4jLoadResult",
-    "PipelineResult",
-    "PipelineStats",
-]
+from src.llm_extraction.models import CitationAnalysis, CombinedResolvedCitationAnalysis
 
 
 class JobStatus(str, Enum):

@@ -15,7 +15,7 @@ import os
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
 
-from neomodel import config, install_all_labels
+from neomodel import config, install_all_labels, db
 from .models import Opinion
 from src.llm_extraction.models import CombinedResolvedCitationAnalysis
 import json
@@ -24,12 +24,12 @@ import json
 load_dotenv()
 
 # Neo4j Configuration
-NEO4J_URI = os.getenv("NEO4J_URI", "localhost:7474")
+NEO4J_URI = os.getenv("NEO4J_URI", "host.docker.internal:7474")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "courtlistener")
 
 # Set connection URLs - NEO4J_URI already includes the protocol
-config.DATABASE_URL = "bolt://neo4j:courtlistener@localhost:7687"
+config.DATABASE_URL = f"bolt://{NEO4J_USER}:{NEO4J_PASSWORD}@{NEO4J_URI}"
 
 
 # Neo4j driver instance
@@ -85,27 +85,57 @@ class NeomodelLoader:
         self.password = password
         self.batch_size = batch_size
 
-        # Configure neomodel - always use neo4j database for Community Edition
-        # 'bolt://neo4j_username:neo4j_password@localhost:7687'  # default
+        # Configure neomodel connection if not already set
+        if not config.DATABASE_URL:
+            raise ValueError("Neo4j connection not configured")
+        try:
+            install_all_labels()
+        except Exception as e:
+            logger.error(
+                f"Schema installation warning (can usually be ignored): {str(e)}"
+            )
 
-    def create_or_update_opinion(self, data: Dict[str, Any]) -> Opinion:
+    def create_or_update_opinion(self, data: Dict[str, Any]) -> Optional[Opinion]:
         """
         Create a new opinion node or update an existing one while preserving existing metadata.
+
+        Note: citation_text is no longer a required property for the Opinion node.
+        If citation_text is provided, it will be removed from the node data and can be used
+        on the relationship instead.
 
         Args:
             data: Dictionary containing opinion data
 
         Returns:
-            Opinion node instance
+            Opinion node instance or None if creation failed
         """
+
         if "cluster_id" not in data:
             raise ValueError("cluster_id is required for opinion creation/update")
+
+        # Handle case where cluster_id is a list (this is a bug but we can handle it)
+        if isinstance(data["cluster_id"], list):
+            logger.warning(
+                f"Received list for cluster_id, using first item: {data['cluster_id']}"
+            )
+            if data["cluster_id"] and len(data["cluster_id"]) > 0:
+                data["cluster_id"] = data["cluster_id"][0]
+            else:
+                logger.error("Empty list for cluster_id, cannot process")
+                return None
 
         # Handle date conversion if needed
         if "date_filed" in data and isinstance(data["date_filed"], str):
             data["date_filed"] = datetime.strptime(
                 data["date_filed"], "%Y-%m-%d"
             ).date()
+
+        # Skip if citation_text is missing (required by Citation base class)
+        if "citation_text" not in data or not data["citation_text"]:
+            logger.warning(
+                f"Skipping opinion {data.get('cluster_id')} due to missing citation_text"
+            )
+            return None
 
         try:
             # First try to get existing opinion
@@ -320,92 +350,199 @@ class NeomodelLoader:
             citations_data: List of citation data with metadata
             data_source: Source identifier for the citations
         """
-        for citation in citations_data:
-            # Skip invalid cluster IDs
-            if (
-                not citation.cluster_id
-                or citation.cluster_id < 0
-                or citation.cluster_id == -999999
-            ):
-                logging.warning(
-                    f"Skipping citation with invalid cluster ID: {citation.cluster_id}"
-                )
-                continue
+        skipped_citations = 0
+        skipped_clusters = []
+        processed_count = 0
+        total_time_start = time.time()
 
-            # Check if this is a default citation (created during error handling)
-            is_default = False
-            if (
-                citation.date.startswith("1500-")
-                or "[DEFAULT]" in citation.brief_summary
-            ):
-                is_default = True
-                logging.warning(
-                    f"Loading default citation for cluster {citation.cluster_id}"
-                )
+        # Process in batches for better performance and error resilience
+        batch_size = min(len(citations_data), 10)  # Process at most 10 at a time
 
-            # Top-level metadata for the citing opinion node
-            # No treatment/relevance at the citation analysis level - only at individual citation level
-            metadata = {
-                "data_source": data_source,
-                "is_default_data": is_default,
-            }
+        for i in range(0, len(citations_data), batch_size):
+            batch = citations_data[i : i + batch_size]
+            batch_time_start = time.time()
 
-            # Create or update the citing opinion with AI summary
-            citing_opinion = self.create_or_update_opinion(
-                {
-                    "cluster_id": citation.cluster_id,
-                    "ai_summary": citation.brief_summary,
-                    "date_filed": citation.date,
-                    "is_default_data": is_default,
-                }
+            # Process each citation in the batch
+            for citation in batch:
+                # Debug before processing
+                # try:
+                #     logging.info(
+                #         f"Processing citation type: {type(citation)}, has cluster_id: {hasattr(citation, 'cluster_id')}"
+                #     )
+                #     if hasattr(citation, "cluster_id"):
+                #         logging.info(f"Citation cluster_id: {citation.cluster_id}")
+                # except Exception as e:
+                #     logging.error(f"Error in debug logging: {str(e)}")
+
+                # # Handle case where citation is a list instead of an object
+                # if isinstance(citation, list):
+                #     logging.error(
+                #         f"Citation is a list not an object. Skipping. First few elements: {str(citation[:3])}"
+                #     )
+                #     skipped_clusters.append(
+                #         -1
+                #     )  # Use -1 to indicate it was a list with no cluster ID
+                #     continue
+
+                # # Skip invalid cluster IDs and identify for reprocessing
+                # if not citation.cluster_id or citation.cluster_id < 0:
+                #     logging.warning(
+                #         f"Identified invalid cluster ID for reprocessing: {getattr(citation, 'cluster_id', 'No cluster_id')}"
+                #     )
+                #     skipped_clusters.append(getattr(citation, "cluster_id", -1))
+                #     continue
+
+                # # Skip default or empty citation analyses (likely created by fallback mechanisms)
+                # if (
+                #     citation.date.startswith("1500-")
+                #     or "[DEFAULT]" in citation.brief_summary
+                #     or citation.brief_summary == "No summary available"
+                #     or (
+                #         not citation.majority_opinion_citations
+                #         and not citation.concurring_opinion_citations
+                #         and not citation.dissenting_citations
+                #     )
+                # ):
+                #     logging.warning(
+                #         f"Identified empty or default citation analysis for reprocessing: cluster {citation.cluster_id}"
+                #     )
+                #     skipped_clusters.append(citation.cluster_id)
+                #     continue
+
+                # Process each citation in a separate transaction for isolation
+                with db.transaction:
+                    try:
+                        # Create or update the citing opinion with AI summary
+                        citing_opinion = self.create_or_update_opinion(
+                            {
+                                "cluster_id": citation.cluster_id,
+                                "ai_summary": citation.brief_summary,
+                                "date_filed": citation.date,
+                            }
+                        )
+
+                        if citing_opinion is None:
+                            logging.error(
+                                f"Failed to create/update citing opinion {citation.cluster_id}, skipping"
+                            )
+                            skipped_clusters.append(citation.cluster_id)
+                            continue
+
+                        # Process citations by section
+                        sections = {
+                            "majority": citation.majority_opinion_citations,
+                            "concurring": citation.concurring_opinion_citations,
+                            "dissent": citation.dissenting_citations,
+                        }
+
+                        citation_count = 0
+                        skipped_in_opinion = 0
+
+                        for section_name, section_citations in sections.items():
+                            for cite in section_citations:
+                                # Skip invalid citations but continue processing others
+                                try:
+                                    # Skip citations with invalid resolved_opinion_cluster
+                                    if (
+                                        not cite.resolved_opinion_cluster
+                                        or cite.resolved_opinion_cluster < 0
+                                    ):
+                                        skipped_in_opinion += 1
+                                        continue
+
+                                    # Skip citations with missing citation_text for the relationship
+                                    if not cite.citation_text:
+                                        logging.warning(
+                                            f"Skipping citation in {section_name} section with missing citation_text for relationship"
+                                        )
+                                        skipped_in_opinion += 1
+                                        continue
+
+                                    # Create or update the cited opinion
+                                    # Note: citation_text is now only used in the relationship, not on the node
+                                    cited_opinion = self.create_or_update_opinion(
+                                        {
+                                            "cluster_id": cite.resolved_opinion_cluster,
+                                            "type": cite.type,
+                                        }
+                                    )
+
+                                    if cited_opinion is None:
+                                        logging.warning(
+                                            f"Failed to create/update cited opinion {cite.resolved_opinion_cluster}, skipping"
+                                        )
+                                        skipped_in_opinion += 1
+                                        continue
+
+                                    # Create the citation relationship with metadata
+                                    metadata = {
+                                        "data_source": data_source,
+                                        "opinion_section": section_name,
+                                        "treatment": cite.treatment,
+                                        "relevance": cite.relevance,
+                                        "reasoning": cite.reasoning,
+                                        "citation_text": cite.citation_text,
+                                        "page_number": cite.page_number,
+                                    }
+
+                                    # Filter out None values
+                                    metadata = {
+                                        k: v
+                                        for k, v in metadata.items()
+                                        if v is not None
+                                    }
+
+                                    # Check if relationship already exists
+                                    citing_opinion.cites.connect(
+                                        cited_opinion, metadata
+                                    )
+
+                                    citation_count += 1
+
+                                except Exception as e:
+                                    logging.error(
+                                        f"Error processing citation to {getattr(cite, 'resolved_opinion_cluster', 'unknown')}: {str(e)}"
+                                    )
+                                    skipped_in_opinion += 1
+
+                        # Update counts
+                        skipped_citations += skipped_in_opinion
+                        processed_count += 1
+
+                        logging.info(
+                            f"Processed opinion: {citation.cluster_id} with {citation_count} citations ({skipped_in_opinion} skipped)"
+                        )
+
+                    except Exception as e:
+                        logging.error(
+                            f"Error processing opinion {citation.cluster_id}, skipping: {str(e)}"
+                        )
+                        skipped_clusters.append(citation.cluster_id)
+
+            # Log batch statistics
+            batch_time = time.time() - batch_time_start
+            logging.info(
+                f"Processed batch of {len(batch)} opinions in {batch_time:.2f} seconds"
             )
 
-            # Make this a dict with the section name as the key and the citations as the value
-            sections = {
-                "majority": citation.majority_opinion_citations,
-                "concurring": citation.concurring_opinion_citations,
-                "dissent": citation.dissenting_citations,
-            }
+        # Log summary statistics
+        total_time = time.time() - total_time_start
+        logging.info(
+            f"Citation loading complete: {processed_count}/{len(citations_data)} analyses processed, "
+            f"{len(skipped_clusters)} clusters skipped, {skipped_citations} citations skipped, "
+            f"total time: {total_time:.2f} seconds"
+        )
 
-            for section_name, section_citations in sections.items():
-                for cite in section_citations:
-                    # Skip citations with invalid resolved_opinion_cluster
-                    if (
-                        not cite.resolved_opinion_cluster
-                        or cite.resolved_opinion_cluster < 0
-                    ):
-                        continue
+        if skipped_clusters:
+            logging.info(f"Clusters to consider for reprocessing: {skipped_clusters}")
 
-                    # Check if this is a default citation
-                    citation_is_default = (
-                        is_default or cite.page_number < 0 or cite.relevance < 0
-                    )
-
-                    # Create or update the cited opinion
-                    cited_opinion = self.create_or_update_opinion(
-                        {
-                            "cluster_id": cite.resolved_opinion_cluster,
-                            "type": cite.type,
-                            "is_default_data": citation_is_default,
-                        }
-                    )
-
-                    # Create the enriched citation relationship
-                    metadata = {
-                        "data_source": data_source,
-                        "opinion_section": section_name,
-                        "treatment": cite.treatment,
-                        "relevance": cite.relevance,
-                        "reasoning": cite.reasoning,
-                        "citation_text": cite.citation_text,
-                        "page_number": cite.page_number,
-                        "is_default_data": citation_is_default,
-                    }
-
-                    # Filter out None values
-                    metadata = {k: v for k, v in metadata.items() if v is not None}
-
-                    self.create_citation(citing_opinion, cited_opinion, metadata)
+        return {
+            "total_analyses": len(citations_data),
+            "processed": processed_count,
+            "skipped_clusters": skipped_clusters,
+            "skipped_citations": skipped_citations,
+            "processing_time": total_time,
+        }
 
 
 # Example usage (synchronous):
