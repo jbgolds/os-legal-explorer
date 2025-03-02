@@ -31,6 +31,9 @@ logging.basicConfig(
 class TextChunker:
     """Handles text chunking and response combining."""
 
+    # Word count threshold for chunking text
+    WORD_COUNT_THRESHOLD = 8000
+
     @staticmethod
     def count_words(text: str) -> int:
         """Count words in text, ignoring empty lines and extra whitespace."""
@@ -58,8 +61,12 @@ class TextChunker:
         return paragraphs
 
     @staticmethod
-    def simple_split_into_chunks(text: str, max_words: int = 10000) -> List[str]:
+    def simple_split_into_chunks(
+        text: str, max_words: Optional[int] = None
+    ) -> List[str]:
         """Split text into chunks using paragraph boundaries so that each chunk is under max_words."""
+        if max_words is None:
+            max_words = TextChunker.WORD_COUNT_THRESHOLD
         paragraphs = TextChunker.split_paragraphs(text)
         chunks = []
         current_chunk = []
@@ -226,9 +233,6 @@ class ResponseSerializer:
             ResponseSerializer._save_debug_info(raw_response, validation_errors)
             return result
 
-        # Strategy 3: Attempt to create fallback from collected data
-        result = ResponseSerializer._try_create_fallback(validation_errors)
-
         # Save debug info regardless of outcome
         ResponseSerializer._save_debug_info(raw_response, validation_errors)
 
@@ -352,66 +356,105 @@ class ResponseSerializer:
         # Handle dict responses
         elif isinstance(json_data, dict):
             try:
+                # Try direct validation first
                 return CitationAnalysis.model_validate(json_data)
             except Exception as e:
-                validation_errors.append(
-                    {
-                        "stage": f"{prefix}dict_validation",
-                        "error": str(e),
-                        "input": json_data,
-                    }
+                # If it fails, maybe we have invalid items in citation lists
+                # Try to clean up the data by filtering out invalid items
+                cleaned_data = ResponseSerializer._try_clean_citation_lists(
+                    json_data, validation_errors, prefix
                 )
-                logging.warning(f"Failed to validate {prefix}dict: {str(e)}")
+
+                if cleaned_data:
+                    try:
+                        # Try validation with cleaned data
+                        return CitationAnalysis.model_validate(cleaned_data)
+                    except Exception as e2:
+                        validation_errors.append(
+                            {
+                                "stage": f"{prefix}dict_validation_after_cleaning",
+                                "error": str(e2),
+                                "input": cleaned_data,
+                            }
+                        )
+                        logging.warning(
+                            f"Failed to validate {prefix}dict after cleaning: {str(e2)}"
+                        )
+                else:
+                    validation_errors.append(
+                        {
+                            "stage": f"{prefix}dict_validation",
+                            "error": str(e),
+                            "input": json_data,
+                        }
+                    )
+                    logging.warning(f"Failed to validate {prefix}dict: {str(e)}")
 
         # Store for potential fallback
+        if not hasattr(ResponseSerializer, "_thread_local"):
+            ResponseSerializer._thread_local = local()
         ResponseSerializer._thread_local.input_data = json_data
         return None
 
     @staticmethod
-    def _try_create_fallback(validation_errors: List) -> Optional[CitationAnalysis]:
-        """Attempt to create a minimal valid CitationAnalysis as fallback."""
-        if not hasattr(ResponseSerializer, "_thread_local") or not hasattr(
-            ResponseSerializer._thread_local, "input_data"
-        ):
-            return None
+    def _try_clean_citation_lists(
+        data: Dict, validation_errors: List, prefix: str = ""
+    ) -> Optional[Dict]:
+        """
+        Attempts to clean citation lists by filtering out invalid items.
 
-        input_data = ResponseSerializer._thread_local.input_data
-        if not input_data:
-            return None
+        Args:
+            data: Dictionary containing citation lists
+            validation_errors: List to append validation errors to
+            prefix: Optional prefix for error logging
 
+        Returns:
+            Cleaned dictionary or None if cleaning failed
+        """
         try:
-            # Try to construct a minimal valid CitationAnalysis from whatever we have
-            if isinstance(input_data, dict):
-                return ResponseSerializer._create_minimal_citation_analysis(input_data)
-            elif (
-                isinstance(input_data, list)
-                and len(input_data) > 0
-                and isinstance(input_data[0], dict)
-            ):
-                return ResponseSerializer._create_minimal_citation_analysis(
-                    input_data[0]
-                )
+            # Create a copy to avoid modifying the original
+            cleaned_data = data.copy()
+            citation_fields = [
+                "majority_citations",
+                "concurring_citations",
+                "dissenting_citations",
+            ]
+
+            for field in citation_fields:
+                if field in cleaned_data and isinstance(cleaned_data[field], list):
+                    original_count = len(cleaned_data[field])
+                    valid_items = []
+
+                    for i, item in enumerate(cleaned_data[field]):
+                        try:
+                            # Directly validate against Citation model instead of field checking
+                            Citation.model_validate(item)
+                            valid_items.append(item)
+                        except Exception as e:
+                            logging.info(
+                                f"Filtering out invalid item {i} in {field}: {str(e)}"
+                            )
+
+                    # Update the list with only valid items
+                    cleaned_data[field] = valid_items
+
+                    if len(valid_items) < original_count:
+                        logging.warning(
+                            f"Filtered {original_count - len(valid_items)} invalid items from {field}"
+                        )
+
+            return cleaned_data
+
         except Exception as e:
             validation_errors.append(
-                {"stage": "fallback_creation", "error": str(e), "input": input_data}
+                {
+                    "stage": f"{prefix}citation_list_cleaning",
+                    "error": str(e),
+                    "input": data,
+                }
             )
-            logging.warning(f"Failed to create fallback CitationAnalysis: {str(e)}")
-
-        return None
-
-    @staticmethod
-    def _create_minimal_citation_analysis(data: Dict) -> CitationAnalysis:
-        """Create a minimal valid CitationAnalysis from a dictionary."""
-        date = data.get("date", datetime.now().date().isoformat())
-        brief_summary = data.get("brief_summary", "No summary available")
-
-        return CitationAnalysis(
-            date=date,
-            brief_summary=brief_summary,
-            majority_opinion_citations=[],
-            concurring_opinion_citations=[],
-            dissenting_citations=[],
-        )
+            logging.warning(f"Failed to clean citation lists: {str(e)}")
+            return None
 
     @staticmethod
     def _save_debug_info(raw_response: Dict, validation_errors: List) -> None:
@@ -426,6 +469,7 @@ class ResponseSerializer:
     def get_last_debug_info():
         """Get the debug information from the last serialization attempt."""
         if not hasattr(ResponseSerializer, "_thread_local"):
+            ResponseSerializer._thread_local = local()
             return None, None
 
         return (
@@ -542,7 +586,7 @@ class GeminiClient:
                     "For each part, analyze the citations and legal arguments while maintaining context "
                     "from previous parts. Please provide your analysis in the same structured format "
                     "filling in the lists of citation analysis for each response."
-                    if word_count > 10000
+                    if word_count > TextChunker.WORD_COUNT_THRESHOLD
                     else ""
                 )
             ),
@@ -610,7 +654,7 @@ class GeminiClient:
             return None
 
         # Handle small texts (single chunk processing)
-        if word_count <= 10000:
+        if word_count <= TextChunker.WORD_COUNT_THRESHOLD:
             try:
                 result = process_single_chunk(text, self.config)
                 # Always run through combine_chunk_responses for consistent typing
@@ -782,6 +826,9 @@ class GeminiClient:
         # Adjust batch_size to be no larger than the DataFrame
         batch_size = min(batch_size, len(df))
 
+        # Safety check: ensure batch_size is at least 1 to avoid division by zero in range()
+        batch_size = max(1, batch_size)
+
         results: Dict[int, Optional[CombinedResolvedCitationAnalysis]] = {}
         errors = []
         total_processed = 0
@@ -878,7 +925,7 @@ class GeminiClient:
                                     str(cid): (item.model_dump() if item else None)
                                     for cid, item in results.items()
                                 }
-                                json.dump(serialized_results, f)
+                                json.dump(serialized_results, f, indent=2)
                             os.replace(tmp_file, output_file)
 
                     except Exception as e:
@@ -895,8 +942,22 @@ class GeminiClient:
         debug_file = f"gemini_debug_{timestamp}.json"
         debug_path = os.path.join("/tmp", debug_file)
 
+        # Helper function to make objects JSON serializable
+        def make_json_serializable(obj):
+            if isinstance(obj, (CitationAnalysis, CombinedResolvedCitationAnalysis)):
+                return obj.model_dump()
+            elif isinstance(obj, dict):
+                return {k: make_json_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [make_json_serializable(item) for item in obj]
+            else:
+                return obj
+
+        # Make debug_info JSON serializable before saving
+        serializable_debug_info = make_json_serializable(debug_info)
+
         with open(debug_path, "w", encoding="utf-8") as f:
-            json.dump(debug_info, f, indent=2, ensure_ascii=False)
+            json.dump(serializable_debug_info, f, indent=2, ensure_ascii=False)
 
         logging.info(f"Debug information saved to {debug_path}")
 

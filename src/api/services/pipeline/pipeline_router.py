@@ -86,10 +86,10 @@ async def process_opinions_with_llm(
     if not extraction_job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-    if extraction_job.status != "completed":
+    if extraction_job["status"] != "completed":
         raise HTTPException(
             status_code=400,
-            detail=f"Extraction job {job_id} is not completed (status: {extraction_job.status})",
+            detail=f"Extraction job {job_id} is not completed (status: {extraction_job['status']})",
         )
 
     llm_job_id = pipeline_service.create_job(
@@ -124,10 +124,10 @@ async def resolve_citations(
     if not llm_job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-    if llm_job.status != "completed":
+    if llm_job["status"] != "completed":
         raise HTTPException(
             status_code=400,
-            detail=f"LLM job {job_id} is not completed (status: {llm_job.status})",
+            detail=f"LLM job {job_id} is not completed (status: {llm_job['status']})",
         )
 
     resolution_job_id = pipeline_service.create_job(
@@ -165,10 +165,10 @@ async def load_neo4j(
     if not resolution_job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-    if resolution_job.status != "completed":
+    if resolution_job["status"] != "completed":
         raise HTTPException(
             status_code=400,
-            detail=f"Resolution job {job_id} is not completed (status: {resolution_job.status})",
+            detail=f"Resolution job {job_id} is not completed (status: {resolution_job['status']})",
         )
 
     neo4j_job_id = pipeline_service.create_job(

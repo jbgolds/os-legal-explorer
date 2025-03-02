@@ -1,7 +1,6 @@
 import os
 from typing import Generator
 from sqlalchemy.orm import Session
-from neo4j import GraphDatabase
 from dotenv import load_dotenv
 
 # Import database connections from updated modules

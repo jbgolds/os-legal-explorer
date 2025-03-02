@@ -38,13 +38,18 @@ You are a legal expert analyzing court opinions, specifically focusing on citati
 - The text may include repeated headers and footers from PDF conversion that are not part of the main content. Please ignore these extraneous elements and join fragmented sentences from body paragraphs and footnotes across page breaks to maintain coherent reasoning and accurate citation extraction.
 - If it is a long case, focus the analysis and extraction on the majority opinion.
 
+## CITATION TEXT EXTRACTION:
+- CRITICALLY IMPORTANT: For the `citation_text` field, you MUST copy the EXACT text as it appears in the document, including all context words like "our decision in", "see", etc. Do NOT standardize, normalize, or reformat citations.
+- Include the full citation context, such as "Romano v. Oklahoma, 512 U. S. 1, 13–14 (1994)" rather than just "Romano, 512 U. S., at 13".
+- This exact text preservation is essential for accurate analysis and database references.
+
 ## REQUIRED OUTPUT FORMAT IN JSON:
 Your JSON must adhere to the provided schema exactly. The output should include:
 - `date`: The date of the day the opinion was published, in format YYYY-MM-DD.
 - `brief_summary`: 3–5 sentences describing the core holding.
 - `majority_opinion_citations`, `concurrent_opinion_citations`, `dissenting_citations`: Lists of citations, each with:
   - `page_number`: The page number where the citation appears.
-  - `citation_text`: The full citation text.
+  - `citation_text`: The EXACT, COMPLETE citation text as it appears in the document.
   - `reasoning`: 2-4 sentences explaining this specific citation's use in context and its relevance.
   - `type`: [Citation Type, e.g., "judicial_opinion"]
   - `treatment`: [POSITIVE/NEGATIVE/CAUTION/NEUTRAL]

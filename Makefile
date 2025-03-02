@@ -12,5 +12,9 @@ copy-logs:
 	for file in $(docker exec os-legal-explorer-api-1 ls /tmp | grep -E '\.json|\.csv'); do docker cp os-legal-explorer-api-1:/tmp/$file debug_files/; done
 
 
-# for file in $(docker exec os-legal-explorer-api-1 ls /tmp | grep -E '\.json|\.csv'); do docker cp os-legal-explorer-api-1:/tmp/$file debug_files/; done
 # repomix --ignore "*.csv,*.json,uv.lock,.venv/"
+
+# for file in $(docker exec os-legal-explorer-api-1 ls /tmp | grep -E '\.json|\.csv'); do docker cp os-legal-explorer-api-1:/tmp/$file debug_files/; done
+# clear the database
+# MATCH (n) DETACH DELETE n
+# CALL apoc.schema.assert({},{},true) YIELD label, key RETURN *

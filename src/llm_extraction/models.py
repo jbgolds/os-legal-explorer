@@ -174,15 +174,15 @@ class CitationAnalysis(BaseModel):
         ..., description="3-5 sentences describing the core holding"
     )
     majority_opinion_citations: List[Citation] = Field(
-        ...,
+        default_factory=list,  # Default to empty list instead of requiring it
         description="List of citations from the majority opinion, including footnotes.",
     )
     concurring_opinion_citations: List[Citation] = Field(
-        ...,
+        default_factory=list,  # Default to empty list instead of requiring it
         description="List of citations from concurring opinions, including footnotes.",
     )
     dissenting_citations: List[Citation] = Field(
-        ...,
+        default_factory=list,  # Default to empty list instead of requiring it
         description="List of citations from dissenting opinions, including footnotes.",
     )
 
@@ -283,11 +283,9 @@ class CombinedResolvedCitationAnalysis(BaseModel):
     date: str
     cluster_id: int
     brief_summary: str
-    majority_opinion_citations: list[CitationResolved]
-    concurring_opinion_citations: list[
-        CitationResolved
-    ]  # Changed from concurrent to concurring for consistency
-    dissenting_citations: list[CitationResolved]
+    majority_opinion_citations: list[CitationResolved] = Field(default_factory=list)
+    concurring_opinion_citations: list[CitationResolved] = Field(default_factory=list)
+    dissenting_citations: list[CitationResolved] = Field(default_factory=list)
 
     @classmethod
     def from_citations_json(

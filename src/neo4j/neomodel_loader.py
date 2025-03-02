@@ -8,12 +8,14 @@ and enriched citation metadata.
 """
 
 import logging
+import traceback
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional, Any
 import time
 import os
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
+import uuid  # Add this import at the top of the file with other imports
 
 from neomodel import config, install_all_labels, db
 from .models import Opinion
@@ -24,12 +26,14 @@ import json
 load_dotenv()
 
 # Neo4j Configuration
-NEO4J_URI = os.getenv("NEO4J_URI", "host.docker.internal:7474")
+NEO4J_URI = os.getenv("NEO4J_URI", "bolt://host.docker.internal:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "courtlistener")
 
-# Set connection URLs - NEO4J_URI already includes the protocol
-config.DATABASE_URL = f"bolt://{NEO4J_USER}:{NEO4J_PASSWORD}@{NEO4J_URI}"
+# Set connection URL
+config.DATABASE_URL = (
+    f"bolt://{NEO4J_USER}:{NEO4J_PASSWORD}@{NEO4J_URI.replace('bolt://', '')}"
+)
 
 
 # Neo4j driver instance
@@ -45,9 +49,9 @@ def get_neo4j_driver():
     """
     global _neo4j_driver
     if _neo4j_driver is None:
-        _neo4j_driver = GraphDatabase.driver(
-            NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD)
-        )
+        # Ensure URI has protocol
+        uri = NEO4J_URI if "://" in NEO4J_URI else f"bolt://{NEO4J_URI}"
+        _neo4j_driver = GraphDatabase.driver(uri, auth=(NEO4J_USER, NEO4J_PASSWORD))
     return _neo4j_driver
 
 
@@ -66,24 +70,29 @@ class NeomodelLoader:
 
     def __init__(
         self,
-        uri: str,
-        username: str,
-        password: str,
+        uri: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
         batch_size: int = 1000,
     ):
         """
         Initialize the loader with Neo4j connection details.
 
         Args:
-            uri: Neo4j server URI
-            username: Neo4j username
-            password: Neo4j password
+            uri: Neo4j server URI, defaults to NEO4J_URI env var
+            username: Neo4j username, defaults to NEO4J_USER env var
+            password: Neo4j password, defaults to NEO4J_PASSWORD env var
             batch_size: Number of nodes to process in each batch
         """
-        self.uri = uri
-        self.username = username
-        self.password = password
+        # Use parameters if provided, otherwise fall back to module-level defaults
+        self.uri = uri or NEO4J_URI
+        self.username = username or NEO4J_USER
+        self.password = password or NEO4J_PASSWORD
         self.batch_size = batch_size
+
+        # Ensure URI has protocol
+        if self.uri and "://" not in self.uri:
+            self.uri = f"bolt://{self.uri}"
 
         # Configure neomodel connection if not already set
         if not config.DATABASE_URL:
@@ -124,18 +133,22 @@ class NeomodelLoader:
                 logger.error("Empty list for cluster_id, cannot process")
                 return None
 
+        # Handle case where cluster_id is not an integer or string
+        if not isinstance(data["cluster_id"], (int, str)):
+            try:
+                data["cluster_id"] = int(data["cluster_id"])
+                logger.warning(f"Converted cluster_id to int: {data['cluster_id']}")
+            except (ValueError, TypeError):
+                logger.error(
+                    f"Invalid cluster_id type ({type(data['cluster_id'])}), cannot process: {data['cluster_id']}"
+                )
+                return None
+
         # Handle date conversion if needed
         if "date_filed" in data and isinstance(data["date_filed"], str):
             data["date_filed"] = datetime.strptime(
                 data["date_filed"], "%Y-%m-%d"
             ).date()
-
-        # Skip if citation_text is missing (required by Citation base class)
-        if "citation_text" not in data or not data["citation_text"]:
-            logger.warning(
-                f"Skipping opinion {data.get('cluster_id')} due to missing citation_text"
-            )
-            return None
 
         try:
             # First try to get existing opinion
@@ -150,6 +163,9 @@ class NeomodelLoader:
                 return opinion
             except Opinion.DoesNotExist:
                 # Create new opinion if it doesn't exist
+                if isinstance(data["cluster_id"], list):
+                    if len(data["cluster_id"]) == 1:
+                        data["cluster_id"] = data["cluster_id"][0]
                 opinion = Opinion.create(
                     {
                         "cluster_id": data["cluster_id"],
@@ -160,8 +176,16 @@ class NeomodelLoader:
                         },
                     }
                 )
+                if len(opinion) == 1:
+                    opinion = opinion[0]
+                else:
+                    logger.warning(
+                        f"WARNING Created {len(opinion)} opinions with cluster_id: {data['cluster_id']}"
+                    )
+                # Handle the case where create returns a list
+
                 logger.debug(
-                    f"Created new opinion with cluster_id: {opinion.cluster_id}"
+                    f"Created new opinion with cluster_id: {data['cluster_id']}"
                 )
                 return opinion
 
@@ -195,7 +219,7 @@ class NeomodelLoader:
             metadata.setdefault("other_metadata_versions", "[]")
 
             # Use get_or_create to atomically get or create the relationship
-            rel = citing_opinion.cites.relationship(cited_opinion)
+            rel = citing_opinion.cites.relationship(cited_opinion)  # type: ignore
             if rel:
                 # Relationship exists - update with new metadata while preserving history
                 try:
@@ -226,26 +250,17 @@ class NeomodelLoader:
                     metadata["version"] = rel.version + 1
 
                 # Update relationship with new metadata
-                citing_opinion.cites.replace(cited_opinion, metadata)
+                citing_opinion.cites.replace(cited_opinion, metadata)  # type: ignore
                 logger.debug(
                     f"Updated citation relationship: {citing_opinion.cluster_id}->"
                     f"{cited_opinion.cluster_id} with {len(changes)} field changes"
                 )
             else:
                 # Create new relationship
-                citing_opinion.cites.connect(cited_opinion, metadata)
+                citing_opinion.cites.connect(cited_opinion, metadata)  # type: ignore
                 logger.debug(
                     f"Created new citation relationship: {citing_opinion.cluster_id}->"
                     f"{cited_opinion.cluster_id}"
-                )
-
-            # Update citation count if available
-            try:
-                if hasattr(cited_opinion, "increment_citation_count"):
-                    cited_opinion.increment_citation_count()
-            except Exception as count_error:
-                logger.warning(
-                    f"Failed to increment citation count for opinion {cited_opinion.cluster_id}: {str(count_error)}"
                 )
 
         except Exception as e:
@@ -356,7 +371,9 @@ class NeomodelLoader:
         total_time_start = time.time()
 
         # Process in batches for better performance and error resilience
-        batch_size = min(len(citations_data), 10)  # Process at most 10 at a time
+        batch_size = max(
+            1, min(len(citations_data), 10)
+        )  # Process at most 10 at a time, but ensure at least 1
 
         for i in range(0, len(citations_data), batch_size):
             batch = citations_data[i : i + batch_size]
@@ -364,50 +381,15 @@ class NeomodelLoader:
 
             # Process each citation in the batch
             for citation in batch:
-                # Debug before processing
-                # try:
-                #     logging.info(
-                #         f"Processing citation type: {type(citation)}, has cluster_id: {hasattr(citation, 'cluster_id')}"
-                #     )
-                #     if hasattr(citation, "cluster_id"):
-                #         logging.info(f"Citation cluster_id: {citation.cluster_id}")
-                # except Exception as e:
-                #     logging.error(f"Error in debug logging: {str(e)}")
-
-                # # Handle case where citation is a list instead of an object
-                # if isinstance(citation, list):
-                #     logging.error(
-                #         f"Citation is a list not an object. Skipping. First few elements: {str(citation[:3])}"
-                #     )
-                #     skipped_clusters.append(
-                #         -1
-                #     )  # Use -1 to indicate it was a list with no cluster ID
-                #     continue
-
-                # # Skip invalid cluster IDs and identify for reprocessing
-                # if not citation.cluster_id or citation.cluster_id < 0:
-                #     logging.warning(
-                #         f"Identified invalid cluster ID for reprocessing: {getattr(citation, 'cluster_id', 'No cluster_id')}"
-                #     )
-                #     skipped_clusters.append(getattr(citation, "cluster_id", -1))
-                #     continue
-
-                # # Skip default or empty citation analyses (likely created by fallback mechanisms)
-                # if (
-                #     citation.date.startswith("1500-")
-                #     or "[DEFAULT]" in citation.brief_summary
-                #     or citation.brief_summary == "No summary available"
-                #     or (
-                #         not citation.majority_opinion_citations
-                #         and not citation.concurring_opinion_citations
-                #         and not citation.dissenting_citations
-                #     )
-                # ):
-                #     logging.warning(
-                #         f"Identified empty or default citation analysis for reprocessing: cluster {citation.cluster_id}"
-                #     )
-                #     skipped_clusters.append(citation.cluster_id)
-                #     continue
+                # Verify citation is the expected type before processing
+                if not hasattr(citation, "cluster_id"):
+                    logger.error(
+                        f"Invalid citation object (missing cluster_id): {type(citation)}"
+                    )
+                    skipped_clusters.append(
+                        getattr(citation, "cluster_id", f"unknown-{i}")
+                    )
+                    continue
 
                 # Process each citation in a separate transaction for isolation
                 with db.transaction:
@@ -442,34 +424,61 @@ class NeomodelLoader:
                             for cite in section_citations:
                                 # Skip invalid citations but continue processing others
                                 try:
-                                    # Skip citations with invalid resolved_opinion_cluster
-                                    if (
-                                        not cite.resolved_opinion_cluster
-                                        or cite.resolved_opinion_cluster < 0
-                                    ):
-                                        skipped_in_opinion += 1
-                                        continue
+                                    # Handle different citation types differently
+                                    if cite.type == "judicial_opinion":
+                                        # For judicial opinions, skip if resolved_opinion_cluster is invalid
+                                        if (
+                                            not cite.resolved_opinion_cluster
+                                            or cite.resolved_opinion_cluster < 0
+                                        ):
+                                            skipped_in_opinion += 1
+                                            continue
 
-                                    # Skip citations with missing citation_text for the relationship
-                                    if not cite.citation_text:
-                                        logging.warning(
-                                            f"Skipping citation in {section_name} section with missing citation_text for relationship"
+                                        # Set node_id to the resolved cluster ID for judicial opinions
+                                        node_id = cite.resolved_opinion_cluster
+                                    else:
+                                        # For non-judicial opinions (statutes, etc.), create a UUID if no resolution
+                                        # Use the citation text to generate a deterministic UUID
+                                        citation_hash = str(hash(cite.citation_text))
+                                        node_id = (
+                                            int(citation_hash)
+                                            if citation_hash.isdigit()
+                                            else int(
+                                                uuid.uuid5(
+                                                    uuid.NAMESPACE_DNS,
+                                                    cite.citation_text,
+                                                ).int
+                                            )
+                                            % 2**31
                                         )
-                                        skipped_in_opinion += 1
-                                        continue
 
-                                    # Create or update the cited opinion
-                                    # Note: citation_text is now only used in the relationship, not on the node
-                                    cited_opinion = self.create_or_update_opinion(
-                                        {
-                                            "cluster_id": cite.resolved_opinion_cluster,
-                                            "type": cite.type,
-                                        }
+                                    # Instead of skipping citations with missing citation_text,
+                                    # provide a default value and log a warning
+                                    citation_text = cite.citation_text
+                                    if not citation_text:
+                                        citation_text = f"Citation from {citation.cluster_id} to {node_id}"
+                                        logging.warning(
+                                            f"Using default citation_text for citation from {citation.cluster_id} to {node_id} in {section_name} section"
+                                        )
+
+                                    # Create or update the cited opinion/statute
+                                    # For non-judicial opinions, add additional type metadata
+                                    node_props = {
+                                        "cluster_id": node_id,
+                                        "type": cite.type,
+                                    }
+
+                                    # Add citation text as a property for non-judicial opinions to aid identification
+                                    if cite.type != "judicial_opinion":
+                                        node_props["citation_text"] = cite.citation_text
+
+                                    cited_node = self.create_or_update_opinion(
+                                        node_props
                                     )
 
-                                    if cited_opinion is None:
+                                    if cited_node is None:
                                         logging.warning(
-                                            f"Failed to create/update cited opinion {cite.resolved_opinion_cluster}, skipping"
+                                            f"Failed to create/update cited node {node_id}, skipping"
                                         )
                                         skipped_in_opinion += 1
                                         continue
@@ -481,7 +490,7 @@ class NeomodelLoader:
                                         "treatment": cite.treatment,
                                         "relevance": cite.relevance,
                                         "reasoning": cite.reasoning,
-                                        "citation_text": cite.citation_text,
+                                        "citation_text": citation_text,  # Use the variable with possible default value
                                         "page_number": cite.page_number,
                                     }
 
@@ -494,14 +503,18 @@ class NeomodelLoader:
 
                                     # Check if relationship already exists
                                     citing_opinion.cites.connect(
-                                        cited_opinion, metadata
+                                        cited_node, metadata
+                                    )  # type: ignore
+                                    logger.debug(
+                                        f"Created new citation relationship: {citing_opinion.cluster_id}->"
+                                        f"{cited_node.cluster_id}"
                                     )
 
                                     citation_count += 1
 
                                 except Exception as e:
                                     logging.error(
-                                        f"Error processing citation to {getattr(cite, 'resolved_opinion_cluster', 'unknown')}: {str(e)}"
+                                        f"Error processing citation from {citation.cluster_id} to {getattr(cite, 'resolved_opinion_cluster', 'unknown')} in {section_name} section: {str(e)}\n{traceback.format_exc()}"
                                     )
                                     skipped_in_opinion += 1
 
@@ -515,7 +528,7 @@ class NeomodelLoader:
 
                     except Exception as e:
                         logging.error(
-                            f"Error processing opinion {citation.cluster_id}, skipping: {str(e)}"
+                            f"Error processing opinion {citation.cluster_id}, skipping: {str(e)}; {traceback.format_exc()}"
                         )
                         skipped_clusters.append(citation.cluster_id)
 
