@@ -7,7 +7,7 @@ import numpy as np
 from typing import List, Dict, Optional, Any, Union, Callable, TypeVar, cast
 from datetime import datetime
 from sqlalchemy.orm import Session
-from src.llm_extraction.models import CitationAnalysis
+from src.llm_extraction.models import CitationAnalysis, Citation, resolve_citation
 from pydantic import TypeAdapter
 from typing import List
 
@@ -15,9 +15,11 @@ from typing import List
 from .pipeline_model import JobStatus, JobType, ExtractionConfig
 from src.llm_extraction.rate_limited_gemini import GeminiClient
 from src.llm_extraction.models import (
-    CombinedResolvedCitationAnalysis,
-    CitationAnalysis,
     Citation,
+    CitationAnalysis,
+    CitationResolved,
+    CombinedResolvedCitationAnalysis,
+    resolve_citation,
 )
 from src.neo4j_db.neomodel_loader import NeomodelLoader
 
@@ -458,6 +460,8 @@ def run_extraction_job(db: Session, job_id: int, config: ExtractionConfig) -> No
         )
 
         # Execute the actual database query
+        if db.bind is None:
+            raise ValueError("db.bind is None, cannot execute SQL query")
         df = pd.read_sql(query, db.bind, params=params)
 
         # Save raw CSV
@@ -511,11 +515,16 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
 
         # Get extraction job
         extraction_job = get_job(db, extraction_job_id)
-        if not extraction_job:
-            raise ValueError(f"Extraction job {extraction_job_id} not found")
-
+        if extraction_job is None:
+            logger.error(
+                f"Extraction job {extraction_job_id} not found, aborting pipeline"
+            )
+            return
         if extraction_job["status"] != JobStatus.COMPLETED:
-            raise ValueError(f"Extraction job {extraction_job_id} is not completed")
+            logger.error(
+                f"Extraction job {extraction_job_id} failed, aborting pipeline"
+            )
+            return
 
         # Load and clean data
         df = pd.read_csv(extraction_job["result_path"])
@@ -612,11 +621,12 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
 
         # Get LLM job
         llm_job = get_job(db, llm_job_id)
-        if not llm_job:
-            raise ValueError(f"LLM job {llm_job_id} not found")
-
+        if llm_job is None:
+            logger.error(f"LLM job {llm_job_id} not found, aborting pipeline")
+            return
         if llm_job["status"] != JobStatus.COMPLETED:
-            raise ValueError(f"LLM job {llm_job_id} is not completed")
+            logger.error(f"LLM job {llm_job_id} failed, aborting pipeline")
+            return
 
         # Load and validate LLM results
         def load_and_validate_llm_data():
@@ -647,20 +657,21 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
                             validated = [single_adapter.validate_python(dumped)]
                         except Exception:
                             # Try as a list if single validation fails
-                            validated = [
-                                single_adapter.validate_python(item)
-                                for item in [dumped]
-                            ]
+                            validated = list_adapter.validate_python([dumped])
                     else:
                         logger.warning(
-                            f"Unexpected type for cluster {cluster_id}: {type(dumped)}"
+                            f"Unexpected format for cluster {cluster_id}: {type(dumped)}"
                         )
                         continue
 
+                    # Store validated results
                     validated_results[cluster_id] = validated
                 except Exception as e:
-                    logger.error(f"Error validating cluster {cluster_id}: {str(e)}")
+                    logger.warning(
+                        f"Validation failed for cluster {cluster_id}: {str(e)}"
+                    )
 
+            logger.info(f"Loaded and validated {len(validated_results)} LLM results")
             return validated_results
 
         validated_llm_results = job_step(
@@ -677,60 +688,28 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
                     continue
 
                 try:
-                    # Filter lists within each analysis to remove potential invalid items
+                    # Filter and validate analyses
                     filtered_analyses = []
                     for analysis in analyses:
                         if isinstance(analysis, CitationAnalysis):
-                            # Clean up citation lists to ensure all items have required fields
-                            for field in [
-                                "majority_citations",
-                                "concurring_citations",
-                                "dissenting_citations",
-                            ]:
-                                if hasattr(analysis, field) and getattr(
-                                    analysis, field
-                                ):
-                                    citations = getattr(analysis, field)
-                                    valid_citations = []
-                                    for citation in citations:
-                                        # Use proper Citation validation instead of field checking
-                                        try:
-                                            # This will validate the citation object is properly formed
-                                            Citation.model_validate(
-                                                citation.model_dump()
-                                            )
-                                            valid_citations.append(citation)
-                                        except Exception as e:
-                                            logger.warning(
-                                                f"Filtered out invalid citation in {field} for cluster {cluster_id}: {str(e)}"
-                                            )
-                                    # Replace with filtered list
-                                    setattr(analysis, field, valid_citations)
                             filtered_analyses.append(analysis)
+                        else:
+                            logger.warning(
+                                f"Unexpected analysis type for cluster {cluster_id}: {type(analysis)}"
+                            )
 
-                    # Only process if we have valid analyses after filtering
+                    # Use the from_citations method to create a combined resolved analysis
                     if filtered_analyses:
+                        # This method handles the resolution of citations internally
                         combined = CombinedResolvedCitationAnalysis.from_citations(
                             filtered_analyses, int(cluster_id)
                         )
-                        # Verify that combined is an actual CombinedResolvedCitationAnalysis object
-                        if combined and isinstance(
-                            combined, CombinedResolvedCitationAnalysis
-                        ):
-                            resolved.append(combined)
-                        else:
-                            logger.warning(
-                                f"CombinedResolvedCitationAnalysis.from_citations returned unexpected type for cluster {cluster_id}: {type(combined)}"
-                            )
-                            errors[str(cluster_id)] = {
-                                "error": f"from_citations returned unexpected type: {type(combined)}",
-                                "analyses_count": len(analyses),
-                            }
+                        resolved.append(combined)
                     else:
-                        errors[str(cluster_id)] = {
-                            "error": "No valid analyses after filtering",
-                            "analyses_count": len(analyses),
-                        }
+                        logger.warning(
+                            f"No valid analyses for cluster {cluster_id} after filtering"
+                        )
+
                 except Exception as e:
                     logger.warning(
                         f"Error creating combined analysis for cluster {cluster_id}: {str(e)}"
@@ -1046,6 +1025,11 @@ def run_full_pipeline(
 
         # Check if extraction job succeeded
         extraction_job = get_job(db, extraction_job_id)
+        if extraction_job is None:
+            logger.error(
+                f"Extraction job {extraction_job_id} not found, aborting pipeline"
+            )
+            return
         if extraction_job["status"] != JobStatus.COMPLETED:
             logger.error(
                 f"Extraction job {extraction_job_id} failed, aborting pipeline"
@@ -1057,6 +1041,9 @@ def run_full_pipeline(
 
         # Check if LLM job succeeded
         llm_job = get_job(db, llm_job_id)
+        if llm_job is None:
+            logger.error(f"LLM job {llm_job_id} not found, aborting pipeline")
+            return
         if llm_job["status"] != JobStatus.COMPLETED:
             logger.error(f"LLM job {llm_job_id} failed, aborting pipeline")
             return

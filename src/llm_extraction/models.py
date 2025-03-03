@@ -1,9 +1,6 @@
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 from enum import StrEnum
-from typing import List, Optional, Union, Dict
-import json
-from json_repair import repair_json
-from datetime import datetime
+from typing import List, Optional
 import logging
 from src.citation.parser import (
     find_cluster_id,
@@ -27,15 +24,6 @@ class OpinionSection(StrEnum):
     majority = "MAJORITY"
     concurring = "CONCURRING"
     dissenting = "DISSENTING"
-
-class OpinionType(StrEnum):
-    """Type of opinion document."""
-
-    majority = "MAJORITY"
-    concurring = "CONCURRING"
-    dissenting = "DISSENTING"
-    seriatim = "SERIATIM"
-    unknown = "UNKNOWN"
 
 
 class CitationType(StrEnum):
@@ -176,6 +164,47 @@ class CitationAnalysis(BaseModel):
                 sum += len(getattr(self, field.name))
         return sum
 
+    @classmethod
+    def combine_analyses(
+        cls, analyses: List["CitationAnalysis"]
+    ) -> Optional["CitationAnalysis"]:
+        """
+        Combine multiple CitationAnalysis objects into a single one WITHOUT performing resolution.
+
+        Args:
+            analyses: List of CitationAnalysis objects to combine
+
+        Returns:
+            CitationAnalysis or None if no valid analyses
+        """
+        # Filter out None values
+        valid_analyses = [a for a in analyses if a is not None]
+        if not valid_analyses:
+            return None
+
+        # Use the first analysis as a base
+        base = valid_analyses[0]
+
+        # Initialize with citations from the base analysis
+        all_majority_citations = list(base.majority_opinion_citations)
+        all_concurring_citations = list(base.concurring_opinion_citations)
+        all_dissenting_citations = list(base.dissenting_citations)
+
+        # Add citations from all other analyses (excluding the base)
+        for analysis in valid_analyses[1:]:
+            all_majority_citations.extend(analysis.majority_opinion_citations)
+            all_concurring_citations.extend(analysis.concurring_opinion_citations)
+            all_dissenting_citations.extend(analysis.dissenting_citations)
+
+        # Create a new CitationAnalysis with combined citations
+        return cls(
+            date=base.date,
+            brief_summary=base.brief_summary,
+            majority_opinion_citations=all_majority_citations,
+            concurring_opinion_citations=all_concurring_citations,
+            dissenting_citations=all_dissenting_citations,
+        )
+
 
 class CitationResolved(Citation):
     """
@@ -201,6 +230,9 @@ class CitationResolved(Citation):
         "none",
         description="Method used to resolve the citation (exact_match, cleaned_text, fuzzy_match, none)",
     )
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
 
 # TODO Overlap with CitationAnalysis.
@@ -240,8 +272,6 @@ class CombinedResolvedCitationAnalysis(BaseModel):
             ],
         )
 
-   
-
 
 def _resolve_opinion_citation(citation: Citation) -> CitationResolved:
     """
@@ -249,16 +279,15 @@ def _resolve_opinion_citation(citation: Citation) -> CitationResolved:
 
     This improved version adds a confidence score and handles more citation formats.
     """
-    
-    if citation.type != CitationType.judicial_opinion:
-            raise ValueError("Cannot use this function to resolve non judicial opinions.")
 
-    
+    if citation.type != CitationType.judicial_opinion:
+        raise ValueError("Cannot use this function to resolve non judicial opinions.")
+
     # Initialize with default values
     resolved_cluster_id = None
     confidence_score = 0.0
     resolution_method = "none"
-    
+
     # Try exact citation lookup first
     resolved_cluster_id = find_cluster_id(citation.citation_text)
 
@@ -287,7 +316,7 @@ def _resolve_opinion_citation(citation: Citation) -> CitationResolved:
     # Create the resolved citation with additional metadata
     return CitationResolved(
         **citation.model_dump(),  # Copy all existing fields
-        primary_id=resolved_cluster_id,
+        primary_id=str(resolved_cluster_id) if resolved_cluster_id else None,
         primary_table="opinion_cluster",
         resolution_confidence=confidence_score,
         resolution_method=resolution_method,
@@ -299,9 +328,9 @@ def resolve_citation(citation: Citation) -> CitationResolved:
         return _resolve_opinion_citation(citation)
     else:
         return CitationResolved(
-        **citation.model_dump(),  # Copy all existing fields
-        primary_id=None,
-        primary_table=None,
-        resolution_confidence=0.0,
-        resolution_method="none",
-    )
+            **citation.model_dump(),  # Copy all existing fields
+            primary_id=None,
+            primary_table=None,
+            resolution_confidence=0.0,
+            resolution_method="none",
+        )

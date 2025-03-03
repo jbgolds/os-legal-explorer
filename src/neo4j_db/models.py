@@ -15,8 +15,9 @@ from neomodel import (
     db,
 )
 from datetime import datetime
-from src.llm_extraction.models import CitationType, CitationTreatment, OpinionType
+from src.llm_extraction.models import CitationType, CitationTreatment, OpinionSection
 import asyncio
+from typing import Type
 
 
 class CitesRel(StructuredRel):
@@ -41,9 +42,11 @@ class CitesRel(StructuredRel):
     reasoning = StringProperty(default=None)
     page_number = IntegerProperty(default=None)
 
+    opinion_section = StringProperty(
+        choices=OpinionSection._value2member_map_, default=None
+    )
     # Temporal fields
     timestamp = DateTimeProperty(default=lambda: datetime.now())
-    opinion_section = StringProperty(default=None)  # majority, dissent, or concurrent
 
     # Audit trail
     other_metadata_versions = JSONProperty(default=list)
@@ -138,8 +141,6 @@ class Opinion(LegalDocument):
     court_id = IntegerProperty(index=True)
     court_name = StringProperty(default=None)
 
-    # Opinion type and voting data
-    opinion_type = StringProperty(choices=OpinionType._value2member_map_, default=None)
     date_filed = DateProperty(index=True)
 
     # Original database IDs
@@ -165,19 +166,14 @@ class Opinion(LegalDocument):
             The Opinion node (either existing or newly created)
         """
         # Convert cluster_id to string for primary_id
-        primary_id = str(cluster_id)
+        if not cluster_id and not citation_string:
+            raise ValueError("Cluster ID or citation string is required")
 
-        # Try to find existing opinion
-        # first try and find via primary_id, then check citation_string
-
-        opinion = cls.nodes.first_or_none(
-            primary_id=primary_id, type=CitationType.judicial_opinion.value
-        )
-        if not opinion:
-            opinion = cls.nodes.first_or_none(
-                citation_string=citation_string,
-                type=CitationType.judicial_opinion.value,
-            )
+        primary_id = str(cluster_id) if cluster_id else None
+        if primary_id:
+            opinion = cls.nodes.first_or_none(primary_id=primary_id)
+        elif citation_string:
+            opinion = cls.nodes.first_or_none(citation_string=citation_string)
 
         # Create if it doesn't exist
         if not opinion:
@@ -186,17 +182,26 @@ class Opinion(LegalDocument):
                 {
                     "primary_id": primary_id,
                     "primary_table": "opinion_cluster",
-                    "type": CitationType.judicial_opinion.value,
-                    # If citation_string not provided, use cluster_id as fallback
-                    "citation_string": citation_string,
                 }
             )
+            if citation_string:
+                kwargs["citation_string"] = citation_string
 
             # Create new opinion
             opinion = cls(**kwargs)
             opinion.save()
 
         return opinion
+        # if len(opinion) > 1:
+        #     raise ValueError(
+        #         f"Multiple opinions found for cluster_id {cluster_id} and citation_string {citation_string}"
+        #     )
+        # elif len(opinion) == 1:
+        #     return opinion[0]
+        # else:
+        #     raise ValueError(
+        #         f"No opinion found for cluster_id {cluster_id} and citation_string {citation_string}"
+        #     )
 
 
 class StatutesCodesRegulation(LegalDocument):
@@ -308,7 +313,7 @@ class ElectronicResource(LegalDocument):
 
 
 # Mapping to help with backwards compatibility and migration
-CITATION_TYPE_TO_NODE_TYPE = {
+CITATION_TYPE_TO_NODE_TYPE: dict[CitationType, Type[LegalDocument]] = {
     CitationType.judicial_opinion: Opinion,
     CitationType.statutes_codes_regulations: StatutesCodesRegulation,
     CitationType.constitution: ConstitutionalDocument,

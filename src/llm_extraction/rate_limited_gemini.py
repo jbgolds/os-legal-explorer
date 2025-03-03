@@ -173,7 +173,7 @@ class RateLimiter:
         self.concurrent_semaphore.release()
 
 
-def repair_json_string(json_str: str) -> Optional[str]:
+def repair_json_string(json_str: str) -> Optional[dict]:
     """
     Simple JSON repair function that tries to fix common issues.
 
@@ -187,7 +187,6 @@ def repair_json_string(json_str: str) -> Optional[str]:
         # First try standard repair
         repaired = repair_json(json_str, return_objects=True)
         # Test if it's valid JSON
-        json.loads(repaired)
         return repaired
     except Exception as e:
         logging.error(f"JSON repair failed: {str(e)}")
@@ -303,9 +302,8 @@ class ResponseSerializer:
             repaired_json = repair_json_string(response.text)
             if repaired_json:
                 try:
-                    json_data = json.loads(repaired_json)
                     result = ResponseSerializer._validate_json_data(
-                        json_data, validation_errors, repaired=True
+                        repaired_json, validation_errors, repaired=True
                     )
                     if result:
                         return result
@@ -529,37 +527,37 @@ class GeminiClient:
                 self.worker_data.worker_id = self.worker_counter
         return self.worker_data.worker_id
 
-    def combine_chunk_responses(
-        self, responses: List[CitationAnalysis], cluster_id: int
-    ) -> Optional[CombinedResolvedCitationAnalysis]:
-        """
-        Combine multiple chunk responses into a single citation analysis result.
+    # def combine_chunk_responses(
+    #     self, responses: List[CitationAnalysis], cluster_id: int
+    # ) -> Optional[CombinedResolvedCitationAnalysis]:
+    #     """
+    #     Combine multiple chunk responses into a single citation analysis result.
 
-        Args:
-            responses: List of CitationAnalysis objects from processing chunks
-            cluster_id: The cluster ID to associate with the combined response
+    #     Args:
+    #         responses: List of CitationAnalysis objects from processing chunks
+    #         cluster_id: The cluster ID to associate with the combined response
 
-        Returns:
-            CombinedResolvedCitationAnalysis or None if no valid responses
+    #     Returns:
+    #         CombinedResolvedCitationAnalysis or None if no valid responses
 
-        Raises:
-            ValueError: If no valid CitationAnalysis objects are provided
-        """
-        # Filter out None responses and ensure we have valid ones
-        valid_responses = [r for r in responses if r is not None]
-        if not valid_responses:
-            logging.warning("No valid responses to combine")
-            return None
+    #     Raises:
+    #         ValueError: If no valid CitationAnalysis objects are provided
+    #     """
+    #     # Filter out None responses and ensure we have valid ones
+    #     valid_responses = [r for r in responses if r is not None]
+    #     if not valid_responses:
+    #         logging.warning("No valid responses to combine")
+    #         return None
 
-        try:
-            # Create combined analysis using from_citations
-            combined = CombinedResolvedCitationAnalysis.from_citations(
-                valid_responses, cluster_id
-            )
-            return combined
-        except Exception as e:
-            logging.error(f"Error combining responses: {str(e)}")
-            return None
+    #     try:
+    #         # Create combined analysis using from_citations
+    #         combined = CombinedResolvedCitationAnalysis.from_citations(
+    #             valid_responses, cluster_id
+    #         )
+    #         return combined
+    #     except Exception as e:
+    #         logging.error(f"Error combining responses: {str(e)}")
+    #         return None
 
     def generate_content_with_chat(
         self,
@@ -567,7 +565,7 @@ class GeminiClient:
         cluster_id: int,
         model: str = "gemini-2.0-flash-001",
         max_retries: int = 3,
-    ) -> Optional[CombinedResolvedCitationAnalysis]:
+    ) -> Optional[CitationAnalysis]:
         """Generate content using chat history for better context preservation."""
         model = model or self.model
         worker_id = self.get_worker_id()
@@ -653,10 +651,8 @@ class GeminiClient:
         if word_count <= TextChunker.WORD_COUNT_THRESHOLD:
             try:
                 result = process_single_chunk(text, self.config)
-                # Always run through combine_chunk_responses for consistent typing
-                if result:
-                    return self.combine_chunk_responses([result], cluster_id)
-                return None
+                # Return the raw CitationAnalysis
+                return result
             except Exception as e:
                 logging.error(
                     f"Worker {worker_id}: Processing failed for text of length {word_count}: {str(e)}"
@@ -668,11 +664,11 @@ class GeminiClient:
             f"Worker {worker_id}: Text length ({word_count} words) exceeds limit. Using chat-based chunking..."
         )
         chunks = self.chunker.simple_split_into_chunks(text)
-        chat = None
+        chat: Optional[Chat] = None
 
         try:
             # Create a chat session with chunked config
-            chat: Chat = self.client.chats.create(model=model, config=config_to_use)
+            chat = self.client.chats.create(model=model, config=config_to_use)
             responses: List[CitationAnalysis] = []
             chunk_failures = 0  # Track how many chunks fail
 
@@ -777,14 +773,13 @@ class GeminiClient:
                 f"({len(responses)/len(chunks)*100:.1f}% success rate)"
             )
 
-            # Merge all responses into one consolidated result
+            # Use the CitationAnalysis class method to combine responses
             try:
-                return self.combine_chunk_responses(responses, cluster_id)
+                return CitationAnalysis.combine_analyses(responses)
             except Exception as e:
                 logging.error(
                     f"Worker {worker_id}: Failed to combine chunk responses: {str(e)}"
                 )
-                # Don't try to salvage partial responses, just return None so caller can retry
                 return None
 
         except Exception as e:
@@ -809,7 +804,7 @@ class GeminiClient:
         max_workers: Optional[int] = None,
         output_file: Optional[str] = None,
         batch_size: int = 10,
-    ) -> Dict[int, Optional[CombinedResolvedCitationAnalysis]]:
+    ) -> Dict[int, Optional[CitationAnalysis]]:
         """Process a DataFrame of content generation requests using thread pool."""
         # Adjust max_workers based on DataFrame size and rate limit
         if max_workers is None:
@@ -825,7 +820,7 @@ class GeminiClient:
         # Safety check: ensure batch_size is at least 1 to avoid division by zero in range()
         batch_size = max(1, batch_size)
 
-        results: Dict[int, Optional[CombinedResolvedCitationAnalysis]] = {}
+        results: Dict[int, Optional[CitationAnalysis]] = {}
         errors = []
         total_processed = 0
 
@@ -837,9 +832,7 @@ class GeminiClient:
 
         def process_row(
             row,
-        ) -> tuple[
-            int, Optional[CombinedResolvedCitationAnalysis], Optional[str], dict
-        ]:
+        ) -> tuple[int, Optional[CitationAnalysis], Optional[str], dict]:
             worker_id = self.get_worker_id()
             try:
                 logging.info(

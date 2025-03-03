@@ -76,9 +76,6 @@ This project aims to create a free, publicly accessible dataset derived from Sup
 - **Opinion Sections & Types:**  
   - **OpinionSection:**  
     - Majority, Concurring, Dissenting  
-  - **OpinionType:**  
-    - Majority, Concurring, Dissenting, Seriatim, Unknown
-
 - **Citation Model:**  
   Each extracted citation includes:
   - **page_number:** Page of occurrence.
