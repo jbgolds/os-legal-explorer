@@ -6,18 +6,36 @@ from neomodel import (
     DateTimeProperty,
     DateProperty,
     RelationshipTo,
-    RelationshipFrom,
-    BooleanProperty,
-    ArrayProperty,
-    UniqueIdProperty,
     JSONProperty,
     ZeroOrMore,
     db,
 )
-from datetime import datetime
+from neomodel.properties import validator
+from datetime import datetime, date
 from src.llm_extraction.models import CitationType, CitationTreatment, OpinionSection
 import asyncio
 from typing import Type
+import json
+
+
+class DateTimeEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles datetime objects."""
+
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        return super().default(obj)
+
+
+class CustomJSONProperty(JSONProperty):
+    """Custom JSONProperty that can handle datetime objects."""
+
+    @validator
+    def deflate(self, value, obj=None):
+        """Convert value to JSON string with datetime support."""
+        if value is None:
+            return None
+        return json.dumps(value, cls=DateTimeEncoder, ensure_ascii=self.ensure_ascii)
 
 
 class CitesRel(StructuredRel):
@@ -48,11 +66,8 @@ class CitesRel(StructuredRel):
     # Temporal fields
     timestamp = DateTimeProperty(default=lambda: datetime.now())
 
-    # Audit trail
-    other_metadata_versions = JSONProperty(default=list)
-
-    # Flag for default data created during error handling
-    is_default_data = BooleanProperty(default=False, index=True)
+    # Audit trail - using CustomJSONProperty instead of JSONProperty
+    other_metadata_versions = CustomJSONProperty(default=list)
 
 
 class LegalDocument(StructuredNode):
@@ -66,11 +81,11 @@ class LegalDocument(StructuredNode):
     updated_at = DateTimeProperty(default=lambda: datetime.now())
 
     # Common relationships for all document types
-    cited_by = RelationshipFrom(
-        "LegalDocument", "CITES", model=CitesRel, cardinality=ZeroOrMore
-    )
     cites = RelationshipTo(
-        "LegalDocument", "CITES", model=CitesRel, cardinality=ZeroOrMore
+        cls_name="LegalDocument",
+        relation_type="CITES",
+        model=CitesRel,
+        cardinality=ZeroOrMore,
     )
 
     # Generic primary identifier - used to relate to records in other databases
@@ -108,6 +123,9 @@ class LegalDocument(StructuredNode):
     def get_or_create(cls, citation_string, **kwargs):
         """Get or create a document, always ensuring citation_string is set"""
         # Try to find existing document
+
+        # Initialize doc to None
+        doc = None
 
         # first try and find via primary_id, then check citation_string
         if "primary_id" in kwargs:

@@ -730,9 +730,16 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
 
             return resolved, errors
 
-        resolved_citations, _ = job_step(
+        resolved_citations, errors = job_step(
             db, job_id, "combining analyses", 50.0, create_combined_analyses
         )
+
+        if errors:
+            logger.warning(
+                f"Encountered {len(errors)} errors during citation resolution"
+            )
+            # preview errors
+            logger.warning(errors)
 
         # Serialize and save results
         serialized_citations = [
@@ -799,101 +806,25 @@ def run_neo4j_job(
         if not resolution_job:
             raise ValueError(f"Resolution job {resolution_job_id} not found")
 
-        if resolution_job["status"] != JobStatus.COMPLETED:
-            raise ValueError(f"Resolution job {resolution_job_id} is not completed")
+        # Check if the job has a result path
+        if not resolution_job.get("result_path"):
+            raise ValueError(f"Resolution job {resolution_job_id} has no result path")
 
-        # Load resolved citations
-        with open(resolution_job["result_path"], "r") as f:
-            resolved_citations_data = json.load(f)
-            logger.info(
-                f"Loaded {len(resolved_citations_data)} citation entries from JSON"
-            )
-            logger.debug(
-                f"Type of resolved_citations_data: {type(resolved_citations_data)}"
-            )
-            if isinstance(resolved_citations_data, list):
-                preview = resolved_citations_data[:2]  # preview first two entries
-            else:
-                preview = resolved_citations_data
-            logger.debug(f"Preview of resolved citations data: {preview}")
+        # Load resolution job result
+        with open(resolution_job["result_path"], "r", encoding="utf-8") as f:
+            resolved_citations = json.load(f)
 
-            # Safer validation with debugging
-            resolved_citations = []
-            skipped_items = 0
-            for i, data in enumerate(resolved_citations_data):
-                try:
-                    # Parse the item if it's a string (from model_dump_json)
-                    if isinstance(data, str):
-                        try:
-                            data = json.loads(data)
-                        except json.JSONDecodeError:
-                            logger.error(f"Item {i} is not valid JSON: {data[:100]}")
-                            skipped_items += 1
-                            continue
+        # Convert to list of CombinedResolvedCitationAnalysis
+        resolved_citations = [
+            CombinedResolvedCitationAnalysis(**citation)
+            for citation in resolved_citations
+        ]
 
-                    # DEBUG: Print information about each item
-                    if isinstance(data, list):
-                        logger.error(
-                            f"Item {i} is a list, not an object: {str(data)[:100]}"
-                        )
-                        skipped_items += 1
-                        continue
-
-                    # Check if required fields exist
-                    if not isinstance(data, dict):
-                        logger.error(f"Item {i} is not a dictionary: {type(data)}")
-                        skipped_items += 1
-                        continue
-
-                    if "cluster_id" not in data:
-                        logger.error(
-                            f"Item {i} missing cluster_id: {list(data.keys())}"
-                        )
-                        skipped_items += 1
-                        continue
-
-                    # Check required fields for citations
-                    required_fields = ["date", "brief_summary", "cluster_id"]
-                    missing_fields = [
-                        field for field in required_fields if field not in data
-                    ]
-                    if missing_fields:
-                        logger.error(
-                            f"Item {i} missing required fields: {missing_fields}"
-                        )
-                        skipped_items += 1
-                        continue
-
-                    # Try validation with traceback details
-                    try:
-                        citation = CombinedResolvedCitationAnalysis.model_validate(data)
-                        resolved_citations.append(citation)
-                    except Exception as e:
-                        import traceback
-
-                        logger.error(
-                            f"Error validating item {i}: {str(e)}\n{traceback.format_exc()}"
-                        )
-                        try:
-                            data_str = json.dumps(data, indent=2)
-                        except Exception:
-                            data_str = str(data)
-                        logger.error(f"Item {i} data (truncated): {data_str[:200]}")
-                        skipped_items += 1
-                except Exception as exc:
-                    import traceback
-
-                    logger.error(
-                        f"Unexpected error processing item {i}: {str(exc)}\n{traceback.format_exc()}"
-                    )
-                    skipped_items += 1
-
-        # Log how many valid citations we found
         logger.info(
-            f"Successfully validated {len(resolved_citations)} out of {len(resolved_citations_data)} citations (skipped {skipped_items})"
+            f"Loaded {len(resolved_citations)} citations from resolution job {resolution_job_id}"
         )
 
-        # Initialize Neo4j loader
+        # Update job status
         update_job_status(
             db,
             job_id,

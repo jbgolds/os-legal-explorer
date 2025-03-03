@@ -33,6 +33,7 @@ from src.llm_extraction.models import (
     CombinedResolvedCitationAnalysis,
     CitationResolved,
 )
+from src.neo4j_db.models import CitesRel, LegalDocument, Opinion
 
 # Mapping from citation types to primary tables
 CITATION_TYPE_TO_PRIMARY_TABLE = {
@@ -88,6 +89,65 @@ def get_neo4j_driver():
     return _neo4j_driver
 
 
+def check_schema_exists():
+    """
+    Check if schema (node labels, indexes, constraints) already exists in the database.
+
+    Returns:
+        bool: True if any schema elements exist, False otherwise
+    """
+    driver = get_neo4j_driver()
+    try:
+        with driver.session() as session:
+            # Check if any of our expected node labels exist
+            try:
+                result = session.run(
+                    """
+                    CALL db.labels() YIELD label
+                    RETURN count(label) > 0 AS has_labels
+                    """
+                )
+                record = result.single()
+                has_labels = record and record.get("has_labels", False)
+            except Exception as e:
+                logger.debug(f"Error checking labels: {str(e)}")
+                has_labels = False
+
+            # Check if any indexes exist - using db.indexes() instead of SHOW INDEXES for compatibility
+            has_indexes = False
+            try:
+                result = session.run(
+                    """
+                    CALL db.indexes() 
+                    RETURN count(*) > 0 AS has_indexes
+                    """
+                )
+                record = result.single()
+                has_indexes = record and record.get("has_indexes", False)
+            except Exception as e:
+                logger.debug(f"Error checking indexes with db.indexes(): {str(e)}")
+                # Fallback for Neo4j 4.0+
+                try:
+                    result = session.run(
+                        """
+                        SHOW INDEXES
+                        RETURN count(*) > 0 AS has_indexes
+                        """
+                    )
+                    record = result.single()
+                    has_indexes = record and record.get("has_indexes", False)
+                except Exception as e:
+                    logger.debug(f"Error checking indexes with SHOW INDEXES: {str(e)}")
+                    # If both fail, assume no indexes
+                    has_indexes = False
+
+            return has_labels or has_indexes
+    except Exception as e:
+        logger.error(f"Error connecting to Neo4j: {str(e)}")
+        # If we can't connect, assume no schema
+        return False
+
+
 def get_primary_id(node: LegalDocument) -> Any:
     return node.primary_id
 
@@ -127,12 +187,17 @@ class NeomodelLoader:
         # Configure neomodel connection if not already set
         if not config.DATABASE_URL:
             raise ValueError("Neo4j connection not configured")
-        try:
-            install_all_labels()
-        except Exception as e:
-            logger.error(
-                f"Schema installation warning (can usually be ignored): {str(e)}"
-            )
+
+        # Only install labels if no schema exists yet
+        if not check_schema_exists():
+            logger.info("No existing schema found, installing labels...")
+            try:
+                install_all_labels()
+                logger.info("Labels successfully installed")
+            except Exception as e:
+                logger.error(f"Error installing labels: {str(e)}")
+        else:
+            logger.info("Schema already exists, skipping label installation")
 
     def create_citation(
         self,
@@ -153,50 +218,96 @@ class NeomodelLoader:
             opinion_section: Section of the opinion where the citation appears (majority, concurring, dissenting)
         """
         try:
-            # Create relationship
-            connect_method = getattr(citing_node.cites, "connect")
-            rel = connect_method(cited_node)
+            # Ensure data_source is set
+            if not data_source:
+                data_source = "unknown"
+                logger.warning("data_source was not provided or empty, using 'unknown'")
 
-            # Set standard metadata fields
-            rel.data_source = data_source
+            # Define properties dictionary with required data_source
+            properties = {"data_source": str(data_source)}
 
-            # Set metadata from the citation object
-            if citation.citation_text:
-                rel.citation_text = citation.citation_text
+            # Add properties from citation object that exist in CitesRel
+            citation_dict = citation.model_dump()
+            rel_properties = list(CitesRel.defined_properties().keys())
+            for prop in rel_properties:
+                if prop in citation_dict and citation_dict[prop] is not None:
+                    properties[prop] = citation_dict[prop]
 
-            if citation.treatment:
-                rel.treatment = citation.treatment
-
-            if citation.reasoning:
-                rel.reasoning = citation.reasoning
-
+            # Add opinion section if provided
             if opinion_section:
-                rel.opinion_section = opinion_section
+                properties["opinion_section"] = opinion_section
 
-            # Add resolution metadata
-            rel.resolution_confidence = citation.resolution_confidence
-            rel.resolution_method = citation.resolution_method
+            # see if the relationship already exists and update metadata with previous version,
+            # and set the version to the next number
+            # and update the fields
 
-            # Add any additional fields that might be in the primary_id/primary_table
-            if citation.primary_id:
-                rel.primary_id = citation.primary_id
+            if existing_rel := citing_node.cites.relationship(cited_node):  # type: ignore
+                logger.debug(
+                    f"Relationship already exists between {citing_node} and {cited_node}"
+                )
 
-            if citation.primary_table:
-                rel.primary_table = citation.primary_table
+                # Use the __properties__ property which returns a dictionary of the
+                # actual property values, not the property definitions
+                current_properties = existing_rel.__properties__.copy()
+
+                # Remove other_metadata_versions from the properties to avoid circular references
+                if "other_metadata_versions" in current_properties:
+                    current_properties.pop("other_metadata_versions")
+
+                # Append the current properties to other_metadata_versions
+                current_versions = existing_rel.other_metadata_versions or []
+                current_versions.append(current_properties)
+                existing_rel.other_metadata_versions = current_versions
+
+                # Increment the version number
+                existing_rel.version = existing_rel.version + 1
+
+                # Update properties on the existing relationship
+                for key, value in properties.items():
+                    setattr(existing_rel, key, value)
+
+                existing_rel.save()
+                return
+
+            # Create relationship by passing a dictionary of properties, per neomodel docs
+            rel = citing_node.cites.connect(cited_node, properties)  # type: ignore
+
+            # Logging relationship properties after connecting
+            logger.debug(f"Created relationship with data_source='{rel.data_source}'")
+            logger.debug(
+                f"CitesRel properties after connecting: data_source={rel.data_source}, citation_text={getattr(rel, 'citation_text', None)}, treatment={getattr(rel, 'treatment', None)}"
+            )
 
             # Save the relationship
-            rel.save()
-
-            # Log with more specific information
-            citing_id = get_primary_id(citing_node)
-            cited_id = get_primary_id(cited_node)
-            logger.debug(
-                f"Created citation: {type(citing_node).__name__}[{citing_id}] -> "
-                f"{type(cited_node).__name__}[{cited_id}]"
-            )
+            try:
+                rel.save()
+                # Log with more specific information
+                citing_id = get_primary_id(citing_node)
+                cited_id = get_primary_id(cited_node)
+                logger.debug(
+                    f"Created citation: {type(citing_node).__name__}[{citing_id}] -> "
+                    f"{type(cited_node).__name__}[{cited_id}]"
+                )
+            except Exception as save_error:
+                logger.error(f"Error saving citation relationship: {save_error}")
+                logger.error(traceback.format_exc())
+                logger.debug(
+                    f"CitesRel properties: data_source={rel.data_source}, citation_text={getattr(rel, 'citation_text', None)}"
+                )
+                raise
 
         except Exception as e:
             logger.error(f"Error creating citation: {e}")
+            logger.error(traceback.format_exc())
+            # Attempt to log more specific information for debugging
+            try:
+                citing_id = get_primary_id(citing_node) if citing_node else "None"
+                cited_id = get_primary_id(cited_node) if cited_node else "None"
+                logger.error(
+                    f"Error creating citation from {citing_id} to {cited_id}: {e}"
+                )
+            except Exception:
+                pass
             raise
 
     def load_enriched_citations(
@@ -316,8 +427,19 @@ class NeomodelLoader:
                                         )
                                         processed_count += 1
                                     except Exception as e:
+                                        # Make sure we're only using variables that are definitely defined
+                                        citing_id = (
+                                            citation.cluster_id
+                                            if hasattr(citation, "cluster_id")
+                                            else "unknown"
+                                        )
+                                        cited_id = (
+                                            resolved_citation.primary_id
+                                            if hasattr(resolved_citation, "primary_id")
+                                            else "None"
+                                        )
                                         logger.error(
-                                            f"Error creating citation from {citation.cluster_id} to {resolved_citation.primary_id}: {e}"
+                                            f"Error creating citation from {citing_id} to {cited_id}: {e}"
                                         )
                                         error_count += 1
                                 # For other document types, log but don't process yet
@@ -355,15 +477,30 @@ class NeomodelLoader:
                                         )
                                         processed_count += 1
                                     except Exception as e:
+                                        # Make sure we're only using variables that are definitely defined
+                                        citing_id = (
+                                            citation.cluster_id
+                                            if hasattr(citation, "cluster_id")
+                                            else "unknown"
+                                        )
+                                        cited_id = (
+                                            resolved_citation.primary_id
+                                            if hasattr(resolved_citation, "primary_id")
+                                            else "None"
+                                        )
                                         logger.error(
-                                            f"Error creating citation from {citation.cluster_id} to {resolved_citation.primary_id}: {e}"
+                                            f"Error creating citation from {citing_id} to {cited_id}: {e}"
                                         )
                                         error_count += 1
 
                     except Exception as e:
-                        logger.error(
-                            f"Error processing opinion {citation.cluster_id}: {str(e)}"
+                        # Make sure we're only using variables that are definitely defined
+                        cluster_id = (
+                            citation.cluster_id
+                            if hasattr(citation, "cluster_id")
+                            else "unknown"
                         )
+                        logger.error(f"Error processing opinion {cluster_id}: {str(e)}")
                         traceback.print_exc()
                         error_count += 1
 

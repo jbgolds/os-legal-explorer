@@ -22,8 +22,8 @@ RUN pip install -e .
 
 COPY src/ ./src/
 # Make entrypoint script executable
-COPY docker-entrypoint.sh .
-RUN chmod +x /app/docker-entrypoint.sh
+# COPY docker-entrypoint.sh .
+# RUN chmod +x /app/docker-entrypoint.sh
 
 # Basic environment settings
 ENV PYTHONPATH=/app
@@ -37,7 +37,8 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE ${PORT}
 
 # Use entrypoint script
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+# ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
 # Simple development command
-CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"] 
+# "--proxy-headers", for when running behind caddy
+CMD ["fastapi", "run", "src/api/main.py", "--port", "8000", "--workers", "4", "--reload"] 
