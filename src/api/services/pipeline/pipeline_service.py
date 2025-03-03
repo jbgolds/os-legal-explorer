@@ -19,7 +19,7 @@ from src.llm_extraction.models import (
     CitationAnalysis,
     Citation,
 )
-from src.neo4j.neomodel_loader import NeomodelLoader
+from src.neo4j_db.neomodel_loader import NeomodelLoader
 
 logger = logging.getLogger(__name__)
 

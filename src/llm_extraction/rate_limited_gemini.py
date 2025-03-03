@@ -20,7 +20,7 @@ from src.llm_extraction.models import (
     CitationAnalysis,
     CombinedResolvedCitationAnalysis,
 )
-from src.llm_extraction.prompts import system_prompt
+from src.llm_extraction.prompts import system_prompt, chunking_instructions
 
 # Configure logging
 logging.basicConfig(
@@ -185,7 +185,7 @@ def repair_json_string(json_str: str) -> Optional[str]:
     """
     try:
         # First try standard repair
-        repaired = repair_json(json_str)
+        repaired = repair_json(json_str, return_objects=True)
         # Test if it's valid JSON
         json.loads(repaired)
         return repaired
@@ -491,11 +491,17 @@ class GeminiClient:
     ):
         self.client = genai.Client(api_key=api_key)
         # Ensure we have a valid config
-
         self.config = GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=CitationAnalysis,
             system_instruction=system_prompt,
+        )
+
+        # Create chunking config
+        self.config_chunking = GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=CitationAnalysis,
+            system_instruction=f"{system_prompt}\n\n{chunking_instructions}",
         )
 
         self.rate_limiter = RateLimiter(
@@ -575,21 +581,11 @@ class GeminiClient:
         if not self.config:
             raise ValueError("Configuration is required but not provided")
 
-        # Create a copy of the config with chunking instructions if needed
-        config_chunking = GenerateContentConfig(
-            response_mime_type=self.config.response_mime_type or "application/json",
-            response_schema=self.config.response_schema,
-            system_instruction=(
-                (self.config.system_instruction or system_prompt)
-                + (
-                    "\n\n The document will be sent in multiple parts. "
-                    "For each part, analyze the citations and legal arguments while maintaining context "
-                    "from previous parts. Please provide your analysis in the same structured format "
-                    "filling in the lists of citation analysis for each response."
-                    if word_count > TextChunker.WORD_COUNT_THRESHOLD
-                    else ""
-                )
-            ),
+        # Use appropriate config based on word count
+        config_to_use = (
+            self.config_chunking
+            if word_count > TextChunker.WORD_COUNT_THRESHOLD
+            else self.config
         )
 
         def process_single_chunk(
@@ -676,7 +672,7 @@ class GeminiClient:
 
         try:
             # Create a chat session with chunked config
-            chat: Chat = self.client.chats.create(model=model, config=config_chunking)
+            chat: Chat = self.client.chats.create(model=model, config=config_to_use)
             responses: List[CitationAnalysis] = []
             chunk_failures = 0  # Track how many chunks fail
 
@@ -965,36 +961,3 @@ class GeminiClient:
             logging.warning(f"Encountered {len(errors)} errors during processing")
 
         return results
-
-
-# Example usage:
-# def main():
-#     config = GenerateContentConfig(
-#         response_mime_type="application/json",
-#         response_schema=CitationAnalysis,
-#         system_instruction=system_prompt,
-#     )
-
-#     client = GeminiClient(
-#         api_key=os.getenv("GEMINI_API_KEY"),
-#         rpm_limit=10,  # Conservative limits for testing
-#         max_concurrent=10,  # Respect AFC limit
-#         config=config,
-#     )
-
-#     df = pd.read_csv("data_final/supreme_court_1950_some_processing.csv")
-#     df = df.sample(250)  # Take first 25 rows for testing
-
-#     # Process DataFrame with max_workers respecting AFC limit
-#     results = client.process_dataframe(
-#         df,
-#         text_column="text",
-#         output_file=f"responses_trial_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-#         max_workers=10,  # Match AFC limit
-#     )
-
-#     print(f"Processed {len(results)} items")
-
-
-# if __name__ == "__main__":
-#     main()
