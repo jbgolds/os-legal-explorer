@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 # Import database connections from updated modules
 from src.postgres.database import get_engine, get_session_factory
-from src.neo4j.neomodel_loader import get_neo4j_driver
+from src.neo4j_db.neomodel_loader import get_neo4j_driver
 
 # Load environment variables
 load_dotenv()

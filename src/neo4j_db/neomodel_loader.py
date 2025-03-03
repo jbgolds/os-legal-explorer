@@ -23,7 +23,7 @@ from typing import (
 import time
 import os
 from dotenv import load_dotenv
-from neo4j import GraphDatabase
+from neo4j_db import GraphDatabase
 import uuid
 
 from neomodel import config, install_all_labels, db
