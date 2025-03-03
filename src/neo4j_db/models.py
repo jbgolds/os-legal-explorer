@@ -9,6 +9,7 @@ from neomodel import (
     JSONProperty,
     ZeroOrMore,
     db,
+    DateTimeFormatProperty,
 )
 from neomodel.properties import validator
 from datetime import datetime, date
@@ -64,7 +65,7 @@ class CitesRel(StructuredRel):
         choices=OpinionSection._value2member_map_, default=None
     )
     # Temporal fields
-    timestamp = DateTimeProperty(default=lambda: datetime.now())
+    timestamp = DateTimeFormatProperty(format="%Y-%m-%d %H:%M:%S", default_now=True)
 
     # Audit trail - using CustomJSONProperty instead of JSONProperty
     other_metadata_versions = CustomJSONProperty(default=list)

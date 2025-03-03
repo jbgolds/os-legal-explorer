@@ -9,7 +9,7 @@ import re
 import os
 import pandas as pd
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock, Semaphore
 from tqdm import tqdm
 from datetime import datetime
@@ -501,6 +501,8 @@ class GeminiClient:
             response_schema=CitationAnalysis,
             system_instruction=f"{system_prompt}\n\n{chunking_instructions}",
         )
+        self.rpm_limit = rpm_limit
+        self.max_concurrent = max_concurrent
 
         self.rate_limiter = RateLimiter(
             rpm_limit=rpm_limit, max_concurrent=max_concurrent
@@ -809,16 +811,15 @@ class GeminiClient:
         # Adjust max_workers based on DataFrame size and rate limit
         if max_workers is None:
             max_workers = min(
-                10,  # Default max
-                self.rate_limiter.token_bucket.rate,  # Rate limit
-                len(df),  # Don't use more workers than rows
+                self.max_concurrent,  # Use stored max_concurrent instead of hardcoded 10
+                len(df),
             )
 
         # Adjust batch_size to be no larger than the DataFrame
-        batch_size = min(batch_size, len(df))
-
-        # Safety check: ensure batch_size is at least 1 to avoid division by zero in range()
-        batch_size = max(1, batch_size)
+        batch_size = min(
+            max(batch_size, max_workers),  # Ensure batch size >= max_workers
+            len(df),
+        )
 
         results: Dict[int, Optional[CitationAnalysis]] = {}
         errors = []
@@ -882,7 +883,7 @@ class GeminiClient:
 
                 # Process futures for this batch
                 for future in tqdm(
-                    futures,
+                    as_completed(futures),
                     total=len(futures),
                     desc=f"Processing batch {batch_start//batch_size + 1}",
                     position=0,
