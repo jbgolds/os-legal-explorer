@@ -254,12 +254,17 @@ class NeomodelLoader:
                 if "other_metadata_versions" in current_properties:
                     current_properties.pop("other_metadata_versions")
 
-                # Convert timestamp to string if it's a float to ensure it's stored properly
-                if "timestamp" in current_properties and isinstance(
-                    current_properties["timestamp"], float
-                ):
-                    dt = datetime.fromtimestamp(current_properties["timestamp"])
-                    current_properties["timestamp"] = dt.strftime("%Y-%m-%d %H:%M:%S")
+                # Convert timestamp to datetime object before storing in version history
+                for time_obj in ["created_at", "updated_at"]:
+                    if time_obj in current_properties:
+                        if isinstance(current_properties[time_obj], (int, float)):
+                            current_properties[time_obj] = datetime.fromtimestamp(
+                                current_properties[time_obj]
+                            )
+                        # Format datetime as string for JSON serialization
+                        current_properties[time_obj] = current_properties[
+                            time_obj
+                        ].strftime("%Y-%m-%d %H:%M:%S")
 
                 # Append the current properties to other_metadata_versions
                 current_versions = existing_rel.other_metadata_versions or []

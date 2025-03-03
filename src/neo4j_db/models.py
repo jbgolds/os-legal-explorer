@@ -123,7 +123,12 @@ class LegalDocument(StructuredNode):
     @classmethod
     def get_or_create(cls, citation_string, **kwargs):
         """Get or create a document, always ensuring citation_string is set"""
-        # Try to find existing document
+        # Convert numeric timestamps to datetime objects
+        if "updated_at" in kwargs and isinstance(kwargs["updated_at"], (int, float)):
+            kwargs["updated_at"] = datetime.fromtimestamp(kwargs["updated_at"])
+
+        if "created_at" in kwargs and isinstance(kwargs["created_at"], (int, float)):
+            kwargs["created_at"] = datetime.fromtimestamp(kwargs["created_at"])
 
         # Initialize doc to None
         doc = None
@@ -184,6 +189,13 @@ class Opinion(LegalDocument):
         Returns:
             The Opinion node (either existing or newly created)
         """
+        # Ensure datetime conversion for any timestamp inputs
+        if "updated_at" in kwargs and isinstance(kwargs["updated_at"], (int, float)):
+            kwargs["updated_at"] = datetime.fromtimestamp(kwargs["updated_at"])
+
+        if "created_at" in kwargs and isinstance(kwargs["created_at"], (int, float)):
+            kwargs["created_at"] = datetime.fromtimestamp(kwargs["created_at"])
+
         # Convert cluster_id to string for primary_id
         if not cluster_id and not citation_string:
             raise ValueError("Cluster ID or citation string is required")
