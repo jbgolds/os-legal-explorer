@@ -17,6 +17,7 @@ dependencies = [
     "psycopg2-binary>=2.9.10",
     "pydantic>=2.10.6",
     "python-multipart>=0.0.20",
+    "reporters-db>=3.2.54",
     "sqlalchemy>=2.0.38",
     "tqdm>=4.67.1",
     "uvicorn>=0.34.0",

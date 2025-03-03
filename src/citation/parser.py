@@ -15,9 +15,147 @@ from typing import List, Dict, Optional, Tuple, Any
 from sqlalchemy import and_
 from eyecite import get_citations
 from eyecite.resolve import resolve_citations
+from reporters_db import REPORTERS, VARIATIONS_ONLY
 from src.postgres.database import get_db_session, Citation
 
 logger = logging.getLogger(__name__)
+
+# Create a global reporter lookup dictionary - computed once and reused
+_REPORTER_LOOKUP = None
+
+
+def get_reporter_lookup() -> Dict[str, str]:
+    """
+    Create a dictionary mapping reporter variations to their canonical forms.
+    Uses reporters-db's VARIATIONS_ONLY and REPORTERS to build a comprehensive mapping.
+    This function caches the result for efficiency.
+
+    Returns:
+        Dictionary mapping reporter variations to canonical names
+    """
+    global _REPORTER_LOOKUP
+
+    # Return cached version if available
+    if _REPORTER_LOOKUP is not None:
+        return _REPORTER_LOOKUP
+
+    lookup = {}
+
+    # Build lookup dictionary directly from VARIATIONS_ONLY
+    # This is the primary source of variation-to-canonical mappings
+    for variation, canonical_list in VARIATIONS_ONLY.items():
+        if canonical_list:  # Make sure we have a canonical form
+            canonical = canonical_list[0]
+            lookup[variation.lower()] = canonical
+
+            # Also add the canonical form mapping to itself
+            lookup[canonical.lower()] = canonical
+
+    # Add direct mappings for all reporter keys from REPORTERS
+    for reporter_key in REPORTERS.keys():
+        lookup[reporter_key.lower()] = reporter_key
+
+    # Add reporter names from REPORTERS structure
+    for reporter_key, reporter_data_list in REPORTERS.items():
+        for reporter_data in reporter_data_list:
+            name = reporter_data.get("name", "")
+            if name:
+                lookup[name.lower()] = reporter_key
+
+    # Cache the result for future calls
+    _REPORTER_LOOKUP = lookup
+    return lookup
+
+
+def normalize_reporter(
+    reporter_raw: str, reporter_lookup: Optional[Dict[str, str]] = None
+) -> str:
+    """
+    Normalize reporter abbreviation to canonical form using reporters-db's data.
+
+    This implementation preserves the specific edition information (like 2d, 3d)
+    which is critical for accurate legal citation.
+
+    Args:
+        reporter_raw: Raw reporter string
+        reporter_lookup: Optional dictionary mapping variations to canonical names
+                         (if None, the global lookup will be used)
+
+    Returns:
+        Normalized reporter string
+    """
+    if not reporter_raw:
+        return ""
+
+    reporter_lower = reporter_raw.lower().strip()
+
+    # Use provided lookup or get the global one
+    if reporter_lookup is None:
+        reporter_lookup = get_reporter_lookup()
+
+    # Direct lookup - most efficient approach
+    if reporter_lower in reporter_lookup:
+        return reporter_lookup[reporter_lower]
+
+    # If we couldn't find it in the lookup dictionary, return the original
+    return reporter_raw
+
+
+# Legacy function for API compatibility - now just returns the result of get_reporter_lookup
+def create_reporter_lookup(
+    reporter_mappings: Optional[Dict[str, List[str]]] = None
+) -> Dict[str, str]:
+    """
+    Legacy function that returns a reporter lookup dictionary.
+    Now just a wrapper around get_reporter_lookup for API compatibility.
+
+    Args:
+        reporter_mappings: Optional dictionary mapping canonical names to variations
+                          (ignored in current implementation)
+
+    Returns:
+        Dictionary mapping variations to canonical names
+    """
+    # If custom mappings provided, use those instead
+    if reporter_mappings is not None:
+        lookup = {}
+        for canonical, variations in reporter_mappings.items():
+            for variation in variations:
+                lookup[variation.lower()] = canonical
+        return lookup
+
+    # Otherwise use the global lookup
+    return get_reporter_lookup()
+
+
+# Legacy function for API compatibility - builds reporter mappings from REPORTERS
+def get_reporter_mappings() -> Dict[str, List[str]]:
+    """
+    Legacy function that builds reporter mappings from REPORTERS.
+    Kept for API compatibility.
+
+    Returns:
+        Dictionary mapping canonical reporter names to lists of variations
+    """
+    reporter_mappings = {}
+    for reporter_key, reporter_data_list in REPORTERS.items():
+        if reporter_key not in reporter_mappings:
+            reporter_mappings[reporter_key] = []
+
+        for reporter_data in reporter_data_list:
+            # Add the name as a variation
+            name = reporter_data.get("name", "")
+            if name and name not in reporter_mappings[reporter_key]:
+                reporter_mappings[reporter_key].append(name)
+
+            # Add all variations
+            variations = reporter_data.get("variations", {})
+            for variation in variations:
+                if variation not in reporter_mappings[reporter_key]:
+                    reporter_mappings[reporter_key].append(variation)
+
+    return reporter_mappings
+
 
 # Citation resolution functions
 
@@ -227,99 +365,6 @@ def extract_parallel_citations(citation_text: str) -> List[Dict[str, str]]:
         )
 
     return extracted_components
-
-
-def get_reporter_mappings() -> Dict[str, List[str]]:
-    """
-    Get mappings between canonical reporter names and their variations.
-
-    Returns:
-        Dictionary mapping canonical reporter names to lists of variations
-    """
-    return {
-        "U.S.": ["U.S.", "U. S.", "US", "U S", "United States Reports"],
-        "F.": ["F.", "F", "Fed.", "Federal Reporter"],
-        "F.2d": ["F.2d", "F. 2d", "F2d", "Fed.2d", "Federal Reporter, Second Series"],
-        "F.3d": ["F.3d", "F. 3d", "F3d", "Fed.3d", "Federal Reporter, Third Series"],
-        "F.4th": [
-            "F.4th",
-            "F. 4th",
-            "F4th",
-            "Fed.4th",
-            "Federal Reporter, Fourth Series",
-        ],
-        "F. Supp.": ["F. Supp.", "F.Supp.", "F Supp", "FSupp", "Federal Supplement"],
-        "F. Supp. 2d": [
-            "F. Supp. 2d",
-            "F.Supp.2d",
-            "F Supp 2d",
-            "FSupp2d",
-            "Federal Supplement, Second Series",
-        ],
-        "F. Supp. 3d": [
-            "F. Supp. 3d",
-            "F.Supp.3d",
-            "F Supp 3d",
-            "FSupp3d",
-            "Federal Supplement, Third Series",
-        ],
-        "S. Ct.": ["S. Ct.", "S.Ct.", "S Ct", "SCt", "Supreme Court Reporter"],
-        "L. Ed.": ["L. Ed.", "L.Ed.", "L Ed", "LEd", "Lawyers' Edition"],
-        "L. Ed. 2d": [
-            "L. Ed. 2d",
-            "L.Ed.2d",
-            "L Ed 2d",
-            "LEd2d",
-            "Lawyers' Edition, Second Series",
-        ],
-        # Add more reporter mappings as needed
-    }
-
-
-def create_reporter_lookup(reporter_mappings: Dict[str, List[str]]) -> Dict[str, str]:
-    """
-    Create a reverse lookup dictionary for reporter variations.
-
-    Args:
-        reporter_mappings: Dictionary mapping canonical names to variations
-
-    Returns:
-        Dictionary mapping variations to canonical names
-    """
-    lookup = {}
-    for canonical, variations in reporter_mappings.items():
-        for variation in variations:
-            lookup[variation.lower()] = canonical
-    return lookup
-
-
-def normalize_reporter(reporter_raw: str, reporter_lookup: Dict[str, str]) -> str:
-    """
-    Normalize reporter abbreviation to canonical form.
-
-    Args:
-        reporter_raw: Raw reporter string
-        reporter_lookup: Dictionary mapping variations to canonical names
-
-    Returns:
-        Normalized reporter string
-    """
-    if not reporter_raw:
-        return ""
-
-    reporter_lower = reporter_raw.lower().strip()
-
-    # Direct lookup
-    if reporter_lower in reporter_lookup:
-        return reporter_lookup[reporter_lower]
-
-    # Try partial matching
-    for variation, canonical in reporter_lookup.items():
-        if variation in reporter_lower or reporter_lower in variation:
-            return canonical
-
-    # If no match found, return the original
-    return reporter_raw
 
 
 def find_cluster_id_fuzzy(
