@@ -11,8 +11,8 @@ see-logs:
 copy-logs:
 	for file in $(docker exec os-legal-explorer-api-1 ls /tmp | grep -E '\.json|\.csv'); do docker cp os-legal-explorer-api-1:/tmp/$file debug_files/; done
 
-
-# repomix --ignore "*.csv,*.json,uv.lock,.venv/,prd.md"
+repomix:
+	repomix --ignore "*.csv,*.json,uv.lock,.venv/,prd.md"
 
 # for file in $(docker exec os-legal-explorer-api-1 ls /tmp | grep -E '\.json|\.csv'); do docker cp os-legal-explorer-api-1:/tmp/$file debug_files/; done
 # clear the database
