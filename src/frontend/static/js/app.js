@@ -3,13 +3,12 @@
  * This file handles the core functionality of the single-page application
  */
 
-import { getRecentCases, getCaseDetails, getCitationNetwork } from './utils/api.js';
+import { getOpinionDetails, getCitationNetwork } from './utils/api.js';
 import { createLoadingIndicator, createAlert, formatDate } from './utils/dom.js';
 
 // Initialize the application when the DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     initializeCaseSelection();
-    loadRecentCases();
 });
 
 /**
@@ -21,18 +20,18 @@ function initializeCaseSelection() {
         const caseLink = e.target.closest('[data-case-id]');
         if (caseLink) {
             e.preventDefault();
-            const caseId = caseLink.dataset.caseId;
-            loadCaseDetails(caseId);
+            const clusterId = caseLink.dataset.clusterId;
+            loadClusterDetails(clusterId);
         }
     });
 }
 
 /**
  * Load and display case details
- * @param {string} caseId - The ID of the case to load
+ * @param {string} clusterId - The ID of the case to load
  */
-async function loadCaseDetails(caseId) {
-    const caseDetail = document.getElementById('case-detail');
+async function loadClusterDetails(clusterId) {
+    const caseDetail = document.getElementById('cluster-detail');
     if (!caseDetail) return;
 
     try {
@@ -46,18 +45,14 @@ async function loadCaseDetails(caseId) {
             </div>
         `;
 
-        // Fetch both case details and citation network data in parallel
-        const [caseResponse, networkResponse] = await Promise.all([
-            fetch(`/api/opinion/${caseId}`),
-            fetch(`/api/opinion/${caseId}/citation-network`)
+        // Fetch both case details and citation network data in parallel using utility functions
+        const [caseData, networkData] = await Promise.all([
+            getOpinionDetails(clusterId),
+            getCitationNetwork(clusterId).catch(err => {
+                console.warn('Failed to load citation network:', err);
+                return null;
+            })
         ]);
-
-        if (!caseResponse.ok) {
-            throw new Error(`HTTP error! status: ${caseResponse.status}`);
-        }
-
-        const caseData = await caseResponse.json();
-        const networkData = networkResponse.ok ? await networkResponse.json() : null;
 
         // Create case header
         const header = document.createElement('div');
@@ -196,12 +191,19 @@ function loadCitationNetwork(caseId) {
 
     // Load and render the citation network
     import('./citation_map.js')
-        .then(module => {
-            if (typeof module.loadAndRenderCitationNetwork === 'function') {
-                module.loadAndRenderCitationNetwork(caseId, 'citation-map');
-                citationMap.dataset.loaded = caseId;
+        .then(async module => {
+            if (typeof module.renderCitationNetwork === 'function') {
+                try {
+                    // Use the API utility function to get network data
+                    const networkData = await getCitationNetwork(caseId);
+                    module.renderCitationNetwork(networkData, 'citation-map');
+                    citationMap.dataset.loaded = caseId;
+                } catch (error) {
+                    console.error('Error fetching citation network data:', error);
+                    citationMap.innerHTML = '<div class="flex justify-center items-center h-full"><p>Failed to load citation network data.</p></div>';
+                }
             } else {
-                console.error('Citation map module does not export loadAndRenderCitationNetwork function');
+                console.error('Citation map module does not export renderCitationNetwork function');
             }
         })
         .catch(error => {
@@ -210,91 +212,6 @@ function loadCitationNetwork(caseId) {
         });
 }
 
-/**
- * Load recent cases from the API
- */
-async function loadRecentCases() {
-    const recentCases = document.getElementById('recent-cases');
-    if (!recentCases) return;
-
-    try {
-        // Show loading indicator
-        recentCases.innerHTML = '';
-        recentCases.appendChild(createLoadingIndicator('lg', 'Loading recent cases...'));
-
-        // Fetch recent cases
-        const cases = await getRecentCases(10, 0);
-
-        // Display recent cases
-        displayRecentCases(cases);
-    } catch (error) {
-        console.error('Error loading recent cases:', error);
-        recentCases.innerHTML = '';
-        recentCases.appendChild(createAlert('Error loading recent cases: ' + error.message, 'error'));
-    }
-}
-
-/**
- * Display recent cases in the UI
- * @param {Object} cases - Recent cases data from the API
- */
-function displayRecentCases(cases) {
-    const recentCases = document.getElementById('recent-cases');
-    if (!recentCases) return;
-
-    // Clear previous content
-    recentCases.innerHTML = '';
-
-    // If no cases
-    if (!cases.results || cases.results.length === 0) {
-        const noCases = document.createElement('div');
-        noCases.className = 'bg-white rounded-lg shadow p-6 text-center';
-        noCases.innerHTML = `
-            <p class="text-gray-600">No recent cases available.</p>
-        `;
-        recentCases.appendChild(noCases);
-        return;
-    }
-
-    // Create cases list
-    const casesList = document.createElement('div');
-    casesList.className = 'space-y-4';
-
-    cases.results.forEach(caseItem => {
-        const caseCard = document.createElement('div');
-        caseCard.className = 'bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow';
-        caseCard.innerHTML = `
-            <a href="#" data-case-id="${caseItem.id}" class="block">
-                <h3 class="text-lg font-semibold text-blue-600 hover:text-blue-800">${caseItem.case_name}</h3>
-                <div class="text-sm text-gray-600 mt-1">
-                    <span>${caseItem.court_name || 'Unknown Court'}</span>
-                    <span class="mx-2">•</span>
-                    <span>${formatDate(caseItem.date_filed)}</span>
-                </div>
-                <p class="text-gray-700 mt-2 line-clamp-2">${caseItem.snippet || 'No excerpt available.'}</p>
-            </a>
-        `;
-        casesList.appendChild(caseCard);
-    });
-
-    recentCases.appendChild(casesList);
-
-    // Add load more button
-    if (cases.count > cases.results.length) {
-        const loadMore = document.createElement('div');
-        loadMore.className = 'mt-6 text-center';
-        loadMore.innerHTML = `
-            <button class="btn btn-outline btn-primary btn-sm"
-                    hx-get="/api/recent-cases?offset=${cases.results.length}"
-                    hx-target="#recent-cases"
-                    hx-swap="outerHTML"
-                    hx-indicator="#recent-cases-loading">
-                Load More
-            </button>
-        `;
-        recentCases.appendChild(loadMore);
-    }
-}
 
 // Check if we're on a case detail page and load the case
 document.addEventListener('DOMContentLoaded', () => {

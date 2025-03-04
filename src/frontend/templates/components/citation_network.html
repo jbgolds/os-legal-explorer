@@ -1,160 +1,142 @@
-<!-- Citation Network Component -->
-<div class="card bg-base-100 shadow-xl">
-    <div class="card-body">
-        <div class="flex justify-between items-center mb-4">
-            <h3 class="card-title">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24"
-                    stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                Citation Network
-            </h3>
-            <div class="flex gap-2">
-                <div class="tooltip" data-tip="Zoom In">
-                    <button class="btn btn-circle btn-sm" id="zoom-in">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                            stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                        </svg>
-                    </button>
-                </div>
-                <div class="tooltip" data-tip="Zoom Out">
-                    <button class="btn btn-circle btn-sm" id="zoom-out">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                            stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
-                        </svg>
-                    </button>
-                </div>
-                <div class="tooltip" data-tip="Reset View">
-                    <button class="btn btn-circle btn-sm" id="reset-view">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                            stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                    </button>
-                </div>
-            </div>
-        </div>
+{% if cluster_id %}
+<div class="case-section">
+    <h2>Citation Network</h2>
 
-        <!-- Visualization Controls -->
-        <div class="flex flex-wrap gap-4 mb-4">
-            <div class="form-control">
-                <label class="label cursor-pointer">
-                    <span class="label-text mr-2">Show Labels</span>
-                    <input type="checkbox" class="toggle toggle-primary" id="toggle-labels" checked />
-                </label>
-            </div>
-            <div class="form-control">
-                <label class="label cursor-pointer">
-                    <span class="label-text mr-2">Focus Mode</span>
-                    <input type="checkbox" class="toggle toggle-primary" id="toggle-focus" />
-                </label>
-            </div>
-            <div class="form-control">
-                <label class="label cursor-pointer">
-                    <span class="label-text mr-2">Show Only Direct Citations</span>
-                    <input type="checkbox" class="toggle toggle-primary" id="toggle-direct-citations" />
-                </label>
-            </div>
-        </div>
+    <!-- Network controls are now outside the visualization container -->
+    <div class="network-controls">
+        <button id="zoomIn">Zoom In</button>
+        <button id="zoomOut">Zoom Out</button>
+        <button id="resetView">Reset</button>
+        <select id="depthFilter">
+            <option value="1">Depth: 1</option>
+            <option value="2">Depth: 2</option>
+            <option value="3">Depth: 3</option>
+        </select>
+        <select id="treatmentFilter">
+            <option value="">All Treatments</option>
+            <option value="POSITIVE">Positive</option>
+            <option value="NEGATIVE">Negative</option>
+            <option value="NEUTRAL">Neutral</option>
+            <option value="CAUTION">Caution</option>
+        </select>
+    </div>
 
-        <!-- Citation Type Filter -->
-        <div class="flex flex-wrap gap-2 mb-4">
-            <div class="badge badge-lg gap-2 cursor-pointer" id="filter-all">
-                <div class="w-3 h-3 rounded-full bg-gray-500"></div>
-                All Citations
-            </div>
-            <div class="badge badge-lg gap-2 cursor-pointer" id="filter-positive">
-                <div class="w-3 h-3 rounded-full bg-green-500"></div>
-                Positive
-            </div>
-            <div class="badge badge-lg gap-2 cursor-pointer" id="filter-cautionary">
-                <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
-                Cautionary
-            </div>
-            <div class="badge badge-lg gap-2 cursor-pointer" id="filter-negative">
-                <div class="w-3 h-3 rounded-full bg-red-500"></div>
-                Negative
-            </div>
-            <div class="badge badge-lg gap-2 cursor-pointer" id="filter-neutral">
-                <div class="w-3 h-3 rounded-full bg-gray-500"></div>
-                Neutral
-            </div>
-        </div>
-
-        <!-- Visualization Container -->
-        <div class="relative">
-            <div id="citation-network-container" class="h-[500px] border border-base-300 rounded-lg bg-base-200">
-                <!-- D3.js visualization will be rendered here -->
-            </div>
-            <div id="citation-network-loading"
-                class="absolute inset-0 flex justify-center items-center bg-base-200 bg-opacity-80 rounded-lg">
-                <span class="loading loading-spinner loading-lg text-primary"></span>
-            </div>
-            <div id="citation-network-error"
-                class="absolute inset-0 flex justify-center items-center bg-base-200 bg-opacity-90 rounded-lg hidden">
-                <div class="alert alert-error max-w-md">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none"
-                        viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span>Failed to load citation network.</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Node Information Panel -->
-        <div class="collapse collapse-arrow bg-base-200 mt-4">
-            <input type="checkbox" />
-            <div class="collapse-title font-medium">
-                Selected Case Information
-            </div>
-            <div class="collapse-content">
-                <div id="selected-node-info" class="p-4">
-                    <p class="text-center text-base-content opacity-70">Click on a node to see case details</p>
-                </div>
-            </div>
+    <!-- Separate div just for the visualization -->
+    <div class="citation-network-container">
+        <div id="citation-network">
+            <!-- Network will be rendered here by D3.js -->
         </div>
     </div>
 </div>
 
-<!-- Citation Network Script -->
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="/static/js/citation_network.js"></script>
+<link rel="stylesheet" href="/static/css/network.css">
+
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        // Initialize controls
-        const zoomIn = document.getElementById('zoom-in');
-        const zoomOut = document.getElementById('zoom-out');
-        const resetView = document.getElementById('reset-view');
-        const toggleLabels = document.getElementById('toggle-labels');
-        const toggleFocus = document.getElementById('toggle-focus');
-        const toggleDirectCitations = document.getElementById('toggle-direct-citations');
-        const filterButtons = document.querySelectorAll('[id^="filter-"]');
+        // Initialize the citation network visualization
+        const containerId = 'citation-network';
+        const apiEndpoint = `/api/network/{{ cluster_id }}`;
 
-        // Add event listeners to controls
-        if (zoomIn) zoomIn.addEventListener('click', () => window.citationNetworkZoomIn && window.citationNetworkZoomIn());
-        if (zoomOut) zoomOut.addEventListener('click', () => window.citationNetworkZoomOut && window.citationNetworkZoomOut());
-        if (resetView) resetView.addEventListener('click', () => window.citationNetworkResetView && window.citationNetworkResetView());
-        if (toggleLabels) toggleLabels.addEventListener('change', (e) => window.citationNetworkToggleLabels && window.citationNetworkToggleLabels(e.target.checked));
-        if (toggleFocus) toggleFocus.addEventListener('change', (e) => window.citationNetworkToggleFocus && window.citationNetworkToggleFocus(e.target.checked));
-        if (toggleDirectCitations) toggleDirectCitations.addEventListener('change', (e) => window.citationNetworkToggleDirectCitations && window.citationNetworkToggleDirectCitations(e.target.checked));
+        // Initialize with default settings
+        renderCitationNetwork(containerId, apiEndpoint);
 
-        // Add event listeners to filter buttons
-        filterButtons.forEach(button => {
-            button.addEventListener('click', function () {
-                const filterType = this.id.replace('filter-', '');
-                window.citationNetworkFilterByType && window.citationNetworkFilterByType(filterType);
+        // Handle depth filter changes
+        const depthFilter = document.getElementById('depthFilter');
+        depthFilter.addEventListener('change', function () {
+            const depth = this.value;
+            const treatmentFilter = document.getElementById('treatmentFilter');
+            const treatment = treatmentFilter.value;
 
-                // Update active state
-                filterButtons.forEach(btn => btn.classList.remove('badge-primary'));
-                this.classList.add('badge-primary');
-            });
+            // Update visualization with new depth
+            let updatedEndpoint = `/api/network/filtered/{{ cluster_id }}?depth=${depth}`;
+            if (treatment) {
+                updatedEndpoint += `&treatment=${treatment}`;
+            }
+
+            renderCitationNetwork(containerId, updatedEndpoint);
         });
 
-        // Set initial active state
-        document.getElementById('filter-all').classList.add('badge-primary');
+        // Handle treatment filter changes
+        const treatmentFilter = document.getElementById('treatmentFilter');
+        treatmentFilter.addEventListener('change', function () {
+            const treatment = this.value;
+            const depthFilter = document.getElementById('depthFilter');
+            const depth = depthFilter.value;
+
+            // Update visualization with new treatment filter
+            let updatedEndpoint = `/api/network/filtered/{{ cluster_id }}?depth=${depth}`;
+            if (treatment) {
+                updatedEndpoint += `&treatment=${treatment}`;
+            }
+
+            renderCitationNetwork(containerId, updatedEndpoint);
+        });
+
+        // Handle zoom buttons
+        let currentScale = 1;
+        const zoomStep = 0.2;
+
+        document.getElementById('zoomIn').addEventListener('click', function () {
+            currentScale += zoomStep;
+            applyZoom(currentScale);
+        });
+
+        document.getElementById('zoomOut').addEventListener('click', function () {
+            currentScale = Math.max(0.2, currentScale - zoomStep);
+            applyZoom(currentScale);
+        });
+
+        document.getElementById('resetView').addEventListener('click', function () {
+            // Reset zoom
+            currentScale = 1;
+            applyZoom(currentScale);
+
+            // Re-center the network if possible
+            if (window.citationNetworkState && window.citationNetworkState[containerId]) {
+                const state = window.citationNetworkState[containerId];
+                if (state.simulation) {
+                    state.simulation.force('center', d3.forceCenter(
+                        state.svg.attr('width') / 2,
+                        state.svg.attr('height') / 2
+                    )).alpha(0.3).restart();
+                }
+            }
+
+            // Or re-render the network with current filters
+            else {
+                const depth = depthFilter.value;
+                const treatment = treatmentFilter.value;
+
+                let updatedEndpoint = `/api/network/filtered/{{ cluster_id }}?depth=${depth}`;
+                if (treatment) {
+                    updatedEndpoint += `&treatment=${treatment}`;
+                }
+
+                renderCitationNetwork(containerId, updatedEndpoint);
+            }
+        });
+
+        function applyZoom(scale) {
+            // Use D3's transform for smoother scaling with better browser support
+            if (window.citationNetworkState && window.citationNetworkState[containerId]) {
+                const svg = window.citationNetworkState[containerId].svg;
+                if (svg) {
+                    // Target all child elements to apply the zoom transformation
+                    const g = svg.selectAll('g');
+                    const width = svg.attr('width');
+                    const height = svg.attr('height');
+
+                    // Apply transform around the center point
+                    g.attr('transform', `translate(${width / 2}, ${height / 2}) scale(${scale}) translate(${-width / 2}, ${-height / 2})`);
+                }
+            }
+        }
     });
 </script>
+{% else %}
+<div class="empty-state">
+    <p>Select a case to view its citation network.</p>
+</div>
+{% endif %}

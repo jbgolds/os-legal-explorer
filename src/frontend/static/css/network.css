@@ -1,0 +1,154 @@
+/* Citation Network Visualization Styles */
+
+.citation-network-container {
+    position: relative;
+    background-color: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 15px 0;
+    min-height: 500px;
+    /* Ensure minimum height for the container */
+}
+
+.citation-network-svg {
+    display: block;
+    background: #f9f9f9;
+    width: 100%;
+    height: 100%;
+}
+
+/* Node styling */
+.nodes circle {
+    stroke: #fff;
+    stroke-width: 1.5px;
+    cursor: pointer;
+    transition: stroke-width 0.2s ease, stroke 0.2s ease;
+}
+
+.nodes circle:hover {
+    stroke: #333;
+    stroke-width: 2px;
+}
+
+/* Node labels */
+.node-labels text {
+    font-family: Arial, sans-serif;
+    font-size: 10px;
+    pointer-events: none;
+    user-select: none;
+    fill: #333;
+    text-shadow:
+        0px 0px 2px #fff,
+        0px 0px 2px #fff,
+        0px 0px 2px #fff,
+        0px 0px 2px #fff;
+}
+
+/* Link styling */
+.links line {
+    stroke-opacity: 0.7;
+    transition: stroke-opacity 0.2s ease, stroke-width 0.2s ease;
+}
+
+.links line:hover {
+    stroke-opacity: 1;
+    stroke-width: 2px;
+}
+
+/* Legend styling */
+.legend {
+    font-family: Arial, sans-serif;
+    font-size: 10px;
+}
+
+.legend circle,
+.legend line {
+    stroke: #fff;
+    stroke-width: 1px;
+}
+
+.legend text {
+    fill: #333;
+}
+
+/* Loading and error states */
+.network-loading,
+.network-error {
+    padding: 30px;
+    text-align: center;
+    font-family: Arial, sans-serif;
+    color: #666;
+}
+
+.network-error {
+    color: #d32f2f;
+    background-color: #ffebee;
+    border: 1px solid #ffcdd2;
+    border-radius: 4px;
+}
+
+/* Controls */
+.network-controls {
+    position: relative;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.network-controls button {
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    padding: 5px 10px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.network-controls button:hover {
+    background: #f0f0f0;
+}
+
+.network-controls select {
+    padding: 4px 8px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    font-size: 14px;
+    background-color: white;
+}
+
+/* Tooltip styling - for modern browsers that support it */
+.nodes circle:hover::after,
+.links line:hover::after {
+    content: attr(title);
+    position: absolute;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 5px;
+    border-radius: 3px;
+    z-index: 100;
+    white-space: pre-line;
+    font-size: 12px;
+    pointer-events: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .citation-network-svg {
+        max-height: 70vh;
+    }
+
+    .legend {
+        font-size: 8px;
+    }
+
+    .node-labels text {
+        font-size: 8px;
+    }
+}

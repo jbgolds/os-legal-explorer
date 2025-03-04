@@ -84,32 +84,23 @@ export async function searchCases(query, filters = {}) {
     return apiRequest(`/api/search?${queryParams}`);
 }
 
-/**
- * Get recent court cases
- * @param {number} limit - Number of cases to retrieve
- * @param {number} offset - Offset for pagination
- * @returns {Promise} - Promise that resolves to recent cases
- */
-export async function getRecentCases(limit = 10, offset = 0) {
-    return apiRequest(`/api/recent-cases?limit=${limit}&offset=${offset}`);
-}
 
 /**
  * Get details for a specific case
- * @param {string} caseId - ID of the case to fetch
+ * @param {string} clusterId - ID of the case to fetch
  * @returns {Promise<Object>} Case details
  */
-export function getCaseDetails(caseId) {
-    return apiRequest(`/api/opinion/${caseId}`);
+export function getOpinionDetails(clusterId) {
+    return apiRequest(`/api/opinion/${clusterId}`);
 }
 
 /**
  * Get citation network for a case
- * @param {string} caseId - ID of the case
+ * @param {string} clusterId - ID of the case
  * @returns {Promise<Object>} Citation network data
  */
-export function getCitationNetwork(caseId) {
-    return apiRequest(`/api/opinion/${caseId}/citation-network`);
+export function getCitationNetwork(clusterId) {
+    return apiRequest(`/api/opinion/${clusterId}/citation-network`);
 }
 
 /**
@@ -139,8 +130,7 @@ export async function submitGeneralFeedback(feedback) {
 // Export the API functions
 export default {
     searchCases,
-    getRecentCases,
-    getCaseDetails,
+    getOpinionDetails,
     getCitationNetwork,
     submitMissingCitationFeedback,
     submitGeneralFeedback,

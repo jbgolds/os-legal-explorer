@@ -12,8 +12,9 @@ from datetime import date, datetime
 
 # Import and include routers
 from .services.pipeline import pipeline_router
-from .routers import search_router, cases_router, feedback_router
-from .routers.cases import Case, check_case_status
+from .routers import search_router, clusters_router, feedback_router
+from .routers.clusters import get_cluster_details, check_cluster_status
+from .routers.network import router as network_router
 from .shared import templates
 import logging
 from src.neo4j_db.models import Opinion
@@ -58,44 +59,6 @@ async def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-# Opinion page route - serves the same index.html but with pre-loaded case data
-@app.get("/opinion/{cluster_id}/", response_class=HTMLResponse)
-async def opinion(request: Request, cluster_id: str):
-    try:
-        # Use the existing case status endpoint logic
-        case_status = await check_case_status(cluster_id)
-
-        # Get opinion from Neo4j if it exists
-        opinion = (
-            Opinion.nodes.first_or_none(primary_id=cluster_id)
-            if case_status.exists
-            else None
-        )
-
-        # Create case object with available data
-        case = Case(
-            cluster_id=cluster_id,
-            case_name=opinion.case_name if opinion else "Sample Case Name",
-            court_name=opinion.court_name if opinion else "Sample Court",
-            date_filed=opinion.date_filed if opinion else datetime.now(),
-            citation=opinion.citation_string if opinion else None,
-            plain_text="Sample case text...",  # TODO: Get from PostgreSQL
-        )
-
-        return templates.TemplateResponse(
-            "index.html",
-            {
-                "request": request,
-                "preloaded_case": case,
-                "preloaded_cluster_id": cluster_id,
-                "case_status": case_status,
-            },
-        )
-    except Exception as e:
-        logger.error(f"Error loading case: {e}")
-        return templates.TemplateResponse("index.html", {"request": request})
-
-
 # Health check endpoint
 @app.get("/health")
 async def health_check():
@@ -111,13 +74,33 @@ async def health_check():
 # Include all routers
 app.include_router(pipeline_router)
 app.include_router(search_router)
-app.include_router(cases_router)
+app.include_router(clusters_router)
 app.include_router(feedback_router)
+app.include_router(network_router)
 
 
-# Case detail page route
-@app.get("/case/{case_id}", response_class=HTMLResponse)
-async def case_detail(request: Request, case_id: str):
-    return templates.TemplateResponse(
-        "case_detail.html", {"request": request, "case_id": case_id}
-    )
+# Direct route for opinion pages
+@app.get("/opinion/{cluster_id}/", response_class=HTMLResponse)
+async def opinion_page(request: Request, cluster_id: str):
+    try:
+        # Use the existing case status endpoint logic
+
+        case_status = await check_cluster_status(cluster_id)
+
+        # Get case details from CourtListener API
+        case_detail = await get_cluster_details(cluster_id)
+
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "cluster_id": cluster_id,
+                "case_status": case_status,
+                "case": case_detail,
+            },
+        )
+    except Exception as e:
+        logger.error(f"Error loading case: {e}")
+        return templates.TemplateResponse(
+            "index.html", {"request": request, "error": str(e)}
+        )

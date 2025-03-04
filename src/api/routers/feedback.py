@@ -19,7 +19,7 @@ router = APIRouter(
 
 # Models
 class MissingCitationFeedback(BaseModel):
-    case_id: str
+    cluster_id: str
     expected_citation: str
     description: str
     email: Optional[EmailStr] = None
@@ -27,7 +27,7 @@ class MissingCitationFeedback(BaseModel):
 
 
 class MissingOpinionFeedback(BaseModel):
-    case_id: str
+    cluster_id: str
     description: str
     email: Optional[EmailStr] = None
     submitted_at: datetime = datetime.now()
@@ -63,7 +63,7 @@ async def report_missing_citation(feedback: MissingCitationFeedback):
     Report a missing citation for a case.
 
     Parameters:
-    - case_id: The ID of the case
+    - cluster_id: The ID of the case
     - expected_citation: The citation that should be included
     - description: Description of the issue
     - email: Optional email for follow-up
@@ -86,7 +86,7 @@ async def report_missing_opinion(feedback: MissingOpinionFeedback):
     Report a missing opinion for a case.
 
     Parameters:
-    - case_id: The ID of the case
+    - cluster_id: The ID of the case
     - description: Description of the issue
     - email: Optional email for follow-up
     """
