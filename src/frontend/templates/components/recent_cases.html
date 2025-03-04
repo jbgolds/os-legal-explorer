@@ -1,0 +1,51 @@
+<!-- Recent Cases Component -->
+<div class="mb-8">
+    <div class="flex justify-between items-center mb-4">
+        <h2 class="text-2xl font-bold">Recent Cases</h2>
+        <a href="#" class="btn btn-sm btn-outline btn-primary">View All</a>
+    </div>
+
+    {% if cases and cases.results %}
+    <div class="space-y-4">
+        {% for case in cases.results %}
+        <div class="card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow duration-300">
+            <div class="card-body p-4">
+                <a href="#" data-case-id="{{ case.id }}" class="block">
+                    <h3 class="card-title text-primary hover:text-primary-focus">{{ case.case_name }}</h3>
+                    <div class="flex flex-wrap gap-2 mt-1">
+                        <div class="badge badge-outline">{{ case.court_name|default('Unknown Court') }}</div>
+                        <div class="badge badge-outline">{{ case.date_filed|date }}</div>
+                        {% if case.citation %}
+                        <div class="badge badge-outline">{{ case.citation }}</div>
+                        {% endif %}
+                    </div>
+                    <p class="mt-2 line-clamp-2">{{ case.snippet|default('No excerpt available.') }}</p>
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if cases.count > cases.results|length %}
+    <div class="mt-6 flex justify-center">
+        <button class="btn btn-primary" hx-get="/api/recent-cases?offset={{ cases.results|length }}"
+            hx-target="#recent-cases" hx-swap="outerHTML" hx-indicator="#recent-cases-loading">
+            <span class="loading loading-spinner loading-xs htmx-indicator"></span>
+            Load More
+        </button>
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body items-center text-center">
+            <div class="avatar placeholder">
+                <div class="bg-neutral-focus text-neutral-content rounded-full w-16">
+                    <span class="text-xl">!</span>
+                </div>
+            </div>
+            <h3 class="card-title mt-4">No recent cases</h3>
+            <p class="text-base-content opacity-70">Try searching for specific cases instead.</p>
+        </div>
+    </div>
+    {% endif %}
+</div>

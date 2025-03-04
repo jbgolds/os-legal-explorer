@@ -2,30 +2,28 @@
 
 ## 1. Feature Overview
 
-### Home Page
+### Single-Page Application
 - **Search Box for Legal Cases:**  
-  - A search input that calls the CourtListener API endpoint (`/api/rest/v4/search/`) to retrieve the associated `cluster_id` for legal cases.
+  - A search input in the hero section that calls the CourtListener API endpoint (`/api/rest/v4/search/`) to retrieve the associated `cluster_id` for legal cases.
   - After that's returned, we can query our local database for that cluster_id to get the opinion text.
   - Add search filters for jurisdiction, date range, and court level.
 - **Recent Cases List:**  
   - Display a list of the most recently added court cases pulled from the backend.
   - Include pagination for browsing through more cases.
   - Show key metadata: case name, court, date, and a brief excerpt.
-
-  
-### Court Case Detail Page
-- **Case Text Display:**  
-  - Show the full text of the selected court opinion.
-  - (future) Implement text highlighting for citations and key terms.
-  - (future) Add a table of contents for navigating long opinions.
-  - (future) Include a "copy citation" feature for academic/legal reference.
-- **Citation Mapping Visualization:**  
-  - Use d3.js to render an interactive network visualization of the citation map (i.e., how cases cite each other).
-  - Include filtering options to focus on specific time periods or courts.
-  - Provide zoom and pan capabilities for exploring large citation networks.
-  - Add tooltips showing case summaries when hovering over nodes.
-  - Implement a "focus mode" to highlight direct connections to the current case.
-  - Based on the relationship TREATMENT, make the connecting lines different colors, i.e. green for positive, yellow for caution, red for negative, and gray for neutral.
+- **Dynamic Case Detail Section:**
+  - **Case Text Display:**  
+    - Show the full text of the selected court opinion in a section that appears when a case is selected.
+    - (future) Implement text highlighting for citations and key terms.
+    - (future) Add a table of contents for navigating long opinions.
+    - (future) Include a "copy citation" feature for academic/legal reference.
+  - **Citation Mapping Visualization:**  
+    - Use d3.js to render an interactive network visualization of the citation map (i.e., how cases cite each other).
+    - Include filtering options to focus on specific time periods or courts.
+    - Provide zoom and pan capabilities for exploring large citation networks.
+    - Add tooltips showing case summaries when hovering over nodes.
+    - Implement a "focus mode" to highlight direct connections to the current case.
+    - Based on the relationship TREATMENT, make the connecting lines different colors, i.e. green for positive, yellow for caution, red for negative, and gray for neutral.
 - **Feedback Mechanisms:**
   - Add UI elements for users to report missing citations or opinions.
   - Include a general feedback form for user suggestions.
@@ -58,28 +56,24 @@
     plugins: [],
   }
   ```
-  - Create a base CSS file at `src/frontend/static/css/main.css`:
-  ```css
-  @tailwind base;
-  @tailwind components;
-  @tailwind utilities;
-  ```
-  
+  - Create a base CSS file at `src/frontend/static/css/global.css`:
+
 - **Configure FastAPI for Frontend:**
   - Uncomment and update the template and static file configuration in `src/api/main.py`.
   - Set up Jinja2 templates with proper directory paths.
   - Create a base template with common layout elements.
 
-### Step 2: Home Page Implementation
+### Step 2: Single-Page Application Implementation
 - **Create Base Layout Template:**
   - Develop a base.html template with common elements (header, footer, navigation).
   - Implement responsive design using Tailwind CSS.
   - Set up meta tags and basic SEO elements.
   
-- **Design the Homepage Template:**
-  - Create `src/frontend/templates/home.html` extending the base template.
-  - Design a clean, modern interface with a prominent search box.
-  - Add sections for recent cases and user dashboard.
+- **Design the Single-Page Template:**
+  - Create `src/frontend/templates/index.html` extending the base template.
+  - Design a clean, modern interface with a prominent search box in the hero section.
+  - Add sections for recent cases and a dynamic case detail area.
+  - Implement responsive layout for different screen sizes.
   
 - **Implement Search Functionality:**
   - Create a search component with HTML, CSS, and JavaScript.
@@ -109,14 +103,14 @@
   - Implement pagination controls.
   - Add a "load more" button for infinite scrolling.
 
-### Step 3: Court Case Detail Page
-- **Create Detail Page Template:**
-  - Develop `src/frontend/templates/case_detail.html` with sections for:
+- **Dynamic Case Detail Section:**
+  - Create a section that appears when a case is selected:
     - Case metadata (court, date, judges, etc.)
     - Full opinion text
     - Citation visualization
     - Related cases
   - Implement a responsive layout that works well on different screen sizes.
+  - Add smooth transitions between the search results view and case detail view.
   
 - **Case Text Display:**
   - Create a backend endpoint to fetch case details:
@@ -148,9 +142,9 @@
   - Create a legend explaining node and edge types.
   - Citation networks should never be larger than 100-200 nodes, so do not think we will have to worry about performance much.
 
-### Step 4: User Feedback Mechanisms (Week 5)
+### Step 3: User Feedback Mechanisms
 - **Design Feedback UI Components:**
-  - Create modal dialogs for different feedback types.
+  - Create modal dialogs for different feedback types that overlay the single-page application.
   - Implement form validation for feedback submissions.
   
 - **Implement Feedback Endpoints:**
@@ -203,17 +197,18 @@ repo/
 │   └── frontend/                # Frontend assets and templates
 │       ├── templates/           # Jinja2 templates
 │       │   ├── base.html       # Base template with common elements
-│       │   ├── home.html       # Homepage template
-│       │   ├── case_detail.html # Case detail page template
+│       │   ├── index.html      # Single-page application template
 │       │   └── components/     # Reusable template components
 │       │       ├── search.html # Search box component
 │       │       ├── pagination.html # Pagination controls
+│       │       ├── case_detail.html # Case detail component
 │       │       └── feedback.html # Feedback forms
 │       └── static/              # Frontend static assets
 │           ├── css/             # CSS files
-│           │   ├── main.css     # Main Tailwind CSS entry point
+│           │   ├── global.css     # Main Tailwind CSS entry point
 │           │   └── components/  # Component-specific styles
 │           ├── js/              # JavaScript files
+│           │   ├── app.js       # Main application logic
 │           │   ├── search.js    # Search functionality
 │           │   ├── citation_map.js # d3.js visualization
 │           │   └── utils/       # Utility functions
@@ -241,17 +236,23 @@ repo/
   - Base template with common HTML structure, meta tags, and layout.
   - Includes navigation, header, footer, and script/style imports.
 
-- **`src/frontend/templates/home.html`:**
-  - Homepage layout extending base.html.
-  - Contains search box, recent cases list, and user dashboard sections.
+- **`src/frontend/templates/index.html`:**
+  - Single-page application layout extending base.html.
+  - Contains search box, recent cases list, and dynamic case detail section.
 
-- **`src/frontend/templates/case_detail.html`:**
-  - Case detail page extending base.html.
+- **`src/frontend/templates/components/case_detail.html`:**
+  - Component template for case details.
   - Displays case metadata, full opinion text, and citation visualization.
+  - Designed to be loaded dynamically when a case is selected.
 
-- **`src/frontend/static/css/main.css`:**
+- **`src/frontend/static/css/global.css`:**
   - Main CSS file with Tailwind directives and custom styles.
   - Imports component-specific styles as needed.
+
+- **`src/frontend/static/js/app.js`:**
+  - Main application logic for the single-page application.
+  - Handles state management and transitions between views.
+  - Coordinates the loading and display of different components.
 
 - **`src/frontend/static/js/search.js`:**
   - Handles search input, API calls, and results display.
@@ -328,22 +329,23 @@ repo/
 - Set up base templates and styling
 - Implement FastAPI integration with templates
 
-### Week 2: Homepage Implementation
+### Week 2: Single-Page Application Core
 - Complete search functionality
 - Implement recent cases list
 - Design and implement responsive layout
+- Create dynamic case detail section
 
-### Week 3-4: Case Detail Page
+### Week 3: Case Detail and Visualization
 - Implement case text display with formatting
 - Create citation network visualization
 - Add interactive features to visualization
+- Implement smooth transitions between views
 
-### Week 5: Feedback Mechanisms
+### Week 4: Feedback Mechanisms and Deployment
 - Implement feedback forms and UI
 - Create backend endpoints for feedback
 - Set up feedback storage
-
-
+- Prepare for deployment
 
 ---
 

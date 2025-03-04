@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block title %}OS Legal Explorer - Search and Explore Legal Cases{% endblock %}
+
+{% block content %}
+<!-- Hero Section with Search -->
+<div class="hero min-h-[50vh] bg-gradient-to-r from-primary to-secondary text-primary-content">
+    <div class="hero-content text-center">
+        <div class="max-w-3xl">
+            <h1 class="text-5xl font-bold mb-4">Explore Legal Cases and Citations</h1>
+            <p class="text-xl mb-8">Search through court opinions and discover citation networks</p>
+
+            <!-- Search Box -->
+            <div class="card bg-base-100 shadow-xl" x-data="{ isSearching: false, searchQuery: '' }">
+                <div class="card-body">
+                    <div class="relative">
+                        <div class="join w-full">
+                            <input type="text" id="search-input" class="input input-bordered join-item w-full"
+                                placeholder="Search by case name, citation, or keywords..." x-model="searchQuery"
+                                x-on:input="isSearching = searchQuery.length > 2" hx-get="/api/search"
+                                hx-trigger="keyup changed delay:500ms" hx-target="#search-results"
+                                hx-indicator="#search-indicator">
+                            <button class="btn join-item btn-primary">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="absolute right-14 top-3">
+                            <div id="search-indicator" class="htmx-indicator">
+                                <span class="loading loading-spinner loading-sm text-primary"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Content Area -->
+<div class="container mx-auto px-4 py-8">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Left Column: Search Filters, Search Results / Recent Cases -->
+        <div class="lg:col-span-1">
+            <!-- Search Filters -->
+            <div id="search-filters" x-data="{ isVisible: false }" x-show="isVisible" x-transition>
+                {% include "components/search_filters.html" %}
+            </div>
+
+            <!-- Search Results -->
+            <div id="search-results" class="mb-8" x-data="{ hasResults: false }">
+                <!-- Results will be loaded here via HTMX -->
+                <template x-if="!hasResults">
+                    <div>
+                        <h2 class="text-2xl font-bold mb-4">Recent Cases</h2>
+                        <div id="recent-cases" hx-get="/api/recent-cases" hx-trigger="load"
+                            hx-indicator="#recent-cases-loading">
+                            <div id="recent-cases-loading" class="htmx-indicator flex justify-center py-8">
+                                <span class="loading loading-spinner loading-lg"></span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- Right Column: Case Detail -->
+        <div class="lg:col-span-2">
+            <div id="case-detail" class="card bg-base-100 shadow-xl">
+                <!-- Case detail will be loaded here when a case is selected -->
+                <div class="card-body text-center py-12">
+                    <div class="avatar placeholder mb-4">
+                        <div class="bg-neutral-focus text-neutral-content rounded-full w-24">
+                            <span class="text-3xl">?</span>
+                        </div>
+                    </div>
+                    <h2 class="card-title text-2xl justify-center text-base-content opacity-70 mb-4">Select a Case to
+                        View Details</h2>
+                    <p class="text-base-content opacity-70">Search for a case or select one from the recent cases list
+                    </p>
+                    <div class="mt-6">
+                        <button class="btn btn-primary" onclick="document.getElementById('search-input').focus()">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                            Start Searching
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Feedback Modal -->
+<dialog id="feedback" class="modal">
+    <div class="modal-box max-w-2xl">
+        {% include "components/feedback_form.html" %}
+    </div>
+    <form method="dialog" class="modal-backdrop">
+        <button>close</button>
+    </form>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        // Handle case selection
+        document.body.addEventListener('click', function (e) {
+            const caseLink = e.target.closest('[data-case-id]');
+            if (caseLink) {
+                e.preventDefault();
+                const caseId = caseLink.dataset.caseId;
+
+                // Load case details
+                htmx.ajax('GET', `/api/case/${caseId}`, {
+                    target: '#case-detail',
+                    swap: 'innerHTML',
+                    indicator: '#case-detail-loading'
+                });
+
+                // Scroll to case detail on mobile
+                if (window.innerWidth < 1024) {
+                    document.getElementById('case-detail').scrollIntoView({
+                        behavior: 'smooth'
+                    });
+                }
+            }
+        });
+
+        // Show search filters when search has input
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) {
+            searchInput.addEventListener('input', function () {
+                if (this.value.length > 0) {
+                    Alpine.store('searchFilters', { isVisible: true });
+                    document.querySelector('#search-filters').__x.$data.isVisible = true;
+                } else {
+                    document.querySelector('#search-filters').__x.$data.isVisible = false;
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}

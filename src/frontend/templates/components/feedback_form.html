@@ -1,0 +1,171 @@
+<!-- Feedback Form Component -->
+<div class="card bg-base-100 shadow-xl">
+    <div class="card-body">
+        <h2 class="card-title">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+            </svg>
+            Send Feedback
+        </h2>
+        <p class="text-base-content opacity-70 mb-4">Your feedback helps us improve OS Legal Explorer. Let us know what
+            you think!</p>
+
+        <form hx-post="/api/feedback/general" hx-swap="outerHTML" class="space-y-4">
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text">Feedback Type</span>
+                </label>
+                <select name="feedback_type" class="select select-bordered w-full">
+                    <option value="general">General Feedback</option>
+                    <option value="bug">Bug Report</option>
+                    <option value="feature">Feature Request</option>
+                    <option value="missing_citation">Missing Citation</option>
+                    <option value="missing_opinion">Missing Opinion</option>
+                </select>
+            </div>
+
+            <!-- Conditional fields based on feedback type -->
+            <div id="case-specific-fields" class="hidden space-y-4">
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Case Name or ID</span>
+                    </label>
+                    <input type="text" name="case_id" class="input input-bordered"
+                        placeholder="e.g., Brown v. Board of Education or 12345">
+                </div>
+
+                <div id="citation-fields" class="hidden space-y-4">
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Expected Citation</span>
+                        </label>
+                        <input type="text" name="expected_citation" class="input input-bordered"
+                            placeholder="e.g., 347 U.S. 483">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text">Description</span>
+                    <span class="label-text-alt">Required</span>
+                </label>
+                <textarea name="description" class="textarea textarea-bordered h-24"
+                    placeholder="Please describe your feedback in detail..." required></textarea>
+            </div>
+
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text">Email (optional)</span>
+                    <span class="label-text-alt">We'll only use this to follow up on your feedback</span>
+                </label>
+                <input type="email" name="email" class="input input-bordered" placeholder="your@email.com">
+            </div>
+
+            <div class="flex justify-end gap-2">
+                <button type="button" class="btn" onclick="document.getElementById('feedback').close()">Cancel</button>
+                <button type="submit" class="btn btn-primary">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                    Submit Feedback
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Feedback Success Message (shown after submission) -->
+<div id="feedback-success" class="hidden">
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body items-center text-center">
+            <div class="avatar placeholder">
+                <div class="bg-success text-success-content rounded-full w-24">
+                    <span class="text-3xl">✓</span>
+                </div>
+            </div>
+            <h2 class="card-title mt-4">Thank You for Your Feedback!</h2>
+            <p class="py-4">Your feedback has been submitted successfully. We appreciate your input and will use it to
+                improve OS Legal Explorer.</p>
+            <div class="card-actions">
+                <button class="btn btn-primary" onclick="document.getElementById('feedback').close()">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Feedback Error Message (shown if submission fails) -->
+<div id="feedback-error" class="hidden">
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body items-center text-center">
+            <div class="avatar placeholder">
+                <div class="bg-error text-error-content rounded-full w-24">
+                    <span class="text-3xl">!</span>
+                </div>
+            </div>
+            <h2 class="card-title mt-4">Oops! Something Went Wrong</h2>
+            <p class="py-4">We couldn't submit your feedback. Please try again later or contact us directly.</p>
+            <div class="card-actions">
+                <button class="btn btn-primary" onclick="document.getElementById('feedback').close()">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Feedback Form Script -->
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const feedbackTypeSelect = document.querySelector('select[name="feedback_type"]');
+        const caseSpecificFields = document.getElementById('case-specific-fields');
+        const citationFields = document.getElementById('citation-fields');
+
+        // Show/hide fields based on feedback type
+        if (feedbackTypeSelect) {
+            feedbackTypeSelect.addEventListener('change', function () {
+                const feedbackType = this.value;
+
+                // Show case-specific fields for missing citation or missing opinion
+                if (feedbackType === 'missing_citation' || feedbackType === 'missing_opinion') {
+                    caseSpecificFields.classList.remove('hidden');
+                } else {
+                    caseSpecificFields.classList.add('hidden');
+                }
+
+                // Show citation fields only for missing citation
+                if (feedbackType === 'missing_citation') {
+                    citationFields.classList.remove('hidden');
+                } else {
+                    citationFields.classList.add('hidden');
+                }
+            });
+        }
+
+        // Handle form submission
+        const feedbackForm = document.querySelector('form[hx-post]');
+        if (feedbackForm) {
+            feedbackForm.addEventListener('htmx:beforeSend', function (event) {
+                // Validate form
+                if (!this.checkValidity()) {
+                    event.preventDefault();
+                    this.reportValidity();
+                }
+            });
+
+            feedbackForm.addEventListener('htmx:afterSwap', function (event) {
+                // Show success message
+                document.getElementById('feedback-success').classList.remove('hidden');
+                document.querySelector('.card').classList.add('hidden');
+            });
+
+            feedbackForm.addEventListener('htmx:error', function (event) {
+                // Show error message
+                document.getElementById('feedback-error').classList.remove('hidden');
+                document.querySelector('.card').classList.add('hidden');
+            });
+        }
+    });
+</script>

@@ -1,3 +1,119 @@
+# OS Legal Explorer
+
+An open-source tool for exploring legal cases and their citation networks.
+
+## Overview
+
+OS Legal Explorer is a web application that allows users to search for legal cases, read court opinions, and explore citation networks. The application is built with modern web technologies and provides a user-friendly interface for legal research.
+
+## Features
+
+- **Search for Legal Cases**: Find court opinions by case name, citation, or keywords.
+- **Read Court Opinions**: Access the full text of court opinions with citation highlighting.
+- **Explore Citation Networks**: Visualize how cases cite each other with an interactive network graph.
+- **Filter and Sort**: Refine search results by jurisdiction, court, date range, and more.
+- **Responsive Design**: Works on desktop, tablet, and mobile devices.
+
+## Technology Stack
+
+- **Frontend**:
+  - HTML/CSS/JavaScript
+  - Tailwind CSS for styling
+  - DaisyUI for UI components
+  - HTMX for dynamic content
+  - Alpine.js for interactivity
+  - D3.js for citation network visualization
+
+- **Backend**:
+  - FastAPI (Python web framework)
+  - Neo4j (Graph database for citation networks)
+  - PostgreSQL (Relational database)
+
+## Project Structure
+
+```
+repo/
+├── src/
+│   ├── api/                     # FastAPI backend
+│   │   ├── main.py             # App entry point
+│   │   ├── routers/            # API route definitions
+│   │   └── services/           # Business logic
+│   ├── citation/                # Citation parsing utilities
+│   └── frontend/                # Frontend assets
+│       ├── templates/           # Jinja2 templates
+│       │   ├── base.html       # Base template
+│       │   ├── index.html      # Main application page
+│       │   └── components/     # Reusable components
+│       └── static/              # Static assets
+│           ├── css/            # CSS files
+│           ├── js/             # JavaScript files
+│           └── images/         # Images
+├── Dockerfile                   # Docker configuration
+├── docker-compose.yml           # Docker Compose configuration
+└── README.md                    # Project documentation
+```
+
+## Getting Started
+
+### Prerequisites
+
+- Docker and Docker Compose
+- Node.js and npm (for frontend development)
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/jacobrosenthal/os-legal-explorer.git
+   cd os-legal-explorer
+   ```
+
+2. Build and start the containers:
+   ```bash
+   docker-compose up -d
+   ```
+
+3. Access the application:
+   Open your browser and navigate to `http://localhost:8000`
+
+### Development
+
+For frontend development:
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+2. Build Tailwind CSS:
+   ```bash
+   npm run build:css
+   ```
+
+3. Watch for changes:
+   ```bash
+   npm run watch:css
+   ```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- [CourtListener](https://www.courtlistener.com/) for providing access to legal data
+- [Free Law Project](https://free.law/) for their work on open legal data
+
 # Goal of this project
 I want to create a very interactive website using d3.js, htmx, and a python backend preferrably something simple, like fastapi. 
 

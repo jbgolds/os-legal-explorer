@@ -7,12 +7,12 @@
 - [x] Set up build system for Tailwind CSS
   - [x] Follow https://daisyui.com/docs/install/cli/
 - [x] Configure Tailwind CSS in `tailwind.config.js`
-- [x] Create base CSS file at `src/frontend/static/css/main.css`
+- [x] Create base CSS file at `src/frontend/static/css/global.css`
 - [x] Configure FastAPI for frontend
   - [x] Uncomment and update template and static file configuration in `src/api/main.py`
   - [x] Set up Jinja2 templates with proper directory paths
 
-## Home Page Implementation
+## Single-Page Application Implementation
 - [x] Create base layout template
   - [x] Create `src/frontend/templates/base.html` template with common elements
     - [x] Add header with navigation
@@ -21,10 +21,11 @@
     - [x] Set up responsive layout with Tailwind CSS
     - [x] Include script and style imports
   - [x] Implement responsive design using Tailwind CSS and DaisyUI
-- [x] Design the homepage template
-  - [x] Create `src/frontend/templates/home.html` extending the base template
-  - [x] Design interface with prominent search box
+- [x] Design the single-page template
+  - [x] Create `src/frontend/templates/index.html` extending the base template
+  - [x] Design interface with prominent search box in hero section
   - [x] Add sections for recent cases
+  - [x] Add dynamic case detail section that appears when a case is selected
   - [x] Implement responsive layout for different screen sizes
 - [x] Implement search functionality
   - [x] Create search component with HTML, CSS, and JavaScript
@@ -44,40 +45,33 @@
   - [x] Design card-based UI for displaying case information
   - [x] Implement pagination controls
   - [x] Add "load more" button for infinite scrolling
-
-## Court Case Detail Page
-- [x] Create detail page template
-  - [x] Develop `src/frontend/templates/case_detail.html` with sections for:
-    - [x] Case metadata (court, date, judges, etc.)
-    - [x] Full opinion text
-    - [x] Citation visualization
-    - [x] Related cases
-  - [x] Implement responsive layout
-- [x] Implement case text display
-  - [x] Create backend endpoint to fetch case details
-    - [x] Create `/api/case/{case_id}` endpoint
-    - [x] Fetch case data from Neo4j database (TODO: Currently using CourtListener API as a temporary solution)
-    - [x] Return formatted case with full text and metadata
-  - [x] Implement text formatting for legal opinions
-  - [ ] (Future) Add syntax highlighting for citations within text
-  - [ ] (Future) Create table of contents based on opinion sections
-- [x] Implement citation mapping with d3.js
-  - [x] Create backend endpoint for citation network data
-    - [x] Create `/api/case/{case_id}/citations` endpoint
-    - [x] Query Neo4j for citation relationships (TODO: Currently using placeholder data)
-    - [x] Return nodes and edges in format suitable for d3.js
-  - [x] Develop d3.js visualization module in `src/frontend/static/js/citation_map.js`
-  - [x] Implement force-directed graph layout
-  - [x] Add interactive features (zoom, pan, filtering)
-    - [x] Add zoom and pan controls
-    - [x] Implement node selection and highlighting
-    - [ ] Add filtering options by court, date, etc.
-  - [x] Create legend explaining node and edge types
-  - [x] Implement color coding for different citation treatments
-    - [x] Green for positive citations
-    - [x] Yellow for cautionary citations
-    - [x] Red for negative citations
-    - [x] Gray for neutral citations
+- [x] Implement case detail section
+  - [x] Create dynamic section that appears when a case is selected
+  - [x] Implement case text display
+    - [x] Create backend endpoint to fetch case details
+      - [x] Create `/api/case/{case_id}` endpoint
+      - [x] Fetch case data from Neo4j database (TODO: Currently using CourtListener API as a temporary solution)
+      - [x] Return formatted case with full text and metadata
+    - [x] Implement text formatting for legal opinions
+    - [ ] (Future) Add syntax highlighting for citations within text
+    - [ ] (Future) Create table of contents based on opinion sections
+  - [x] Implement citation mapping with d3.js
+    - [x] Create backend endpoint for citation network data
+      - [x] Create `/api/case/{case_id}/citations` endpoint
+      - [x] Query Neo4j for citation relationships (TODO: Currently using placeholder data)
+      - [x] Return nodes and edges in format suitable for d3.js
+    - [x] Develop d3.js visualization module in `src/frontend/static/js/citation_map.js`
+    - [x] Implement force-directed graph layout
+    - [x] Add interactive features (zoom, pan, filtering)
+      - [x] Add zoom and pan controls
+      - [x] Implement node selection and highlighting
+      - [x] Add filtering options by court, date, etc.
+    - [x] Create legend explaining node and edge types
+    - [x] Implement color coding for different citation treatments
+      - [x] Green for positive citations
+      - [x] Yellow for cautionary citations
+      - [x] Red for negative citations
+      - [x] Gray for neutral citations
 
 ## User Feedback Mechanisms
 - [x] Design feedback UI components
@@ -101,10 +95,26 @@
   - [x] Handle search input and API calls
   - [x] Implement debouncing and loading states
   - [x] Display and format search results
+- [x] Implement dynamic content loading in `src/frontend/static/js/app.js`
+  - [x] Handle case selection and detail view display
+  - [x] Manage state transitions between search results and case details
+  - [x] Implement smooth animations for transitions
 - [x] Implement citation visualization in `src/frontend/static/js/citation_map.js`
   - [x] Create d3.js force-directed graph
   - [x] Handle data loading and transformation
   - [x] Implement interactive features
+
+## UI Enhancement with DaisyUI
+- [x] Update base.html with DaisyUI components
+- [x] Update index.html with DaisyUI components
+- [x] Create and enhance component templates
+  - [x] Create search_results.html with DaisyUI components
+  - [x] Create case_detail.html with DaisyUI components
+  - [x] Create search_filters.html with DaisyUI components
+  - [x] Create recent_cases.html with DaisyUI components
+  - [x] Create citation_network.html with DaisyUI components
+  - [x] Create feedback_form.html with DaisyUI components
+- [x] Add custom CSS styling in global.css
 
 ## Deployment Preparation
 - [x] Update Dockerfile and docker-compose.yml
@@ -113,32 +123,12 @@
 - [ ] Configure Caddy for serving static files
 - [ ] Set up Cloudflared tunnel for secure external access
 
-## Next Steps (Immediate Focus)
-1. ~~Create backend API endpoints for search and recent cases~~
-   - ~~Implement CourtListener API proxy for search~~
-   - ~~Create endpoint for fetching recent cases from Neo4j~~
-2. ~~Implement the case detail page~~
-   - ~~Create template with responsive layout~~
-   - ~~Implement case text display with formatting~~
-3. ~~Develop the citation mapping visualization with d3.js~~
-   - ~~Create backend endpoint for citation network data~~
-   - ~~Implement force-directed graph with interactive features~~
-4. ~~Add user feedback mechanisms~~
-   - ~~Design modal dialogs for different feedback types~~
-   - ~~Create backend endpoints for storing feedback~~
-5. ~~Update Dockerfile and docker-compose.yml for deployment~~
-   - ~~Add Node.js/Tailwind build steps~~
-   - Configure multi-stage build for production
-6. Enhance the citation mapping visualization
-   - Add filtering options by court, date, etc.
-   - Implement more interactive features
-7. Integrate with Neo4j database for citation data
-   - Update endpoints to use Neo4j instead of placeholder data
-   - Implement more sophisticated citation network queries
-
 ## Future Enhancements
 - [ ] Timeline view of citations
 - [ ] Court hierarchy visualization
 - [ ] Citation sentiment analysis
 - [ ] User accounts and saved searches
-- [ ] Export functionality for citation networks 
+- [ ] Export functionality for citation networks
+- [ ] Add syntax highlighting for citations within text
+- [ ] Create table of contents based on opinion sections
+- [ ] Add "copy citation" feature for academic/legal reference 
