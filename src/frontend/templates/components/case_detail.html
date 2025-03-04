@@ -95,43 +95,26 @@
                     if (!document.getElementById('citation-network-wrapper').dataset.loaded) {
                         // Load the citation network
                         const caseId = '{{ case.id }}';
-                        loadCitationNetwork(caseId);
+                        fetch(`/api/opinion/${caseId}/citations/component`)
+                            .then(response => response.text())
+                            .then(html => {
+                                document.getElementById('citation-network-wrapper').innerHTML = html;
+                                document.getElementById('citation-network-wrapper').dataset.loaded = true;
+                            })
+                            .catch(error => {
+                                console.error('Error loading citation network:', error);
+                                document.getElementById('citation-network-wrapper').innerHTML = `
+                                    <div class="alert alert-error">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        <span>Error loading citation network. Please try again later.</span>
+                                    </div>
+                                `;
+                            });
                     }
                 }
             });
         });
-
-        // Function to load citation network
-        function loadCitationNetwork(caseId) {
-            const networkWrapper = document.getElementById('citation-network-wrapper');
-            if (!networkWrapper) return;
-
-            // Set as loading
-            networkWrapper.dataset.loading = 'true';
-            networkWrapper.innerHTML = '<div class="flex justify-center items-center py-8"><span class="loading loading-spinner loading-lg text-primary"></span></div>';
-
-            // Load the citation network component
-            fetch(`/api/case/${caseId}/citations/component`)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Failed to load citation network component');
-                    }
-                    return response.text();
-                })
-                .then(html => {
-                    // Insert the component HTML
-                    networkWrapper.innerHTML = html;
-                    networkWrapper.dataset.loaded = 'true';
-
-                    // Initialize the citation network visualization
-                    if (typeof initCitationNetwork === 'function') {
-                        initCitationNetwork(caseId, 'citation-network-container');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading citation network:', error);
-                    networkWrapper.innerHTML = '<div class="alert alert-error"><div><svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><span>Failed to load citation network.</span></div></div>';
-                });
-        }
     });
 </script>

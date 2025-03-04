@@ -95,21 +95,21 @@ export async function getRecentCases(limit = 10, offset = 0) {
 }
 
 /**
- * Get details for a specific court case
- * @param {string} caseId - ID of the case to retrieve
- * @returns {Promise} - Promise that resolves to case details
+ * Get details for a specific case
+ * @param {string} caseId - ID of the case to fetch
+ * @returns {Promise<Object>} Case details
  */
-export async function getCaseDetails(caseId) {
-    return apiRequest(`/api/case/${caseId}`);
+export function getCaseDetails(caseId) {
+    return apiRequest(`/api/opinion/${caseId}`);
 }
 
 /**
- * Get citation network for a specific court case
+ * Get citation network for a case
  * @param {string} caseId - ID of the case
- * @returns {Promise} - Promise that resolves to citation network data
+ * @returns {Promise<Object>} Citation network data
  */
-export async function getCitationNetwork(caseId) {
-    return apiRequest(`/api/case/${caseId}/citation-network`);
+export function getCitationNetwork(caseId) {
+    return apiRequest(`/api/opinion/${caseId}/citation-network`);
 }
 
 /**

@@ -143,62 +143,38 @@ function renderCitationNetwork(data, containerId = 'citation-map', currentCaseId
 }
 
 /**
- * Loads citation network data from the API and renders the visualization
- * 
- * @param {string} caseId - The ID of the case to load the citation network for
- * @param {string} containerId - The ID of the container element for the visualization
+ * Load and render the citation network for a case
+ * @param {string} caseId - ID of the case
+ * @param {string} containerId - ID of the container element
  */
-async function loadAndRenderCitationNetwork(caseId, containerId = 'citation-map') {
+export async function loadAndRenderCitationNetwork(caseId, containerId) {
     try {
-        // Show loading indicator
+        // Show loading state
         const container = document.getElementById(containerId);
-        const loadingId = `${containerId}-loading`;
+        if (!container) return;
 
-        // Check if loading indicator exists, if not create it
-        let loadingElement = document.getElementById(loadingId);
-        if (!loadingElement) {
-            loadingElement = document.createElement('div');
-            loadingElement.id = loadingId;
-            loadingElement.className = 'flex justify-center items-center py-8';
-            loadingElement.innerHTML = '<div class="loading loading-spinner loading-lg"></div>';
-            container.parentNode.insertBefore(loadingElement, container);
-            container.style.display = 'none';
-        } else {
-            loadingElement.style.display = 'flex';
-            container.style.display = 'none';
-        }
-
-        // Fetch citation network data from new endpoint
-        const response = await fetch(`/api/case/${caseId}/citation-network`);
+        // Fetch citation network data
+        const response = await fetch(`/api/opinion/${caseId}/citation-network`);
         if (!response.ok) {
-            throw new Error('Failed to load citation network');
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
+        const data = await response.json();
 
-        const networkData = await response.json();
-
-        // Hide loading indicator and show container
-        loadingElement.style.display = 'none';
-        container.style.display = 'block';
-
-        // Render the citation network
-        renderCitationNetwork(networkData, containerId, caseId);
-
-        return networkData;
+        // Render the network
+        renderCitationNetwork(data, containerId);
     } catch (error) {
         console.error('Error loading citation network:', error);
-
-        // Hide loading indicator
-        const loadingElement = document.getElementById(`${containerId}-loading`);
-        if (loadingElement) {
-            loadingElement.style.display = 'none';
-        }
-
-        // Show error message
         const container = document.getElementById(containerId);
-        container.style.display = 'block';
-        container.innerHTML = '<div class="flex justify-center items-center h-full"><p>Failed to load citation network.</p></div>';
-
-        return null;
+        if (container) {
+            container.innerHTML = `
+                <div class="alert alert-error">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Error loading citation network. Please try again later.</span>
+                </div>
+            `;
+        }
     }
 }
 

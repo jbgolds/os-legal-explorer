@@ -530,3 +530,20 @@ class NeomodelLoader:
         )
 
         return processed_count
+
+    def get_case_from_neo4j(self, cluster_id: str) -> Optional[Opinion]:
+        """
+        Get a case from Neo4j based on its cluster ID.
+
+        Args:
+            cluster_id: The cluster ID of the case to retrieve
+
+        Returns:
+            Optional[Opinion]: The case if found, otherwise None
+        """
+        try:
+            with db.transaction:
+                return Opinion.nodes.first_or_none(primary_id=cluster_id)
+        except Exception as e:
+            logger.error(f"Error getting case from Neo4j: {e}")
+            return None
