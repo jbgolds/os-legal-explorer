@@ -62,6 +62,7 @@ export async function searchCases(query, filters = {}) {
         q: query,
         type: 'o',
         highlight: 'on',
+        order_by: '-dateFiled',
         ...filters,
     });
 
@@ -105,11 +106,10 @@ export async function getCaseDetails(caseId) {
 /**
  * Get citation network for a specific court case
  * @param {string} caseId - ID of the case
- * @param {number} depth - Depth of the citation network
  * @returns {Promise} - Promise that resolves to citation network data
  */
-export async function getCitationNetwork(caseId, depth = 1) {
-    return apiRequest(`/api/case/${caseId}/citations?depth=${depth}`);
+export async function getCitationNetwork(caseId) {
+    return apiRequest(`/api/case/${caseId}/citation-network`);
 }
 
 /**

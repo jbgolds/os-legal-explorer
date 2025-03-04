@@ -265,15 +265,6 @@ export function renderSearchResults(results, container) {
     dropdownContainer.classList.add('dropdown-open');
 }
 
-function hideDropdown() {
-    const dropdown = document.querySelector('#search-dropdown');
-    if (dropdown) {
-        dropdown.classList.remove('dropdown-open');
-        const results = dropdown.querySelector('#search-results');
-        if (results) results.innerHTML = '';
-    }
-}
-
 // Export the module functions
 export default {
     initializeSearch,

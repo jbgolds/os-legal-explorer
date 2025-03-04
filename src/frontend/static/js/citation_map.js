@@ -147,9 +147,8 @@ function renderCitationNetwork(data, containerId = 'citation-map', currentCaseId
  * 
  * @param {string} caseId - The ID of the case to load the citation network for
  * @param {string} containerId - The ID of the container element for the visualization
- * @param {number} depth - The depth of the citation network (default: 1)
  */
-async function loadAndRenderCitationNetwork(caseId, containerId = 'citation-map', depth = 1) {
+async function loadAndRenderCitationNetwork(caseId, containerId = 'citation-map') {
     try {
         // Show loading indicator
         const container = document.getElementById(containerId);
@@ -169,8 +168,8 @@ async function loadAndRenderCitationNetwork(caseId, containerId = 'citation-map'
             container.style.display = 'none';
         }
 
-        // Fetch citation network data
-        const response = await fetch(`/api/case/${caseId}/citations?depth=${depth}`);
+        // Fetch citation network data from new endpoint
+        const response = await fetch(`/api/case/${caseId}/citation-network`);
         if (!response.ok) {
             throw new Error('Failed to load citation network');
         }
