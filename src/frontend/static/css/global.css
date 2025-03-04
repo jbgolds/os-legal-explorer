@@ -243,3 +243,32 @@ button[aria-label="Courts"] {
     top: 100%;
     left: 0;
 }
+
+/* Search Results Overlay Styles */
+#search-dropdown {
+    position: relative;
+}
+
+#search-dropdown>div {
+    animation: fadeIn 0.2s ease-out;
+}
+
+#search-dropdown::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 40;
+    animation: fadeIn 0.2s ease-out;
+    backdrop-filter: blur(2px);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}

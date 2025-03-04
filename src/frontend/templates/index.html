@@ -4,13 +4,14 @@
 
 {% block content %}
 <!-- Search Section -->
-<div class="mb-12">
+<div class="mb-12 relative">
     <div class="flex flex-col md:flex-row gap-4 items-center">
         <!-- Search Box with Buttons -->
         <div class="relative w-full">
             <form id="search-form" class="flex w-full border rounded-lg shadow-sm overflow-visible h-16"
                 hx-get="/api/search" hx-trigger="submit, input[target='#search-input'] delay:500ms"
-                hx-include=".search-filter" hx-target="#search-results" hx-indicator="#search-indicator">
+                hx-include=".search-filter" hx-target="#search-dropdown" hx-swap="innerHTML"
+                hx-headers='{"Accept": "text/html"}' hx-indicator="#search-indicator">
                 <div class="flex items-center pl-3 text-gray-500">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
@@ -23,64 +24,51 @@
                     <input type="text" id="search-input" name="q"
                         class="input border-0 w-full focus:outline-none h-full text-xl search-filter"
                         placeholder="Search by case name, citation, or keywords..." />
-                    <!-- Search Results Dropdown -->
-                    <div id="search-results" class="absolute left-0 right-0 mt-2 z-50"></div>
                 </div>
 
                 <!-- Filter Buttons and Search Button -->
-                <div class="flex items-center">
-                    <!-- Year Range Dropdown -->
+                <div class="flex items-center gap-2 pr-2">
+                    <!-- Year Filter -->
                     <div class="dropdown dropdown-end">
-                        <label tabindex="0" class="btn btn-ghost h-full px-4">
+                        <button type="button" class="btn btn-ghost btn-sm h-full" tabindex="0">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                                 stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                             </svg>
-                            <span class="ml-2">Year</span>
-                        </label>
-                        <div tabindex="0"
-                            class="dropdown-content z-[100] card card-compact shadow bg-base-100 rounded-box w-64">
-                            <div class="year-picker card-body p-0">
-                                <div
-                                    class="year-range-header bg-base-200 p-3 flex items-center justify-between rounded-t-box">
-                                    <button type="button" class="btn btn-ghost btn-sm prev-decade-btn">«</button>
-                                    <span class="decade-display font-semibold">2020 - 2039</span>
-                                    <button type="button" class="btn btn-ghost btn-sm next-decade-btn">»</button>
-                                </div>
-                                <div class="years-list grid grid-cols-4 gap-1 p-2 max-h-[200px] overflow-y-auto">
-                                    <!-- Years will be populated dynamically -->
-                                </div>
-                                <div class="p-2 flex justify-end border-t border-base-200">
-                                    <button type="button" class="btn btn-ghost btn-sm reset-year-filters">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none"
-                                            viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                        </svg>
-                                        Reset
-                                    </button>
-                                </div>
+                            <span class="ml-1">Year</span>
+                        </button>
+                        <!-- Year Filter Dropdown Content -->
+                        <div tabindex="0" class="dropdown-content z-[1] menu p-4 shadow bg-base-100 rounded-box w-52">
+                            <div class="form-control">
+                                <label class="label">
+                                    <span class="label-text">From</span>
+                                </label>
+                                <input type="number" name="year_from" class="input input-bordered w-full search-filter"
+                                    placeholder="Start year" />
+                            </div>
+                            <div class="form-control mt-2">
+                                <label class="label">
+                                    <span class="label-text">To</span>
+                                </label>
+                                <input type="number" name="year_to" class="input input-bordered w-full search-filter"
+                                    placeholder="End year" />
                             </div>
                         </div>
                     </div>
 
-                    <!-- Hidden inputs for year range -->
-                    <input type="hidden" name="year_from" class="search-filter">
-                    <input type="hidden" name="year_to" class="search-filter">
-
-                    <!-- Courts Dropdown -->
+                    <!-- Courts Filter -->
                     <div class="dropdown dropdown-end">
-                        <label tabindex="0" class="btn btn-ghost h-full px-4">
+                        <button type="button" class="btn btn-ghost btn-sm h-full" tabindex="0">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                                 stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                             </svg>
-                            <span class="ml-2">Courts</span>
-                        </label>
-                        <div tabindex="0"
-                            class="dropdown-content z-[100] menu p-4 shadow bg-base-100 rounded-box w-80 absolute">
+                            <span class="ml-1">Courts</span>
+                        </button>
+                        <!-- Courts Filter Dropdown Content -->
+                        <div tabindex="0" class="dropdown-content z-[1] menu p-4 shadow bg-base-100 rounded-box w-64">
                             <div class="mb-2 font-semibold">Select Courts</div>
                             <div class="max-h-60 overflow-y-auto mb-4">
                                 <div class="form-control">
@@ -152,7 +140,7 @@
                         </div>
                     </div>
 
-                    <button type="button" class="btn btn-primary h-full px-6" id="search-button">
+                    <button type="submit" class="btn btn-primary h-full px-6" id="search-button">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -170,7 +158,8 @@
             </div>
         </div>
     </div>
-</div>
+    <!-- Search Results Dropdown -->
+    <div id="search-dropdown" class="relative z-50"></div>
 </div>
 
 <!-- Main Content Area -->
@@ -284,11 +273,6 @@
             </div>
         </div>
     </div>
-</div>
-
-<!-- Search Results (Hidden initially) -->
-<div id="search-results" class="mt-8" x-data="{ hasResults: false }" x-show="hasResults" x-cloak>
-    <!-- Results will be loaded here via HTMX -->
 </div>
 
 <!-- Feedback Modal -->

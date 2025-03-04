@@ -1,52 +1,67 @@
 <!-- Search Results Component -->
-<div class="mb-8">
-    <div class="flex justify-between items-center mb-4">
-        <h2 class="text-2xl font-bold">Search Results</h2>
-        <span class="badge badge-primary badge-lg">{{ results.count }} cases found</span>
-    </div>
+{% if results is mapping %}
+<div class="fixed inset-x-0 top-16 z-50 px-4">
+    <div
+        class="bg-base-100 w-full max-w-[1200px] mx-auto shadow-2xl rounded-box max-h-[70vh] overflow-y-auto border border-base-300">
+        <div class="sticky top-0 bg-base-100 p-4 border-b">
+            <div class="flex justify-between items-center">
+                <h2 class="text-lg font-bold">Search Results</h2>
+                <span class="badge badge-primary">{{ results.count }} cases</span>
+            </div>
+        </div>
 
-    {% if results.count == 0 %}
-    <div class="card bg-base-100 shadow-xl">
-        <div class="card-body items-center text-center">
-            <div class="avatar placeholder">
+        {% if results.count == 0 %}
+        <div class="p-8 text-center">
+            <div class="avatar placeholder mb-4">
                 <div class="bg-neutral-focus text-neutral-content rounded-full w-16">
                     <span class="text-xl">?</span>
                 </div>
             </div>
-            <h3 class="card-title mt-4">No cases found</h3>
-            <p class="text-base-content opacity-70">Try adjusting your search terms or filters.</p>
+            <h3 class="font-bold text-lg">No cases found</h3>
+            <p class="text-base-content/70 mt-2">Try adjusting your search terms or filters.</p>
         </div>
-    </div>
-    {% else %}
-    <div class="space-y-4">
-        {% for case in results.results %}
-        <div class="card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow duration-300">
-            <div class="card-body p-4">
-                <a href="#" data-case-id="{{ case.id }}" class="block">
-                    <h3 class="card-title text-primary hover:text-primary-focus">{{ case.case_name }}</h3>
-                    <div class="flex flex-wrap gap-2 mt-1">
-                        <div class="badge badge-outline">{{ case.court_name|default('Unknown Court') }}</div>
-                        <div class="badge badge-outline">{{ case.date_filed|date }}</div>
-                        {% if case.citation %}
-                        <div class="badge badge-outline">{{ case.citation }}</div>
-                        {% endif %}
+        {% else %}
+        <ul class="menu p-0 w-full">
+            {% for case in results.results %}
+            <li class="w-full">
+                <a href="#" data-case-id="{{ case.id }}" class="w-full px-4 py-3 hover:bg-base-200">
+                    <div class="w-full">
+                        <h3 class="font-bold text-primary">{{ case.case_name }}</h3>
+                        <div class="flex flex-wrap gap-2 mt-2">
+                            <span class="badge badge-outline badge-sm">{{ case.court_name|default('Unknown Court')
+                                }}</span>
+                            <span class="badge badge-outline badge-sm">{{ case.date_filed|date }}</span>
+                            {% if case.citation %}
+                            <span class="badge badge-outline badge-sm">{{ case.citation }}</span>
+                            {% endif %}
+                        </div>
+                        <p class="mt-2 text-sm text-base-content/80 line-clamp-2">{{ case.snippet|default('No excerpt
+                            available.') }}</p>
                     </div>
-                    <p class="mt-2 line-clamp-2">{{ case.snippet|default('No excerpt available.') }}</p>
                 </a>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
+            </li>
+            {% endfor %}
+        </ul>
 
-    {% if results.count > results.results|length %}
-    <div class="mt-6 flex justify-center">
-        <button class="btn btn-primary"
-            hx-get="/api/search?q={{ results.query|urlencode }}&offset={{ results.results|length }}"
-            hx-target="#search-results" hx-swap="outerHTML" hx-indicator="#search-indicator">
-            <span class="loading loading-spinner loading-xs htmx-indicator"></span>
-            Load More
-        </button>
+        {% if results.count > results.results|length %}
+        <div class="p-4 text-center border-t">
+            <button class="btn btn-primary btn-sm w-full"
+                hx-get="/api/search?q={{ results.query|urlencode }}&offset={{ results.results|length }}"
+                hx-target="#search-dropdown" hx-swap="innerHTML">
+                <span class="loading loading-spinner loading-xs htmx-indicator"></span>
+                Load More Results
+            </button>
+        </div>
+        {% endif %}
+        {% endif %}
     </div>
-    {% endif %}
-    {% endif %}
 </div>
+{% else %}
+<div class="fixed inset-x-0 top-16 z-50 px-4">
+    <div class="bg-base-100 w-full max-w-[1200px] mx-auto shadow-2xl rounded-box p-4 border border-base-300">
+        <div class="text-center text-error">
+            <p>Error loading results. Please try again.</p>
+        </div>
+    </div>
+</div>
+{% endif %}

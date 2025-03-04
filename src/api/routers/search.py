@@ -1,11 +1,13 @@
 import logging
 from typing import Optional, List, Dict, Any, Union
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request, Depends
 import httpx
 import os
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from datetime import datetime
+from fastapi.templating import Jinja2Templates
+import traceback
 
 # Load environment variables
 load_dotenv()
@@ -19,6 +21,13 @@ router = APIRouter(
     tags=["search"],
     responses={404: {"description": "Not found"}},
 )
+
+
+# Get templates from main app
+def get_templates() -> Jinja2Templates:
+    from ..main import templates
+
+    return templates
 
 
 # Models
@@ -103,8 +112,10 @@ COURTLISTENER_API_KEY = os.getenv(
 
 
 # Search endpoint
-@router.get("/search", response_model=SearchResponse)
+@router.get("/search")
 async def search_cases(
+    request: Request,
+    templates: Jinja2Templates = Depends(get_templates),
     q: Optional[str] = None,
     type: str = "o",
     jurisdiction: Optional[str] = None,
@@ -196,6 +207,44 @@ async def search_cases(
             response.raise_for_status()
             data = response.json()
 
+            # Transform the data for our template
+            transformed_data = {
+                "count": data.get("count", 0),
+                "next": data.get("next"),
+                "previous": data.get("previous"),
+                "results": [
+                    {
+                        "id": result.get("id"),
+                        "case_name": result.get("caseName", ""),
+                        "court_name": (
+                            result.get("court", {}).get("fullName")
+                            if isinstance(result.get("court"), dict)
+                            else result.get("court", "Unknown Court")
+                        ),
+                        "date_filed": (
+                            datetime.strptime(result["dateFiled"], "%Y-%m-%d").date()
+                            if result.get("dateFiled")
+                            else None
+                        ),
+                        "citation": result.get("citation", []),
+                        "snippet": result.get("snippet", "No excerpt available."),
+                        "cluster_id": result.get("cluster_id"),
+                    }
+                    for result in data.get("results", [])
+                ],
+                "query": q,
+            }
+
+            # Check if the client wants HTML (from HTMX) or JSON
+            accept = request.headers.get("accept", "")
+            if "text/html" in accept:
+                # Return the rendered template
+                return templates.TemplateResponse(
+                    "components/search_results.html",
+                    {"request": request, "results": transformed_data},
+                )
+
+            # Otherwise return JSON
             return SearchResponse(**data)
 
     except httpx.HTTPStatusError as e:
@@ -210,7 +259,7 @@ async def search_cases(
             status_code=500, detail=f"Error connecting to CourtListener API: {str(e)}"
         )
     except Exception as e:
-        logger.error(f"Unexpected error during search: {e}")
+        logger.error(f"Unexpected error during search: {e}", traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 

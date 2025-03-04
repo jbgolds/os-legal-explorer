@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 # Uncomment these imports for template and static file support
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from datetime import date
 
 # Import and include routers
 from .services.pipeline import pipeline_router
@@ -41,6 +42,17 @@ app.add_middleware(
 
 # Configure templates and static files
 templates = Jinja2Templates(directory="src/frontend/templates")
+
+
+# Add custom filters
+def format_date(value):
+    if isinstance(value, date):
+        return value.strftime("%b %d, %Y")
+    return value
+
+
+templates.env.filters["date"] = format_date
+
 app.mount("/static", StaticFiles(directory="src/frontend/static"), name="static")
 
 
