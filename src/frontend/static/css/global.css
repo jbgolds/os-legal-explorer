@@ -5,6 +5,53 @@
     themes: retro --default, forest --prefersdark;
 }
 
+/* Search Results Dropdown Styles */
+#search-results {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.search-result-item {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.search-result-item:last-child {
+    border-bottom: none;
+}
+
+.search-result-item:hover {
+    background-color: #f3f4f6;
+}
+
+.search-result-title {
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 0.25rem;
+}
+
+.search-result-citation {
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.search-result-snippet {
+    font-size: 0.875rem;
+    color: #4b5563;
+    margin-top: 0.25rem;
+}
+
+.search-highlight {
+    background-color: #fef3c7;
+    padding: 0.125rem;
+    border-radius: 0.125rem;
+}
+
 /* Calendar styles for year picker */
 .calendar-container {
     position: absolute;
@@ -52,11 +99,11 @@
     transform: scale(1.1);
 }
 
-/* Modern Year Picker Styles */
+/* Year Picker Styles */
 .year-picker {
     width: 100%;
-    background-color: var(--b1, white);
-    border-radius: 0.5rem;
+    background-color: var(--b1);
+    border-radius: var(--rounded-box);
     overflow: hidden;
 }
 
@@ -64,9 +111,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0.75rem 1rem;
-    background-color: var(--b2, #f8f9fa);
-    border-bottom: 1px solid var(--b3, #e9ecef);
+    background-color: var(--b2);
+    border-bottom: 1px solid var(--b3);
     position: relative;
 }
 
@@ -101,24 +147,26 @@
     text-align: center;
     padding: 0.5rem;
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: background-color 0.2s, transform 0.1s;
     background: none;
     border: none;
-    border-radius: 0.25rem;
+    border-radius: var(--rounded-btn);
+    font-size: 0.875rem;
 }
 
 .year-item:hover {
-    background-color: var(--b2, #f8f9fa);
+    background-color: var(--b2);
+    transform: scale(1.05);
 }
 
 .year-item.selected {
-    background-color: var(--p, #0d6efd);
-    color: white;
+    background-color: var(--p);
+    color: var(--pc);
     font-weight: bold;
 }
 
 .year-item.current-year {
-    border: 1px solid var(--p, #0d6efd);
+    border: 1px solid var(--p);
 }
 
 /* Fix for dropdowns */
@@ -144,6 +192,13 @@
 /* Ensure the year picker stays visible when interacting with it */
 .dropdown-end:focus-within .dropdown-content {
     display: block !important;
+}
+
+/* Fix for dropdown positioning */
+.dropdown-end .dropdown-content {
+    --tw-translate-x: 0;
+    right: 0;
+    transform: translate(var(--tw-translate-x), var(--dropdown-offset, 0.5rem)) !important;
 }
 
 /* New UI Styles */

@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Search input and button
     const searchInput = document.getElementById('search-input');
     const searchButton = document.getElementById('search-button');
+    const searchForm = document.getElementById('search-form');
 
     // Reset buttons
     const resetButtons = document.querySelectorAll('.reset-filters');
@@ -15,6 +16,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const resetYearBtn = document.querySelector('.reset-year-filters');
     const yearFromInput = document.querySelector('input[name="year_from"]');
     const yearToInput = document.querySelector('input[name="year_to"]');
+    const yearButton = document.querySelector('.dropdown-end label[tabindex="0"]');
 
     // Fix for dropdown positioning
     const searchBox = document.querySelector('.flex.w-full.border.rounded-lg');
@@ -52,9 +54,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
             // Reset year picker selection
             if (yearPicker) {
-                const event = new Event('click');
-                if (resetYearBtn) resetYearBtn.dispatchEvent(event);
-                updateYearLabel(); // Reset the year label
+                if (yearFromInput) yearFromInput.value = '';
+                if (yearToInput) yearToInput.value = '';
+                updateYearLabel();
+                const currentYear = new Date().getFullYear();
+                const decadeStart = Math.floor(currentYear / 10) * 10;
+                populateYears(yearsList, decadeStart, currentYear);
             }
 
             // Reset court checkboxes
@@ -66,34 +71,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
             }
 
-            // Reset year button text if it exists
-            const yearButton = document.querySelector('.dropdown-end label[tabindex="0"] span:contains("Year")');
-            if (yearButton) {
-                yearButton.textContent = 'Year';
+            // Trigger search if there's a query
+            if (searchForm && searchInput.value.trim().length >= 3) {
+                htmx.trigger(searchForm, 'submit');
             }
         });
     });
-
-    // Initialize court filter functionality
-    function initializeCourtFilter() {
-        if (!allCourtsCheckbox) return;
-
-        // Toggle "All Courts" checkbox
-        allCourtsCheckbox.addEventListener('change', function () {
-            courtOptions.forEach(option => {
-                option.checked = false;
-                option.disabled = this.checked;
-            });
-        });
-
-        // Toggle "All Courts" when individual courts are selected
-        courtOptions.forEach(option => {
-            option.addEventListener('change', function () {
-                const anyChecked = Array.from(courtOptions).some(opt => opt.checked);
-                allCourtsCheckbox.checked = !anyChecked;
-            });
-        });
-    }
 
     // Initialize year picker functionality
     function initializeYearPicker() {
@@ -141,10 +124,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 e.stopPropagation();
                 if (yearFromInput) yearFromInput.value = '';
                 if (yearToInput) yearToInput.value = '';
-                if (yearsList) {
-                    populateYears(yearsList, decadeStart, currentYear);
-                }
                 updateYearLabel();
+                populateYears(yearsList, decadeStart, currentYear);
+
+                // Trigger search if there's a query
+                if (searchForm && searchInput.value.trim().length >= 3) {
+                    htmx.trigger(searchForm, 'submit');
+                }
             });
         }
 
@@ -152,10 +138,16 @@ document.addEventListener('DOMContentLoaded', function () {
         if (yearsList) {
             populateYears(yearsList, decadeStart, currentYear);
         }
+
+        // Keep dropdown open when clicking inside
+        yearPicker.addEventListener('click', function (e) {
+            e.stopPropagation();
+        });
     }
 
     // Populate years in the dropdown
     function populateYears(container, decadeStart, currentYear) {
+        if (!container) return;
         container.innerHTML = '';
 
         const selectedFromYear = yearFromInput ? parseInt(yearFromInput.value) || null : null;
@@ -163,8 +155,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         for (let year = decadeStart; year < decadeStart + 20; year++) {
             if (year <= currentYear) {
-                const yearItem = document.createElement('div');
-                yearItem.className = 'year-item';
+                const yearItem = document.createElement('button');
+                yearItem.type = 'button';
+                yearItem.className = 'year-item btn btn-ghost btn-sm';
                 yearItem.textContent = year;
 
                 // Highlight current year
@@ -174,11 +167,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 // Highlight selected years
                 if (selectedFromYear !== null && selectedToYear !== null) {
-                    if (year >= selectedFromYear && year <= selectedToYear) {
+                    if (year >= Math.min(selectedFromYear, selectedToYear) &&
+                        year <= Math.max(selectedFromYear, selectedToYear)) {
                         yearItem.classList.add('selected');
+                        yearItem.classList.remove('btn-ghost');
                     }
                 } else if (selectedFromYear === year) {
                     yearItem.classList.add('selected');
+                    yearItem.classList.remove('btn-ghost');
                 }
 
                 // Add click event
@@ -200,89 +196,79 @@ document.addEventListener('DOMContentLoaded', function () {
         if (selectedFromYear === null) {
             // First click - set from year
             if (yearFromInput) yearFromInput.value = year;
-            if (yearButton) {
-                const span = yearButton.querySelector('span');
-                if (span) span.textContent = `${year}`;
-            }
+            updateYearLabel(year);
             populateYears(container, decadeStart, currentYear);
         } else if (selectedToYear === null) {
             // Second click - set to year
             if (year < selectedFromYear) {
                 if (yearToInput) yearToInput.value = selectedFromYear;
                 if (yearFromInput) yearFromInput.value = year;
-                if (yearButton) {
-                    const span = yearButton.querySelector('span');
-                    if (span) span.textContent = `${year} - ${selectedFromYear}`;
-                }
+                updateYearLabel(year, selectedFromYear);
             } else {
                 if (yearToInput) yearToInput.value = year;
-                if (yearButton) {
-                    const span = yearButton.querySelector('span');
-                    if (span) span.textContent = `${selectedFromYear} - ${year}`;
-                }
+                updateYearLabel(selectedFromYear, year);
             }
             populateYears(container, decadeStart, currentYear);
+
+            // Trigger search if there's a query
+            if (searchForm && searchInput.value.trim().length >= 3) {
+                htmx.trigger(searchForm, 'submit');
+            }
         } else {
             // Reset and start new selection
             if (yearFromInput) yearFromInput.value = year;
             if (yearToInput) yearToInput.value = '';
-            if (yearButton) {
-                const span = yearButton.querySelector('span');
-                if (span) span.textContent = `${year}`;
-            }
+            updateYearLabel(year);
             populateYears(container, decadeStart, currentYear);
         }
     }
 
     // Update the year label in the dropdown button
     function updateYearLabel(fromYear, toYear) {
-        const yearLabel = document.querySelector('.dropdown-end label[tabindex="0"] span');
-        if (!yearLabel) return;
+        if (!yearButton) return;
+        const span = yearButton.querySelector('span:last-child');
+        if (!span) return;
 
         if (toYear) {
             // Year range
-            yearLabel.innerHTML = `<i>${fromYear} - ${toYear}</i>`;
+            span.textContent = `${Math.min(fromYear, toYear)} - ${Math.max(fromYear, toYear)}`;
         } else if (fromYear) {
             // Single year
-            yearLabel.innerHTML = `<i>${fromYear}</i>`;
+            span.textContent = `${fromYear}`;
         } else {
             // Reset to default
-            yearLabel.innerHTML = 'Year';
+            span.textContent = 'Year';
         }
     }
 
-    // Event listener for search button
-    if (searchButton) {
-        searchButton.addEventListener('click', function () {
-            triggerSearch();
-        });
-    }
+    // Initialize court filter functionality
+    function initializeCourtFilter() {
+        if (!allCourtsCheckbox) return;
 
-    // Search on Enter key
-    if (searchInput) {
-        searchInput.addEventListener('keypress', function (e) {
-            if (e.key === 'Enter') {
-                triggerSearch();
+        // Toggle "All Courts" checkbox
+        allCourtsCheckbox.addEventListener('change', function () {
+            courtOptions.forEach(option => {
+                option.checked = false;
+                option.disabled = this.checked;
+            });
+
+            // Trigger search if there's a query
+            if (searchForm && searchInput.value.trim().length >= 3) {
+                htmx.trigger(searchForm, 'submit');
             }
         });
-    }
 
-    // Function to trigger search with all filters
-    function triggerSearch() {
-        if (!searchInput) return;
+        // Toggle "All Courts" when individual courts are selected
+        courtOptions.forEach(option => {
+            option.addEventListener('change', function () {
+                const anyChecked = Array.from(courtOptions).some(opt => opt.checked);
+                allCourtsCheckbox.checked = !anyChecked;
 
-        const searchQuery = searchInput.value;
-        if (searchQuery.length > 2) {
-            // Use HTMX to trigger the search
-            if (window.htmx) {
-                htmx.trigger('#search-input', 'search');
-            } else {
-                // Fallback if htmx is not available
-                const form = searchInput.closest('form');
-                if (form) form.submit();
-            }
-        } else {
-            alert('Please enter at least 3 characters to search');
-        }
+                // Trigger search if there's a query
+                if (searchForm && searchInput.value.trim().length >= 3) {
+                    htmx.trigger(searchForm, 'submit');
+                }
+            });
+        });
     }
 });

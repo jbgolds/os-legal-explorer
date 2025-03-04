@@ -60,8 +60,25 @@ async function apiRequest(endpoint, options = {}) {
 export async function searchCases(query, filters = {}) {
     const queryParams = new URLSearchParams({
         q: query,
+        type: 'o',
+        highlight: 'on',
         ...filters,
     });
+
+    // Convert date filters to API format
+    if (filters.start_date) {
+        queryParams.set('filed_after', filters.start_date);
+        queryParams.delete('start_date');
+    }
+    if (filters.end_date) {
+        queryParams.set('filed_before', filters.end_date);
+        queryParams.delete('end_date');
+    }
+
+    // Handle cursor-based pagination
+    if (filters.cursor) {
+        queryParams.set('cursor', filters.cursor);
+    }
 
     return apiRequest(`/api/search?${queryParams}`);
 }

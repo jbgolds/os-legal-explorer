@@ -10,7 +10,7 @@ import { debounce, createLoadingIndicator, createAlert } from './utils/dom.js';
  * Initialize search functionality
  * @param {Object} options - Configuration options
  * @param {string} options.inputSelector - Selector for search input element
- * @param {string} options.resultsSelector - Selector for search results container
+ * @param {string} options.resultsSelector - Selector for search results dropdown
  * @param {string} options.loadingSelector - Selector for loading indicator
  * @param {number} options.debounceTime - Debounce time in milliseconds
  * @param {number} options.minChars - Minimum characters to trigger search
@@ -33,47 +33,46 @@ export function initializeSearch(options = {}) {
         return;
     }
 
+    // Create dropdown container if it doesn't exist
+    let dropdownContainer = document.querySelector('#search-dropdown');
+    if (!dropdownContainer) {
+        dropdownContainer = document.createElement('div');
+        dropdownContainer.id = 'search-dropdown';
+        dropdownContainer.className = 'dropdown dropdown-open w-full';
+        searchInput.parentNode.appendChild(dropdownContainer);
+
+        // Move the input into the dropdown container
+        const inputWrapper = document.createElement('div');
+        inputWrapper.className = 'w-full';
+        searchInput.parentNode.insertBefore(dropdownContainer, searchInput);
+        inputWrapper.appendChild(searchInput);
+        dropdownContainer.appendChild(inputWrapper);
+    }
+
     // Create debounced search function
     const debouncedSearch = debounce(async (query, filters = {}) => {
-        if (query.length < minChars) return;
+        if (query.length < minChars) {
+            hideDropdown();
+            return;
+        }
 
         try {
             // Show loading indicator
-            if (loadingIndicator) {
-                loadingIndicator.classList.remove('hidden');
-            } else {
-                // Create and append loading indicator if not found
-                const loader = createLoadingIndicator('sm', 'Searching...');
-                searchResults.innerHTML = '';
-                searchResults.appendChild(loader);
-            }
+            showLoadingState();
 
             // Perform search
             const results = await searchCases(query, filters);
 
             // Hide loading indicator
-            if (loadingIndicator) {
-                loadingIndicator.classList.add('hidden');
-            }
+            hideLoadingState();
 
-            // Render results
+            // Render results in dropdown
             renderSearchResults(results, searchResults);
 
-            // Update Alpine.js state if available
-            if (window.Alpine && searchResults.hasAttribute('x-data')) {
-                Alpine.evaluate(searchResults, 'hasResults = true');
-            }
         } catch (error) {
             console.error('Search error:', error);
-
-            // Hide loading indicator
-            if (loadingIndicator) {
-                loadingIndicator.classList.add('hidden');
-            }
-
-            // Show error message
-            searchResults.innerHTML = '';
-            searchResults.appendChild(createAlert('Error searching cases: ' + error.message, 'error'));
+            hideLoadingState();
+            showErrorMessage(error.message);
         }
     }, debounceTime);
 
@@ -81,40 +80,48 @@ export function initializeSearch(options = {}) {
     searchInput.addEventListener('input', (e) => {
         const query = e.target.value.trim();
 
-        // Update Alpine.js state if available
-        if (window.Alpine && searchInput.hasAttribute('x-model')) {
-            Alpine.evaluate(searchInput, `searchQuery = "${query}"`);
-        }
-
         if (query.length >= minChars) {
-            // Get filter values
             const filters = getSearchFilters();
             debouncedSearch(query, filters);
-        } else if (query.length === 0) {
-            // Clear results
-            searchResults.innerHTML = '';
-
-            // Update Alpine.js state if available
-            if (window.Alpine && searchResults.hasAttribute('x-data')) {
-                Alpine.evaluate(searchResults, 'hasResults = false');
-            }
-
-            // Trigger event to load recent cases
-            const event = new CustomEvent('search:cleared');
-            document.dispatchEvent(event);
+        } else {
+            hideDropdown();
         }
     });
 
-    // Add event listeners for filters
-    document.querySelectorAll('select[name^="filter-"], input[name^="filter-"]').forEach(filter => {
-        filter.addEventListener('change', () => {
-            const query = searchInput.value.trim();
-            if (query.length >= minChars) {
-                const filters = getSearchFilters();
-                debouncedSearch(query, filters);
-            }
-        });
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!dropdownContainer.contains(e.target)) {
+            hideDropdown();
+        }
     });
+
+    function showLoadingState() {
+        if (loadingIndicator) {
+            loadingIndicator.classList.remove('hidden');
+        }
+        searchInput.classList.add('loading');
+    }
+
+    function hideLoadingState() {
+        if (loadingIndicator) {
+            loadingIndicator.classList.add('hidden');
+        }
+        searchInput.classList.remove('loading');
+    }
+
+    function hideDropdown() {
+        searchResults.innerHTML = '';
+        dropdownContainer.classList.remove('dropdown-open');
+    }
+
+    function showErrorMessage(message) {
+        searchResults.innerHTML = `
+            <div class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-full">
+                <div class="text-error p-4">${message}</div>
+            </div>
+        `;
+        dropdownContainer.classList.add('dropdown-open');
+    }
 
     // Function to get all search filters
     function getSearchFilters() {
@@ -122,11 +129,11 @@ export function initializeSearch(options = {}) {
 
         // Get jurisdiction filter
         const jurisdiction = document.querySelector('select[name="jurisdiction"]')?.value;
-        if (jurisdiction) filters.jurisdiction = jurisdiction;
+        if (jurisdiction && jurisdiction !== 'all') filters.jurisdiction = jurisdiction;
 
         // Get court filter
         const court = document.querySelector('select[name="court"]')?.value;
-        if (court) filters.court = court;
+        if (court && court !== 'all') filters.court = court;
 
         // Get date range filters
         const startDate = document.querySelector('input[name="start_date"]')?.value;
@@ -135,85 +142,135 @@ export function initializeSearch(options = {}) {
         const endDate = document.querySelector('input[name="end_date"]')?.value;
         if (endDate) filters.end_date = endDate;
 
+        // Get year range filters
+        const yearFrom = document.querySelector('input[name="year_from"]')?.value;
+        if (yearFrom) filters.year_from = yearFrom;
+
+        const yearTo = document.querySelector('input[name="year_to"]')?.value;
+        if (yearTo) filters.year_to = yearTo;
+
         return filters;
     }
 }
 
 /**
- * Render search results in the specified container
+ * Render search results in the dropdown
  * @param {Object} results - Search results from the API
  * @param {HTMLElement} container - Container element for results
  */
 export function renderSearchResults(results, container) {
-    // Clear previous results
-    container.innerHTML = '';
+    const dropdownContainer = document.querySelector('#search-dropdown');
 
-    // Create results header
-    const header = document.createElement('div');
-    header.className = 'mb-4';
-    header.innerHTML = `
-        <h2 class="text-2xl font-bold">Search Results</h2>
-        <p class="text-gray-600">${results.count} cases found</p>
-    `;
-    container.appendChild(header);
+    // Create dropdown content
+    const content = document.createElement('div');
+    content.className = 'dropdown-content menu p-2 shadow bg-base-100 rounded-box w-full max-h-96 overflow-y-auto';
 
     // If no results
-    if (results.count === 0) {
-        const noResults = document.createElement('div');
-        noResults.className = 'bg-white rounded-lg shadow p-6 text-center';
-        noResults.innerHTML = `
-            <p class="text-gray-600 mb-4">No cases found matching your search criteria.</p>
-            <p class="text-gray-600">Try adjusting your search terms or filters.</p>
+    if (!results.count || !results.results?.length) {
+        content.innerHTML = `
+            <div class="p-4 text-center text-gray-500">
+                No cases found matching your search criteria.
+            </div>
         `;
-        container.appendChild(noResults);
+        container.innerHTML = '';
+        container.appendChild(content);
+        dropdownContainer.classList.add('dropdown-open');
         return;
     }
 
     // Create results list
-    const resultsList = document.createElement('div');
-    resultsList.className = 'space-y-4';
+    const resultsList = document.createElement('ul');
+    resultsList.className = 'menu menu-compact';
 
     results.results.forEach(caseItem => {
-        const caseCard = document.createElement('div');
-        caseCard.className = 'bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow';
+        const li = document.createElement('li');
 
-        // Format date if available
-        const dateFormatted = caseItem.date_filed
-            ? new Date(caseItem.date_filed).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
-            : 'Unknown date';
+        // Format date
+        const dateFormatted = caseItem.dateFiled
+            ? new Date(caseItem.dateFiled).toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            })
+            : '';
 
-        caseCard.innerHTML = `
-            <a href="#" data-case-id="${caseItem.id}" class="block">
-                <h3 class="text-lg font-semibold text-blue-600 hover:text-blue-800">${caseItem.case_name}</h3>
-                <div class="text-sm text-gray-600 mt-1">
-                    <span>${caseItem.court_name || 'Unknown Court'}</span>
-                    <span class="mx-2">•</span>
-                    <span>${dateFormatted}</span>
+        // Create result item
+        li.innerHTML = `
+            <a href="#" data-cluster-id="${caseItem.cluster_id}" class="hover:bg-base-200">
+                <div class="flex flex-col gap-1">
+                    <div class="font-medium">${caseItem.caseName}</div>
+                    <div class="text-sm text-gray-600">
+                        ${caseItem.court}
+                        ${dateFormatted ? `<span class="mx-1">•</span>${dateFormatted}` : ''}
+                    </div>
                 </div>
-                <p class="text-gray-700 mt-2 line-clamp-2">${caseItem.snippet || 'No excerpt available.'}</p>
             </a>
         `;
-        resultsList.appendChild(caseCard);
+
+        // Add click handler for case selection
+        li.querySelector('a').addEventListener('click', async (e) => {
+            e.preventDefault();
+            const clusterId = e.currentTarget.dataset.clusterId;
+
+            try {
+                // Show loading state
+                document.querySelector('#search-input').value = caseItem.caseName;
+                hideDropdown();
+
+                // Fetch case details from our backend
+                const response = await fetch(`/api/case/${clusterId}`);
+                if (!response.ok) throw new Error('Failed to fetch case details');
+                const caseDetails = await response.json();
+
+                // Dispatch event with case details
+                const event = new CustomEvent('case:selected', {
+                    detail: {
+                        caseDetails,
+                        clusterId
+                    }
+                });
+                document.dispatchEvent(event);
+
+            } catch (error) {
+                console.error('Error fetching case details:', error);
+                // Show error message
+                showErrorMessage('Error fetching case details. Please try again.');
+            }
+        });
+
+        resultsList.appendChild(li);
     });
 
-    container.appendChild(resultsList);
+    content.appendChild(resultsList);
 
-    // Add pagination if needed
+    // Add "Show all results" link if there are more results
     if (results.count > results.results.length) {
-        const pagination = document.createElement('div');
-        pagination.className = 'mt-6 flex justify-center';
-
-        // Create load more button with HTMX attributes
-        pagination.innerHTML = `
-            <button class="btn btn-outline btn-primary"
-                    hx-get="/api/search?q=${encodeURIComponent(results.query)}&offset=${results.results.length}"
-                    hx-target="#search-results"
-                    hx-swap="outerHTML"
-                    hx-indicator="#search-indicator">
-                Load More
+        const showAll = document.createElement('div');
+        showAll.className = 'p-2 text-center border-t';
+        showAll.innerHTML = `
+            <button class="btn btn-ghost btn-sm">
+                Show all ${results.count} results
             </button>
         `;
-        container.appendChild(pagination);
+        showAll.querySelector('button').addEventListener('click', () => {
+            // TODO: Show full results page
+            console.log('Show all results clicked');
+        });
+        content.appendChild(showAll);
+    }
+
+    // Update the container
+    container.innerHTML = '';
+    container.appendChild(content);
+    dropdownContainer.classList.add('dropdown-open');
+}
+
+function hideDropdown() {
+    const dropdown = document.querySelector('#search-dropdown');
+    if (dropdown) {
+        dropdown.classList.remove('dropdown-open');
+        const results = dropdown.querySelector('#search-results');
+        if (results) results.innerHTML = '';
     }
 }
 
