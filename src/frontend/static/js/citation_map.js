@@ -55,13 +55,22 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
     fetch(apiEndpoint)
         .then(response => {
             if (!response.ok) {
-                throw new Error(`API error: ${response.status}`);
+                console.error(`API error: ${response.status} - ${response.statusText}`);
+                throw new Error(`API error: ${response.status} - ${response.statusText}`);
             }
             return response.json();
         })
         .then(data => {
+            console.log(`Citation network data received: ${data.nodes.length} nodes, ${data.links.length} links`);
+
             // Clear container and create SVG
             container.html('');
+
+            // If no data, show a message
+            if (!data.nodes.length) {
+                container.html('<div class="flex items-center justify-center h-full"><div class="text-center"><p class="text-xl font-bold">No Citation Data</p><p class="text-gray-500">No citation network data available for this document.</p></div></div>');
+                return;
+            }
 
             // Create SVG that fills the container
             const svg = container.append('svg')
@@ -317,8 +326,16 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
             };
         })
         .catch(error => {
-            container.html(`<div class="network-error">Error loading citation network: ${error.message}</div>`);
-            console.error('Error loading citation network:', error);
+            console.error('Error fetching or rendering citation network:', error);
+            container.html(`
+                <div class="flex items-center justify-center h-full">
+                    <div class="text-center">
+                        <p class="text-xl font-bold text-error">Error Loading Citation Network</p>
+                        <p class="text-gray-500">${error.message || 'Failed to load citation network data'}</p>
+                        <button class="btn btn-sm btn-outline mt-4" onclick="location.reload()">Retry</button>
+                    </div>
+                </div>
+            `);
         });
 }
 

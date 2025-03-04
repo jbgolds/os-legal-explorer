@@ -156,6 +156,8 @@ async function loadClusterDetails(clusterId) {
                     opinionContent.classList.remove('hidden');
                 } else if (tabId === 'citation-map') {
                     citationContent.classList.remove('hidden');
+                    // Call loadCitationNetwork when the citation map tab is activated
+                    loadCitationNetwork(clusterId);
                 }
             });
         });
@@ -219,6 +221,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const match = path.match(/^\/opinion\/(\d+)\/?$/);
     if (match) {
         const caseId = match[1];
-        loadCaseDetails(caseId);
+        loadClusterDetails(caseId);
     }
 }); 

@@ -128,6 +128,7 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
 
             # Get opinion text if available
             opinion_text = None
+            is_html = False
             if data.get("sub_opinions") and len(data["sub_opinions"]) > 0:
                 # Get the first opinion's text
                 opinion_url = data["sub_opinions"][0]
@@ -141,6 +142,10 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                         opinion_text = opinion_data.get("plain_text", "")
                         if not opinion_text:
                             opinion_text = opinion_data.get("html", "")
+                            is_html = True
+                        if not opinion_text:
+                            opinion_text = opinion_data.get("html_with_citations", "")
+                            is_html = True
                 elif isinstance(opinion_url, dict) and "id" in opinion_url:
                     # Handle cluster where sub_opinions contains objects instead of URLs
                     opinion_id = opinion_url["id"]
@@ -259,7 +264,7 @@ async def opinion(request: Request, cluster_id: str):
         cluster_detail = await get_cluster_details(cluster_id)
 
         return templates.TemplateResponse(
-            "opinion.html",
+            "index.html",
             {
                 "request": request,
                 "cluster_id": cluster_id,
@@ -270,5 +275,5 @@ async def opinion(request: Request, cluster_id: str):
     except Exception as e:
         logger.error(f"Error loading cluster: {e}")
         return templates.TemplateResponse(
-            "opinion.html", {"request": request, "error": str(e)}
+            "index.html", {"request": request, "error": str(e)}
         )

@@ -172,9 +172,14 @@ async def get_network(cluster_id: str, depth: int = 1):
     Returns:
     - Network graph with nodes and links
     """
+    logger.info(
+        f"Citation network requested for cluster_id: {cluster_id}, depth: {depth}"
+    )
+
     if depth > 3:
         # Limit depth for performance reasons
         depth = 3
+        logger.info(f"Depth limited to 3 for performance reasons")
 
     try:
         # Find the source document
@@ -183,6 +188,7 @@ async def get_network(cluster_id: str, depth: int = 1):
         if not source_doc:
             # Try to find in other document types if needed
             # For now, we'll just raise a 404
+            logger.warning(f"Document with ID {cluster_id} not found")
             raise HTTPException(
                 status_code=404, detail=f"Document with ID {cluster_id} not found"
             )
@@ -195,83 +201,95 @@ async def get_network(cluster_id: str, depth: int = 1):
         source_node = NetworkNode.from_legal_doc(source_doc)
         nodes[source_node.id] = source_node
 
+        logger.info(
+            f"Source document found: {source_doc.primary_id}, should match {cluster_id}"
+        )
+
         # Use Cypher to efficiently get outgoing citations with specified depth
-        query = """
-        MATCH path = (source:Opinion {primary_id: $cluster_id})-[r:CITES*1..{depth}]->(cited)
+        query = f"""
+        MATCH path = (source:Opinion {{primary_id: $cluster_id}})-[r:CITES*1..{depth}]->(cited)
         WITH source, relationships(path) as rels, nodes(path) as ns
         RETURN source, rels, ns
         """
 
-        results, _ = db.cypher_query(query, {"cluster_id": cluster_id, "depth": depth})
+        logger.debug(f"Executing Cypher query: {query}")
+        logger.debug(
+            f"Query parameters: {{'cluster_id': {cluster_id}, 'depth': {depth}}}"
+        )
+
+        try:
+            results, _ = db.cypher_query(
+                query, {"cluster_id": cluster_id, "depth": depth}
+            )
+            logger.info(f"Query returned {len(results)} paths")
+        except Exception as e:
+            logger.error(f"Error executing Cypher query: {e}")
+            # Return empty network rather than failing
+            return NetworkGraph(nodes=list(nodes.values()), links=[])
 
         # Process results
         for row in results:
-            _, relationships, path_nodes = row
+            try:
+                _, relationships, path_nodes = row
 
-            # Skip first node (source) as we already have it
-            for i, node in enumerate(path_nodes[1:], 1):
-                # Convert Neo4j node to our domain model
-                doc_label = list(node.labels)[0]  # Get the primary label
+                # Add nodes from the path
+                for i, node in enumerate(path_nodes[1:], 1):
+                    # Convert Neo4j node to our domain model
+                    doc_label = list(node.labels)[0]  # Get the primary label
 
-                # Determine the appropriate model class based on the label
-                if doc_label in CITATION_TYPE_TO_NODE_TYPE:
-                    node_class = CITATION_TYPE_TO_NODE_TYPE[doc_label]
-                else:
-                    # Default to LegalDocument if we can't find a specific class
-                    node_class = LegalDocument
+                    if doc_label in CITATION_TYPE_TO_NODE_TYPE:
+                        node_class = CITATION_TYPE_TO_NODE_TYPE[doc_label]
+                    else:
+                        # Default to LegalDocument if we don't have a specific mapping
+                        node_class = LegalDocument
 
-                # Inflate the node
-                doc_node = node_class.inflate(node)
+                    # Create a domain model instance from the Neo4j node
+                    doc = node_class.inflate(node)
 
-                # Add the node if not already present
-                if str(doc_node.primary_id) not in nodes:
-                    nodes[str(doc_node.primary_id)] = NetworkNode.from_legal_doc(
-                        doc_node
+                    # Skip if we've already added this node
+                    if str(doc.primary_id) in nodes:
+                        continue
+
+                    # Add to our nodes dictionary
+                    network_node = NetworkNode.from_legal_doc(doc)
+                    nodes[network_node.id] = network_node
+
+                # Add relationships (links)
+                for i, rel in enumerate(relationships):
+                    # Get source and target nodes
+                    source_id = str(path_nodes[i].primary_id)
+                    target_doc = node_class.inflate(path_nodes[i + 1])
+
+                    # Create a link from the relationship data
+                    rel_data = dict(rel)
+                    link = NetworkLink.create_from_relationship(
+                        source_id, rel_data, target_doc
                     )
 
-                # The depth of this node in the citation chain
-                citation_depth = i
+                    # Add to our links list
+                    links.append(link)
+            except Exception as e:
+                logger.error(f"Error processing result row: {e}")
+                continue
 
-            # Process relationships - each relationship in the path
-            for i, rel in enumerate(relationships):
-                # Source is either the original source or the previous node in the path
-                if i == 0:
-                    source_node_id = str(cluster_id)
-                else:
-                    # Get the source node from the path
-                    source_node_id = str(
-                        LegalDocument.inflate(path_nodes[i]).primary_id
-                    )
-
-                # Get the target node
-                target_node = LegalDocument.inflate(path_nodes[i + 1])
-
-                # Get the relationship properties
-                rel_props = dict(rel)
-
-                # Create a link
-                link = NetworkLink.create_from_relationship(
-                    source_id=source_node_id, rel_data=rel_props, target_doc=target_node
-                )
-
-                # Add depth information
-                if link.metadata is None:
-                    link.metadata = {}
-                link.metadata["depth"] = i + 1
-
-                links.append(link)
-
-        # Create and return the graph
-        return NetworkGraph(nodes=list(nodes.values()), links=links)
+        # Return the network graph
+        network = NetworkGraph(nodes=list(nodes.values()), links=links)
+        logger.info(
+            f"Returning network with {len(network.nodes)} nodes and {len(network.links)} links"
+        )
+        return network
 
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
-        logger.error(f"Error generating network graph: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Error generating network graph: {str(e)}"
-        )
+        logger.error(f"Unexpected error in get_network: {e}", exc_info=True)
+        # Return a minimal network with just the source node
+        if "source_node" in locals() and source_node:
+            return NetworkGraph(nodes=[source_node], links=[])
+        else:
+            # If we couldn't even create the source node, return an empty network
+            return NetworkGraph(nodes=[], links=[])
 
 
 @router.get("/{cluster_id}/citation-network/filtered", response_model=NetworkGraph)
@@ -295,9 +313,14 @@ async def get_filtered_network(
     Returns:
     - Network graph with nodes and links
     """
+    logger.info(
+        f"Filtered citation network requested for cluster_id: {cluster_id}, depth: {depth}, min_relevance: {min_relevance}, treatment: {treatment}, limit_nodes: {limit_nodes}"
+    )
+
     if depth > 3:
         # Limit depth for performance reasons
         depth = 3
+        logger.info(f"Depth limited to 3 for performance reasons")
 
     try:
         # Find the source document
@@ -306,6 +329,7 @@ async def get_filtered_network(
         if not source_doc:
             # Try to find in other document types if needed
             # For now, we'll just raise a 404
+            logger.warning(f"Document with ID {cluster_id} not found")
             raise HTTPException(
                 status_code=404, detail=f"Document with ID {cluster_id} not found"
             )
@@ -318,9 +342,11 @@ async def get_filtered_network(
         source_node = NetworkNode.from_legal_doc(source_doc)
         nodes[source_node.id] = source_node
 
+        logger.info(f"Source document found: {source_doc.primary_id}")
+
         # Build the Cypher query with filters
-        query = """
-        MATCH path = (source:Opinion {primary_id: $cluster_id})-[r:CITES*1..{depth}]->(cited)
+        query = f"""
+        MATCH path = (source:Opinion {{primary_id: $cluster_id}})-[r:CITES*1..{depth}]->(cited)
         WHERE 1=1
         """
 
@@ -343,63 +369,81 @@ async def get_filtered_network(
         # Complete the query
         query += " WITH source, relationships(path) as rels, nodes(path) as ns RETURN source, rels, ns"
 
-        # Execute the query
-        results, _ = db.cypher_query(query, params)
+        logger.debug(f"Executing filtered Cypher query: {query}")
+        logger.debug(f"Query parameters: {params}")
+
+        try:
+            # Execute the query
+            results, _ = db.cypher_query(query, params)
+            logger.info(f"Filtered query returned {len(results)} paths")
+        except Exception as e:
+            logger.error(f"Error executing filtered Cypher query: {e}")
+            # Return empty network rather than failing
+            return NetworkGraph(nodes=list(nodes.values()), links=[])
 
         # Process results - same as in get_network
         for row in results:
-            _, relationships, path_nodes = row
+            try:
+                _, relationships, path_nodes = row
 
-            # Add nodes from the path
-            for i, node in enumerate(path_nodes[1:], 1):
-                # Convert Neo4j node to our domain model
-                doc_label = list(node.labels)[0]  # Get the primary label
+                # Add nodes from the path
+                for i, node in enumerate(path_nodes[1:], 1):
+                    # Convert Neo4j node to our domain model
+                    doc_label = list(node.labels)[0]  # Get the primary label
 
-                if doc_label in CITATION_TYPE_TO_NODE_TYPE:
-                    node_class = CITATION_TYPE_TO_NODE_TYPE[doc_label]
-                else:
-                    node_class = LegalDocument
+                    if doc_label in CITATION_TYPE_TO_NODE_TYPE:
+                        node_class = CITATION_TYPE_TO_NODE_TYPE[doc_label]
+                    else:
+                        # Default to LegalDocument if we don't have a specific mapping
+                        node_class = LegalDocument
 
-                doc_node = node_class.inflate(node)
+                    # Create a domain model instance from the Neo4j node
+                    doc = node_class.inflate(node)
 
-                if str(doc_node.primary_id) not in nodes:
-                    nodes[str(doc_node.primary_id)] = NetworkNode.from_legal_doc(
-                        doc_node
+                    # Skip if we've already added this node
+                    if str(doc.primary_id) in nodes:
+                        continue
+
+                    # Add to our nodes dictionary
+                    network_node = NetworkNode.from_legal_doc(doc)
+                    nodes[network_node.id] = network_node
+
+                # Add relationships (links)
+                for i, rel in enumerate(relationships):
+                    # Get source and target nodes
+                    source_id = str(path_nodes[i].primary_id)
+                    target_doc = node_class.inflate(path_nodes[i + 1])
+
+                    # Create a link from the relationship data
+                    rel_data = dict(rel)
+                    link = NetworkLink.create_from_relationship(
+                        source_id, rel_data, target_doc
                     )
 
-                citation_depth = i
+                    # Add to our links list
+                    links.append(link)
+            except Exception as e:
+                logger.error(f"Error processing filtered result row: {e}")
+                continue
 
-            # Process relationships
-            for i, rel in enumerate(relationships):
-                if i == 0:
-                    source_node_id = str(cluster_id)
-                else:
-                    source_node_id = str(
-                        LegalDocument.inflate(path_nodes[i]).primary_id
-                    )
-
-                target_node = LegalDocument.inflate(path_nodes[i + 1])
-                rel_props = dict(rel)
-
-                link = NetworkLink.create_from_relationship(
-                    source_id=source_node_id, rel_data=rel_props, target_doc=target_node
-                )
-
-                if link.metadata is None:
-                    link.metadata = {}
-                link.metadata["depth"] = i + 1
-
-                links.append(link)
-
-        return NetworkGraph(nodes=list(nodes.values()), links=links)
+        # Return the network graph
+        network = NetworkGraph(nodes=list(nodes.values()), links=links)
+        logger.info(
+            f"Returning filtered network with {len(network.nodes)} nodes and {len(network.links)} links"
+        )
+        return network
 
     except HTTPException:
+        # Re-raise HTTP exceptions
         raise
     except Exception as e:
-        logger.error(f"Error generating filtered network: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Error generating filtered network: {str(e)}"
-        )
+        logger.error(f"Unexpected error in get_filtered_network: {e}", exc_info=True)
+        # Return a minimal network with just the source node
+        if "source_node" in locals() and source_node:
+            return NetworkGraph(nodes=[source_node], links=[])
+        else:
+            # If we couldn't even create the source node, return an empty network
+            return NetworkGraph(nodes=[], links=[])
 
 
 @router.get("/{cluster_id}/citation-network/component", response_class=HTMLResponse)

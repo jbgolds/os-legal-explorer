@@ -8,13 +8,11 @@ from dotenv import load_dotenv
 
 # Uncomment these imports for template and static file support
 from fastapi.staticfiles import StaticFiles
-from datetime import date, datetime
 
 # Import and include routers
 from .services.pipeline import pipeline_router
-from .routers import search_router, clusters_router, feedback_router
+from .routers import search_router, clusters_router, feedback_router, network_router
 from .routers.clusters import get_cluster_details, check_cluster_status
-from .routers.network import router as network_router
 from .shared import templates
 import logging
 from src.neo4j_db.models import Opinion
@@ -84,7 +82,6 @@ app.include_router(network_router)
 async def opinion_page(request: Request, cluster_id: str):
     try:
         # Use the existing case status endpoint logic
-
         case_status = await check_cluster_status(cluster_id)
 
         # Get case details from CourtListener API
