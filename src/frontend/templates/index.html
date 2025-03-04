@@ -3,19 +3,12 @@
 {% block title %}OS Legal Explorer - Search and Explore Legal Cases{% endblock %}
 
 {% block content %}
-<!-- Header with Title and Tagline -->
-<div class="mb-8">
-    <h1 class="text-4xl font-bold mb-2">LegalCite<span class="text-primary">Viz</span></h1>
-    <p class="text-lg text-gray-600">Explore the interconnected web of legal precedents through interactive citation
-        maps</p>
-</div>
-
 <!-- Search Section -->
 <div class="mb-12">
     <div class="flex flex-col md:flex-row gap-4 items-center">
-        <!-- Search Box -->
-        <div class="relative flex-grow">
-            <div class="flex w-full border rounded-lg shadow-sm overflow-hidden">
+        <!-- Search Box with Buttons -->
+        <div class="relative w-full">
+            <div class="flex w-full border rounded-lg shadow-sm overflow-hidden h-16">
                 <div class="flex items-center pl-3 text-gray-500">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
@@ -23,37 +16,151 @@
                             d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                     </svg>
                 </div>
-                <input type="text" id="search-input" class="input border-0 w-full focus:outline-none"
+                <input type="text" id="search-input" class="input border-0 w-full focus:outline-none h-full text-xl"
                     placeholder="Search by case name, citation, or keywords..." x-model="searchQuery"
-                    x-on:input="isSearching = searchQuery.length > 2" hx-get="/api/search"
-                    hx-trigger="keyup changed delay:500ms" hx-target="#search-results" hx-indicator="#search-indicator">
-                <div class="absolute right-3 top-3">
+                    x-on:input="isSearching = searchQuery.length > 2" hx-get="/api/search" hx-trigger="search"
+                    hx-target="#search-results" hx-indicator="#search-indicator" hx-include=".search-filter">
+
+                <!-- Filter Buttons and Search Button -->
+                <div class="flex items-center">
+                    <!-- Year Range Dropdown -->
+                    <div class="dropdown dropdown-end">
+                        <label tabindex="0" class="btn btn-ghost h-full px-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <span class="ml-2">Year</span>
+                        </label>
+                        <div tabindex="0"
+                            class="dropdown-content z-[100] menu p-0 shadow bg-base-100 rounded-box w-64 absolute">
+                            <div class="year-picker">
+                                <div class="year-range-header">
+                                    <button type="button" class="year-nav-btn prev-decade-btn">«</button>
+                                    <span class="decade-display font-semibold">2020 - 2039</span>
+                                    <button type="button" class="year-nav-btn next-decade-btn">»</button>
+                                </div>
+                                <div class="years-list">
+                                    <!-- Years will be populated dynamically -->
+                                </div>
+                                <div class="p-2 flex justify-end border-t">
+                                    <button type="button" class="btn btn-sm reset-year-filters">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none"
+                                            viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                        </svg>
+                                        Reset
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Hidden inputs for year range -->
+                    <input type="hidden" name="year_from" class="search-filter">
+                    <input type="hidden" name="year_to" class="search-filter">
+
+                    <!-- Courts Dropdown -->
+                    <div class="dropdown dropdown-end">
+                        <label tabindex="0" class="btn btn-ghost h-full px-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                            </svg>
+                            <span class="ml-2">Courts</span>
+                        </label>
+                        <div tabindex="0"
+                            class="dropdown-content z-[100] menu p-4 shadow bg-base-100 rounded-box w-80 absolute">
+                            <div class="mb-2 font-semibold">Select Courts</div>
+                            <div class="max-h-60 overflow-y-auto mb-4">
+                                <div class="form-control">
+                                    <label class="label cursor-pointer justify-start">
+                                        <input type="checkbox" class="checkbox checkbox-primary search-filter"
+                                            name="court" value="all" checked />
+                                        <span class="label-text ml-2">All Courts</span>
+                                    </label>
+                                </div>
+                                <div class="form-control">
+                                    <label class="label cursor-pointer justify-start">
+                                        <input type="checkbox"
+                                            class="checkbox checkbox-primary search-filter court-option" name="court"
+                                            value="supreme_court" />
+                                        <span class="label-text ml-2">Supreme Court</span>
+                                    </label>
+                                </div>
+                                <div class="form-control">
+                                    <label class="label cursor-pointer justify-start">
+                                        <input type="checkbox"
+                                            class="checkbox checkbox-primary search-filter court-option" name="court"
+                                            value="circuit_courts" />
+                                        <span class="label-text ml-2">Circuit Courts of Appeals</span>
+                                    </label>
+                                </div>
+                                <div class="form-control">
+                                    <label class="label cursor-pointer justify-start">
+                                        <input type="checkbox"
+                                            class="checkbox checkbox-primary search-filter court-option" name="court"
+                                            value="district_courts" />
+                                        <span class="label-text ml-2">District Courts</span>
+                                    </label>
+                                </div>
+                                <div class="form-control">
+                                    <label class="label cursor-pointer justify-start">
+                                        <input type="checkbox"
+                                            class="checkbox checkbox-primary search-filter court-option" name="court"
+                                            value="state_supreme_courts" />
+                                        <span class="label-text ml-2">State Supreme Courts</span>
+                                    </label>
+                                </div>
+                                <div class="form-control">
+                                    <label class="label cursor-pointer justify-start">
+                                        <input type="checkbox"
+                                            class="checkbox checkbox-primary search-filter court-option" name="court"
+                                            value="state_appellate_courts" />
+                                        <span class="label-text ml-2">State Appellate Courts</span>
+                                    </label>
+                                </div>
+                                <div class="form-control">
+                                    <label class="label cursor-pointer justify-start">
+                                        <input type="checkbox"
+                                            class="checkbox checkbox-primary search-filter court-option" name="court"
+                                            value="specialized_courts" />
+                                        <span class="label-text ml-2">Specialized Courts</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="flex justify-end">
+                                <button type="button" class="btn btn-sm reset-filters">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none"
+                                        viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                    Reset
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="button" class="btn btn-primary h-full px-6" id="search-button">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                        <span class="ml-2">Search</span>
+                    </button>
+                </div>
+
+                <div class="absolute right-28 top-5">
                     <div id="search-indicator" class="htmx-indicator">
                         <span class="loading loading-spinner loading-sm text-primary"></span>
                     </div>
                 </div>
             </div>
-        </div>
-
-        <!-- Filter Buttons -->
-        <div class="flex gap-2">
-            <button class="btn btn-outline">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24"
-                    stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                Year Range
-            </button>
-            <button class="btn btn-outline">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24"
-                    stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                </svg>
-                Courts
-            </button>
-            <button class="btn btn-primary">Search</button>
         </div>
     </div>
 </div>
@@ -74,44 +181,58 @@
                         Citation Network
                     </h2>
                     <div class="flex gap-2">
-                        <button class="btn btn-sm btn-circle">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                            </svg>
-                        </button>
-                        <input type="range" min="0" max="100" value="50" class="range range-xs range-primary" />
-                        <button class="btn btn-sm btn-circle">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                        </button>
-                        <button class="btn btn-sm btn-circle">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                            </svg>
-                        </button>
-                        <button class="btn btn-sm btn-circle">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                            </svg>
-                        </button>
+                        <div class="flex flex-col items-center">
+                            <button type="button" class="btn btn-sm btn-circle mb-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                            </button>
+                            <span class="text-xs">Find</span>
+                        </div>
+                        <div class="flex items-center mx-1">
+                            <input type="range" min="0" max="100" value="50" class="range range-xs range-primary" />
+                        </div>
+                        <div class="flex flex-col items-center">
+                            <button type="button" class="btn btn-sm btn-circle mb-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                </svg>
+                            </button>
+                            <span class="text-xs">View</span>
+                        </div>
+                        <div class="flex flex-col items-center">
+                            <button type="button" class="btn btn-sm btn-circle mb-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                            </button>
+                            <span class="text-xs">Reset</span>
+                        </div>
+                        <div class="flex flex-col items-center">
+                            <button type="button" class="btn btn-sm btn-circle mb-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                                </svg>
+                            </button>
+                            <span class="text-xs">Filter</span>
+                        </div>
                     </div>
                 </div>
                 <div id="citation-network" class="h-[500px] bg-base-200 rounded-lg flex items-center justify-center">
                     <!-- Citation network visualization will be rendered here -->
                     <div class="text-center">
                         <p class="text-gray-500 mb-2">Search for cases to visualize the citation network</p>
-                        <button class="btn btn-sm btn-primary"
+                        <button type="button" class="btn btn-sm btn-primary"
                             onclick="document.getElementById('search-input').focus()">
                             Start Searching
                         </button>
@@ -174,36 +295,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // Handle case selection
-        document.body.addEventListener('click', function (e) {
-            const caseLink = e.target.closest('[data-case-id]');
-            if (caseLink) {
-                e.preventDefault();
-                const caseId = caseLink.dataset.caseId;
-
-                // Load case details
-                htmx.ajax('GET', `/api/case/${caseId}`, {
-                    target: '#case-detail',
-                    swap: 'innerHTML',
-                    indicator: '#case-detail-loading'
-                });
-            }
-        });
-
-        // Show search filters when search has input
-        const searchInput = document.getElementById('search-input');
-        if (searchInput) {
-            searchInput.addEventListener('input', function () {
-                if (this.value.length > 0) {
-                    Alpine.store('searchFilters', { isVisible: true });
-                    document.querySelector('#search-results').__x.$data.hasResults = true;
-                } else {
-                    document.querySelector('#search-results').__x.$data.hasResults = false;
-                }
-            });
-        }
-    });
-</script>
+<script src="{{ url_for('static', path='js/filters.js') }}" type="module"></script>
 {% endblock %}

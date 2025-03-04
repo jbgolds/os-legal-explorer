@@ -4,3 +4,187 @@
 @plugin "daisyui" {
     themes: retro --default, forest --prefersdark;
 }
+
+/* Calendar styles for year picker */
+.calendar-container {
+    position: absolute;
+    z-index: 50;
+    background-color: var(--b1);
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    width: 350px;
+    padding: 0.75rem;
+    left: 0;
+}
+
+.calendar .month-btn {
+    min-width: 60px;
+    margin: 0.125rem;
+    padding: 0.25rem 0.5rem;
+    height: auto;
+    min-height: 2rem;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+}
+
+.calendar .month-btn:hover {
+    background-color: var(--p);
+    color: var(--pc);
+    transform: scale(1.05);
+}
+
+.calendar-year-display {
+    font-size: 1.1rem;
+    padding: 0.25rem 0.5rem;
+    min-width: 5rem;
+    text-align: center;
+    font-weight: bold;
+}
+
+.calendar .calendar-prev-year,
+.calendar .calendar-next-year {
+    transition: all 0.2s ease;
+}
+
+.calendar .calendar-prev-year:hover,
+.calendar .calendar-next-year:hover {
+    background-color: var(--b2);
+    transform: scale(1.1);
+}
+
+/* Modern Year Picker Styles */
+.year-picker {
+    width: 100%;
+    background-color: var(--b1, white);
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.year-range-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background-color: var(--b2, #f8f9fa);
+    border-bottom: 1px solid var(--b3, #e9ecef);
+    position: relative;
+}
+
+.year-nav-btn {
+    background: none;
+    border: none;
+    font-size: 1.25rem;
+    cursor: pointer;
+    padding: 0 0.5rem;
+    color: var(--p, #0d6efd);
+}
+
+.year-nav-btn:hover {
+    color: var(--pf, #0a58ca);
+}
+
+.years-list {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.25rem;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 0.5rem;
+}
+
+.year-item {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    height: 2.5rem;
+    text-align: center;
+    padding: 0.5rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    background: none;
+    border: none;
+    border-radius: 0.25rem;
+}
+
+.year-item:hover {
+    background-color: var(--b2, #f8f9fa);
+}
+
+.year-item.selected {
+    background-color: var(--p, #0d6efd);
+    color: white;
+    font-weight: bold;
+}
+
+.year-item.current-year {
+    border: 1px solid var(--p, #0d6efd);
+}
+
+/* Fix for dropdowns */
+.dropdown .dropdown-content {
+    display: none;
+}
+
+.dropdown-open .dropdown-content,
+.dropdown:focus-within .dropdown-content {
+    display: block !important;
+}
+
+/* Prevent dropdown from closing when clicking inside */
+.dropdown-content {
+    z-index: 100;
+}
+
+/* Ensure buttons in dropdowns work properly */
+.dropdown-content button {
+    cursor: pointer;
+}
+
+/* Ensure the year picker stays visible when interacting with it */
+.dropdown-end:focus-within .dropdown-content {
+    display: block !important;
+}
+
+/* New UI Styles */
+#year-dropdown,
+#courts-dropdown {
+    background-color: var(--b1, white);
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    z-index: 1000;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+/* Style for the new UI buttons */
+button[aria-label="Year"],
+button[aria-label="Courts"] {
+    position: relative;
+}
+
+/* Checkbox styles for the new UI */
+#courts-dropdown .checkbox {
+    border-color: var(--p, #0d6efd);
+}
+
+#courts-dropdown .checkbox:checked {
+    background-color: var(--p, #0d6efd);
+    border-color: var(--p, #0d6efd);
+}
+
+#courts-dropdown .form-control {
+    margin-bottom: 0.5rem;
+}
+
+#courts-dropdown .label-text {
+    font-size: 0.9rem;
+}
+
+/* Ensure the dropdowns appear above other elements */
+#year-dropdown,
+#courts-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+}
