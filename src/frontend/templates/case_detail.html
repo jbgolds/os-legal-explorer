@@ -1,0 +1,462 @@
+{% extends "base.html" %}
+
+{% block title %}Case Detail - OS Legal Explorer{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <!-- Case Header -->
+    <div class="bg-white shadow-md rounded-lg p-6 mb-8">
+        <h1 id="case-title" class="text-2xl font-bold mb-2">Loading case details...</h1>
+        <div id="case-metadata" class="text-gray-600 mb-4">
+            <p id="case-court" class="mb-1"></p>
+            <p id="case-date" class="mb-1"></p>
+            <p id="case-docket" class="mb-1"></p>
+            <p id="case-citation" class="mb-1"></p>
+        </div>
+        <div id="case-judges" class="text-sm text-gray-500 mb-2"></div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="flex flex-col lg:flex-row gap-8">
+        <!-- Left Column: Opinion Text -->
+        <div class="lg:w-2/3">
+            <div class="bg-white shadow-md rounded-lg p-6 mb-8">
+                <h2 class="text-xl font-semibold mb-4">Opinion Text</h2>
+                <div id="opinion-loading" class="flex justify-center items-center py-8">
+                    <div class="loading loading-spinner loading-lg"></div>
+                </div>
+                <div id="opinion-text" class="prose max-w-none hidden">
+                    <!-- Opinion text will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Citation Map and Related Cases -->
+        <div class="lg:w-1/3">
+            <!-- Citation Map -->
+            <div class="bg-white shadow-md rounded-lg p-6 mb-8">
+                <h2 class="text-xl font-semibold mb-4">Citation Map</h2>
+                <div id="citation-map-loading" class="flex justify-center items-center py-8">
+                    <div class="loading loading-spinner loading-lg"></div>
+                </div>
+                <div id="citation-map-container" class="hidden">
+                    <div id="citation-map" class="w-full h-96 border border-gray-200 rounded-lg"></div>
+                    <div class="mt-4">
+                        <h3 class="text-lg font-medium mb-2">Legend</h3>
+                        <div class="flex flex-col gap-2">
+                            <div class="flex items-center">
+                                <div class="w-4 h-4 rounded-full bg-green-500 mr-2"></div>
+                                <span>Positive Citation</span>
+                            </div>
+                            <div class="flex items-center">
+                                <div class="w-4 h-4 rounded-full bg-yellow-500 mr-2"></div>
+                                <span>Cautionary Citation</span>
+                            </div>
+                            <div class="flex items-center">
+                                <div class="w-4 h-4 rounded-full bg-red-500 mr-2"></div>
+                                <span>Negative Citation</span>
+                            </div>
+                            <div class="flex items-center">
+                                <div class="w-4 h-4 rounded-full bg-gray-500 mr-2"></div>
+                                <span>Neutral Citation</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Related Cases -->
+            <div class="bg-white shadow-md rounded-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">Related Cases</h2>
+                <div id="related-cases-loading" class="flex justify-center items-center py-8">
+                    <div class="loading loading-spinner loading-lg"></div>
+                </div>
+                <div id="related-cases" class="hidden">
+                    <ul class="divide-y divide-gray-200">
+                        <!-- Related cases will be loaded here -->
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Feedback Section -->
+    <div class="bg-white shadow-md rounded-lg p-6 mt-8">
+        <h2 class="text-xl font-semibold mb-4">Feedback</h2>
+        <div class="flex flex-col md:flex-row gap-4">
+            <button id="report-missing-citation-btn" class="btn btn-outline btn-primary">
+                Report Missing Citation
+            </button>
+            <button id="report-missing-opinion-btn" class="btn btn-outline btn-primary">
+                Report Missing Opinion
+            </button>
+            <button id="general-feedback-btn" class="btn btn-outline btn-primary">
+                General Feedback
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Feedback Modals -->
+<!-- Missing Citation Modal -->
+<dialog id="missing-citation-modal" class="modal">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg">Report Missing Citation</h3>
+        <form id="missing-citation-form" class="py-4">
+            <div class="form-control mb-4">
+                <label class="label">
+                    <span class="label-text">Expected Citation</span>
+                </label>
+                <input type="text" id="expected-citation" class="input input-bordered" required />
+            </div>
+            <div class="form-control mb-4">
+                <label class="label">
+                    <span class="label-text">Description</span>
+                </label>
+                <textarea id="missing-citation-description" class="textarea textarea-bordered" rows="3"
+                    required></textarea>
+            </div>
+            <div class="form-control mb-4">
+                <label class="label">
+                    <span class="label-text">Email (optional)</span>
+                </label>
+                <input type="email" id="missing-citation-email" class="input input-bordered" />
+            </div>
+            <div class="modal-action">
+                <button type="button" class="btn btn-ghost"
+                    onclick="document.getElementById('missing-citation-modal').close()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Submit</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<!-- Missing Opinion Modal -->
+<dialog id="missing-opinion-modal" class="modal">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg">Report Missing Opinion</h3>
+        <form id="missing-opinion-form" class="py-4">
+            <div class="form-control mb-4">
+                <label class="label">
+                    <span class="label-text">Description</span>
+                </label>
+                <textarea id="missing-opinion-description" class="textarea textarea-bordered" rows="3"
+                    required></textarea>
+            </div>
+            <div class="form-control mb-4">
+                <label class="label">
+                    <span class="label-text">Email (optional)</span>
+                </label>
+                <input type="email" id="missing-opinion-email" class="input input-bordered" />
+            </div>
+            <div class="modal-action">
+                <button type="button" class="btn btn-ghost"
+                    onclick="document.getElementById('missing-opinion-modal').close()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Submit</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<!-- General Feedback Modal -->
+<dialog id="general-feedback-modal" class="modal">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg">General Feedback</h3>
+        <form id="general-feedback-form" class="py-4">
+            <div class="form-control mb-4">
+                <label class="label">
+                    <span class="label-text">Feedback Type</span>
+                </label>
+                <select id="feedback-type" class="select select-bordered" required>
+                    <option value="">Select a type</option>
+                    <option value="bug">Bug Report</option>
+                    <option value="feature">Feature Request</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div class="form-control mb-4">
+                <label class="label">
+                    <span class="label-text">Description</span>
+                </label>
+                <textarea id="general-feedback-description" class="textarea textarea-bordered" rows="3"
+                    required></textarea>
+            </div>
+            <div class="form-control mb-4">
+                <label class="label">
+                    <span class="label-text">Email (optional)</span>
+                </label>
+                <input type="email" id="general-feedback-email" class="input input-bordered" />
+            </div>
+            <div class="modal-action">
+                <button type="button" class="btn btn-ghost"
+                    onclick="document.getElementById('general-feedback-modal').close()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Submit</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="/static/js/citation_map.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const caseId = '{{ case_id }}';
+
+        // Load case details
+        loadCaseDetails(caseId);
+
+        // Load citation network using the citation_map.js module
+        loadAndRenderCitationNetwork(caseId, 'citation-map', 1);
+
+        // Set up feedback buttons
+        setupFeedbackButtons(caseId);
+    });
+
+    async function loadCaseDetails(caseId) {
+        try {
+            const response = await fetch(`/api/case/${caseId}`);
+            if (!response.ok) {
+                throw new Error('Failed to load case details');
+            }
+
+            const caseData = await response.json();
+
+            // Update case header
+            document.getElementById('case-title').textContent = caseData.name;
+            document.getElementById('case-court').textContent = `Court: ${caseData.court_name}`;
+
+            if (caseData.date_filed) {
+                const date = new Date(caseData.date_filed);
+                document.getElementById('case-date').textContent = `Date: ${date.toLocaleDateString()}`;
+            }
+
+            if (caseData.docket_number) {
+                document.getElementById('case-docket').textContent = `Docket: ${caseData.docket_number}`;
+            }
+
+            if (caseData.citation) {
+                document.getElementById('case-citation').textContent = `Citation: ${caseData.citation}`;
+            }
+
+            if (caseData.judges && caseData.judges.length > 0) {
+                document.getElementById('case-judges').textContent = `Judges: ${caseData.judges.join(', ')}`;
+            }
+
+            // Update opinion text
+            if (caseData.opinion_text) {
+                document.getElementById('opinion-loading').classList.add('hidden');
+                const opinionTextElement = document.getElementById('opinion-text');
+                opinionTextElement.classList.remove('hidden');
+
+                // Format the opinion text with paragraphs
+                const formattedText = caseData.opinion_text
+                    .split('\n\n')
+                    .map(para => `<p>${para}</p>`)
+                    .join('');
+
+                opinionTextElement.innerHTML = formattedText;
+            } else {
+                document.getElementById('opinion-loading').classList.add('hidden');
+                document.getElementById('opinion-text').classList.remove('hidden');
+                document.getElementById('opinion-text').innerHTML = '<p>No opinion text available.</p>';
+            }
+
+            // Update related cases
+            if (caseData.citations && caseData.citations.length > 0) {
+                document.getElementById('related-cases-loading').classList.add('hidden');
+                const relatedCasesElement = document.getElementById('related-cases');
+                relatedCasesElement.classList.remove('hidden');
+
+                const relatedCasesList = caseData.citations.map(citation => `
+                    <li class="py-3">
+                        <a href="/case/${citation.id}" class="block hover:bg-gray-50 transition duration-150">
+                            <div class="font-medium">${citation.name}</div>
+                            <div class="text-sm text-gray-500">${citation.citation || ''}</div>
+                            <div class="text-xs mt-1 ${getCitationTreatmentClass(citation.treatment)}">
+                                ${formatCitationTreatment(citation.treatment)}
+                            </div>
+                        </a>
+                    </li>
+                `).join('');
+
+                relatedCasesElement.querySelector('ul').innerHTML = relatedCasesList;
+            } else {
+                document.getElementById('related-cases-loading').classList.add('hidden');
+                document.getElementById('related-cases').classList.remove('hidden');
+                document.getElementById('related-cases').innerHTML = '<p>No related cases available.</p>';
+            }
+
+        } catch (error) {
+            console.error('Error loading case details:', error);
+            document.getElementById('case-title').textContent = 'Error loading case details';
+            document.getElementById('opinion-loading').classList.add('hidden');
+            document.getElementById('opinion-text').classList.remove('hidden');
+            document.getElementById('opinion-text').innerHTML = '<p>Failed to load case details. Please try again later.</p>';
+        }
+    }
+
+    function setupFeedbackButtons(caseId) {
+        // Missing citation button
+        document.getElementById('report-missing-citation-btn').addEventListener('click', function () {
+            document.getElementById('missing-citation-modal').showModal();
+        });
+
+        // Missing opinion button
+        document.getElementById('report-missing-opinion-btn').addEventListener('click', function () {
+            document.getElementById('missing-opinion-modal').showModal();
+        });
+
+        // General feedback button
+        document.getElementById('general-feedback-btn').addEventListener('click', function () {
+            document.getElementById('general-feedback-modal').showModal();
+        });
+
+        // Missing citation form
+        document.getElementById('missing-citation-form').addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const data = {
+                case_id: caseId,
+                expected_citation: document.getElementById('expected-citation').value,
+                description: document.getElementById('missing-citation-description').value,
+                email: document.getElementById('missing-citation-email').value || null
+            };
+
+            try {
+                const response = await fetch('/api/feedback/citation/missing', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to submit feedback');
+                }
+
+                alert('Thank you for your feedback!');
+                document.getElementById('missing-citation-modal').close();
+                document.getElementById('missing-citation-form').reset();
+
+            } catch (error) {
+                console.error('Error submitting feedback:', error);
+                alert('Failed to submit feedback. Please try again later.');
+            }
+        });
+
+        // Missing opinion form
+        document.getElementById('missing-opinion-form').addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const data = {
+                case_id: caseId,
+                description: document.getElementById('missing-opinion-description').value,
+                email: document.getElementById('missing-opinion-email').value || null
+            };
+
+            try {
+                const response = await fetch('/api/feedback/opinion/missing', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to submit feedback');
+                }
+
+                alert('Thank you for your feedback!');
+                document.getElementById('missing-opinion-modal').close();
+                document.getElementById('missing-opinion-form').reset();
+
+            } catch (error) {
+                console.error('Error submitting feedback:', error);
+                alert('Failed to submit feedback. Please try again later.');
+            }
+        });
+
+        // General feedback form
+        document.getElementById('general-feedback-form').addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const data = {
+                feedback_type: document.getElementById('feedback-type').value,
+                description: document.getElementById('general-feedback-description').value,
+                email: document.getElementById('general-feedback-email').value || null
+            };
+
+            try {
+                const response = await fetch('/api/feedback/general', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to submit feedback');
+                }
+
+                alert('Thank you for your feedback!');
+                document.getElementById('general-feedback-modal').close();
+                document.getElementById('general-feedback-form').reset();
+
+            } catch (error) {
+                console.error('Error submitting feedback:', error);
+                alert('Failed to submit feedback. Please try again later.');
+            }
+        });
+    }
+
+    // Helper functions
+    function getTreatmentColor(treatment) {
+        switch (treatment) {
+            case 'positive':
+                return '#22c55e'; // green-500
+            case 'negative':
+                return '#ef4444'; // red-500
+            case 'cautionary':
+            case 'caution':
+                return '#eab308'; // yellow-500
+            default:
+                return '#6b7280'; // gray-500
+        }
+    }
+
+    function getCitationTreatmentClass(treatment) {
+        switch (treatment) {
+            case 'positive':
+                return 'text-green-600';
+            case 'negative':
+                return 'text-red-600';
+            case 'cautionary':
+            case 'caution':
+                return 'text-yellow-600';
+            default:
+                return 'text-gray-600';
+        }
+    }
+
+    function formatCitationTreatment(treatment) {
+        if (!treatment) return '';
+
+        switch (treatment) {
+            case 'positive':
+                return 'Positive Citation';
+            case 'negative':
+                return 'Negative Citation';
+            case 'cautionary':
+            case 'caution':
+                return 'Cautionary Citation';
+            default:
+                return 'Neutral Citation';
+        }
+    }
+</script>
+{% endblock %}

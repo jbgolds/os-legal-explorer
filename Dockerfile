@@ -20,10 +20,14 @@ RUN apt-get update && apt-get install -y \
 COPY pyproject.toml .
 RUN pip install -e .
 
+# Copy source code first
 COPY src/ ./src/
-# Make entrypoint script executable
-# COPY docker-entrypoint.sh .
-# RUN chmod +x /app/docker-entrypoint.sh
+
+# Install npm dependencies and build CSS
+COPY package.json ./
+COPY tailwind.config.js ./
+RUN npm install && npm run build:css
+
 
 # Basic environment settings
 ENV PYTHONPATH=/app
@@ -41,4 +45,4 @@ EXPOSE ${PORT}
 
 # Simple development command
 # "--proxy-headers", for when running behind caddy
-CMD ["fastapi", "run", "src/api/main.py", "--port", "8000", "--workers", "4", "--reload"] 
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--reload"] 

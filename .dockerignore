@@ -51,4 +51,7 @@ postgres_data/
 
 *.csv
 *.json
-*.jsonl
+!package.json
+!package-lock.json
+
+node_modules/

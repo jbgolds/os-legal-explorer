@@ -1,0 +1,339 @@
+{% extends "base.html" %}
+
+{% block title %}OS Legal Explorer - Search Legal Citations{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto px-4">
+    <!-- Hero Section with Search -->
+    <section class="py-8 md:py-12 text-center">
+        <h1 class="text-2xl md:text-3xl font-bold mb-3">Explore Legal Citation Networks</h1>
+        <p class="text-base text-gray-600 mb-6 max-w-3xl mx-auto">
+            Search through court opinions, discover citation relationships, and explore the evolution of legal
+            precedent.
+        </p>
+
+        <!-- Search Box -->
+        <div class="card bg-base-100 shadow-md">
+            <div class="card-body p-4 md:p-6">
+                <div class="join w-full">
+                    <input type="text" id="search-input" class="input input-bordered join-item flex-grow"
+                        placeholder="Search for cases, judges, or legal topics...">
+                    <button id="search-button" class="btn btn-primary join-item">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Toggle Filters Button -->
+                <div class="text-left mt-2">
+                    <button id="toggle-filters" class="btn btn-sm btn-ghost">
+                        <span class="text-sm">Advanced Filters</span>
+                        <svg id="filter-icon-down" xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 ml-1" fill="none"
+                            viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                        <svg id="filter-icon-up" xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 ml-1 hidden"
+                            fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Search Filters (initially hidden) -->
+                <div id="search-filters" class="hidden mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="form-control">
+                        <label for="jurisdiction" class="label">
+                            <span class="label-text text-sm">Jurisdiction</span>
+                        </label>
+                        <select id="jurisdiction" class="select select-bordered w-full select-sm">
+                            <option value="">All Jurisdictions</option>
+                            <option value="scotus">Supreme Court</option>
+                            <option value="ca1">First Circuit</option>
+                            <option value="ca2">Second Circuit</option>
+                            <!-- Add more jurisdictions as needed -->
+                        </select>
+                    </div>
+                    <div class="form-control">
+                        <label for="start-date" class="label">
+                            <span class="label-text text-sm">Start Date</span>
+                        </label>
+                        <input type="date" id="start-date" class="input input-bordered input-sm w-full">
+                    </div>
+                    <div class="form-control">
+                        <label for="end-date" class="label">
+                            <span class="label-text text-sm">End Date</span>
+                        </label>
+                        <input type="date" id="end-date" class="input input-bordered input-sm w-full">
+                    </div>
+                </div>
+
+                <!-- Search Results (initially hidden) -->
+                <div id="search-results" class="hidden mt-6">
+                    <!-- Loading indicator -->
+                    <div id="search-loading" class="text-center py-6 hidden">
+                        <span class="loading loading-spinner loading-md"></span>
+                        <p class="mt-2 text-sm text-gray-600">Searching...</p>
+                    </div>
+
+                    <!-- Results list -->
+                    <div id="results-list" class="space-y-4"></div>
+
+                    <!-- No results message -->
+                    <div id="no-results" class="text-center py-6 hidden">
+                        <div class="alert alert-info">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                                class="stroke-info shrink-0 w-4 h-4">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <span class="text-sm">No results found. Please try a different search term.</span>
+                        </div>
+                    </div>
+
+                    <!-- Error message -->
+                    <div id="search-error" class="text-center py-6 hidden">
+                        <div class="alert alert-error">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-4 w-4" fill="none"
+                                viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span class="text-sm">An error occurred while searching. Please try again later.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Recent Cases Section -->
+    <section class="py-6 border-t border-gray-200">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold">Recent Cases</h2>
+            <a href="/cases" class="btn btn-link btn-sm">View All</a>
+        </div>
+
+        <!-- Recent Cases List -->
+        <div id="recent-cases" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <!-- Loading indicator -->
+            <div id="recent-cases-loading" class="col-span-full text-center py-6">
+                <span class="loading loading-spinner loading-md"></span>
+                <p class="mt-2 text-sm text-gray-600">Loading recent cases...</p>
+            </div>
+
+            <!-- Cases will be populated here via JavaScript -->
+        </div>
+
+        <!-- Error message -->
+        <div id="recent-cases-error" class="text-center py-6 hidden">
+            <div class="alert alert-error">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-4 w-4" fill="none"
+                    viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span class="text-sm">An error occurred while loading recent cases. Please try again later.</span>
+            </div>
+        </div>
+
+        <!-- Load More Button -->
+        <div class="text-center mt-6">
+            <button id="load-more" class="btn btn-outline btn-primary btn-sm hidden">Load More</button>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Toggle search filters
+    document.getElementById('toggle-filters').addEventListener('click', function () {
+        const filtersDiv = document.getElementById('search-filters');
+        const iconDown = document.getElementById('filter-icon-down');
+        const iconUp = document.getElementById('filter-icon-up');
+
+        filtersDiv.classList.toggle('hidden');
+        iconDown.classList.toggle('hidden');
+        iconUp.classList.toggle('hidden');
+    });
+
+    // Search functionality
+    document.getElementById('search-button').addEventListener('click', performSearch);
+    document.getElementById('search-input').addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') {
+            performSearch();
+        }
+    });
+
+    function performSearch() {
+        const searchTerm = document.getElementById('search-input').value.trim();
+        if (!searchTerm) return;
+
+        const searchResults = document.getElementById('search-results');
+        const loadingIndicator = document.getElementById('search-loading');
+        const resultsList = document.getElementById('results-list');
+        const noResults = document.getElementById('no-results');
+        const searchError = document.getElementById('search-error');
+
+        // Show search results section and loading indicator
+        searchResults.classList.remove('hidden');
+        loadingIndicator.classList.remove('hidden');
+        resultsList.classList.add('hidden');
+        noResults.classList.add('hidden');
+        searchError.classList.add('hidden');
+
+        // Get filter values
+        const jurisdiction = document.getElementById('jurisdiction').value;
+        const startDate = document.getElementById('start-date').value;
+        const endDate = document.getElementById('end-date').value;
+
+        // Build query parameters
+        const params = new URLSearchParams();
+        params.append('q', searchTerm);
+        if (jurisdiction) params.append('jurisdiction', jurisdiction);
+        if (startDate) params.append('start_date', startDate);
+        if (endDate) params.append('end_date', endDate);
+
+        // Make API call
+        fetch(`/api/search?${params.toString()}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Search request failed');
+                }
+                return response.json();
+            })
+            .then(data => {
+                loadingIndicator.classList.add('hidden');
+
+                if (data.results && data.results.length > 0) {
+                    resultsList.innerHTML = renderSearchResults(data.results);
+                    resultsList.classList.remove('hidden');
+                } else {
+                    noResults.classList.remove('hidden');
+                }
+            })
+            .catch(error => {
+                console.error('Search error:', error);
+                loadingIndicator.classList.add('hidden');
+                searchError.classList.remove('hidden');
+            });
+    }
+
+    // Render search results from API data
+    function renderSearchResults(results) {
+        return results.map(caseItem => `
+            <div class="card bg-base-100 shadow-sm hover:shadow-md transition-shadow">
+                <div class="card-body p-3">
+                    <h3 class="card-title text-base">
+                        <a href="/case/${caseItem.id}" class="link link-primary">${caseItem.name}</a>
+                    </h3>
+                    <div class="text-xs opacity-70 mb-1">${caseItem.court} • ${formatDate(caseItem.date)}</div>
+                    <p class="text-sm">${caseItem.snippet}</p>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Format date helper
+    function formatDate(dateString) {
+        const options = { year: 'numeric', month: 'long', day: 'numeric' };
+        return new Date(dateString).toLocaleDateString(undefined, options);
+    }
+
+    // Load recent cases
+    function loadRecentCases() {
+        const recentCasesContainer = document.getElementById('recent-cases');
+        const loadingIndicator = document.getElementById('recent-cases-loading');
+        const errorMessage = document.getElementById('recent-cases-error');
+        const loadMoreButton = document.getElementById('load-more');
+
+        // Track pagination
+        let page = 1;
+        const limit = 6;
+
+        // Function to fetch cases
+        function fetchCases(pageNum) {
+            fetch(`/api/cases/recent?page=${pageNum}&limit=${limit}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch recent cases');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (pageNum === 1) {
+                        loadingIndicator.remove();
+                    }
+
+                    if (data.results && data.results.length > 0) {
+                        // Append cases to container
+                        const casesHtml = renderCases(data.results);
+                        if (pageNum === 1) {
+                            recentCasesContainer.innerHTML = casesHtml;
+                        } else {
+                            recentCasesContainer.innerHTML += casesHtml;
+                        }
+
+                        // Show load more button if there are more pages
+                        if (data.has_more) {
+                            loadMoreButton.classList.remove('hidden');
+                            loadMoreButton.disabled = false;
+                            loadMoreButton.innerHTML = 'Load More';
+                        } else {
+                            loadMoreButton.classList.add('hidden');
+                        }
+                    } else if (pageNum === 1) {
+                        // No results on first page
+                        recentCasesContainer.innerHTML = `
+                            <div class="col-span-full text-center py-4">
+                                <p class="text-sm text-gray-600">No recent cases found.</p>
+                            </div>
+                        `;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching recent cases:', error);
+                    if (pageNum === 1) {
+                        loadingIndicator.remove();
+                        errorMessage.classList.remove('hidden');
+                    } else {
+                        loadMoreButton.disabled = false;
+                        loadMoreButton.innerHTML = 'Load More';
+                    }
+                });
+        }
+
+        // Initial load
+        fetchCases(page);
+
+        // Load more button handler
+        loadMoreButton.addEventListener('click', function () {
+            this.disabled = true;
+            this.innerHTML = '<span class="loading loading-spinner loading-xs mr-1"></span> Loading...';
+            page++;
+            fetchCases(page);
+        });
+    }
+
+    // Render cases from API data
+    function renderCases(cases) {
+        return cases.map(caseItem => `
+            <div class="card bg-base-100 shadow-sm hover:shadow-md transition-shadow">
+                <div class="card-body p-3">
+                    <h3 class="card-title text-base">
+                        <a href="/case/${caseItem.id}" class="link link-primary">${caseItem.name}</a>
+                    </h3>
+                    <div class="text-xs opacity-70">${caseItem.court}</div>
+                    <div class="text-xs opacity-60">${formatDate(caseItem.date)}</div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Load recent cases on page load
+    document.addEventListener('DOMContentLoaded', loadRecentCases);
+</script>
+{% endblock %}
