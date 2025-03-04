@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+
 @plugin "daisyui" {
     themes: retro --default, forest --prefersdark;
-  }
-/* Custom styles for OS Legal Explorer */
+}
