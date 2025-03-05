@@ -1,159 +1,181 @@
 {% extends "base.html" %}
 
+{% block extra_head %}
+<style>
+    /* Override the main element's container settings for index page */
+    main.container {
+        max-width: 100vw !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+
+    #main-content {
+        box-sizing: border-box !important;
+        width: 100vw !important;
+        padding-left: 4rem !important;
+        padding-right: 4rem !important;
+    }
+</style>
+{% endblock %}
+
 {% block title %}OS Legal Explorer - Search and Explore Legal Cases{% endblock %}
 
 {% block content %}
-<!-- Search Section -->
-<div class="mb-12 relative">
-    <div class="flex flex-col md:flex-row gap-4 items-center">
-        <!-- Search Box with Buttons -->
-        <div class="relative w-full">
-            <form id="search-form" class="flex w-full border rounded-lg shadow-sm overflow-visible h-16"
-                hx-get="/api/search" hx-trigger="submit, input[target='#search-input'] delay:500ms"
-                hx-include=".search-filter" hx-target="#search-dropdown" hx-swap="innerHTML"
-                hx-headers='{"Accept": "text/html"}' hx-indicator="#search-indicator">
-                <div class="flex items-center pl-3 text-gray-500">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                </div>
-                <!-- Search Input -->
-                <div class="relative flex-grow">
-                    <input type="text" id="search-input" name="q"
-                        class="input border-0 w-full focus:outline-none h-full text-xl search-filter"
-                        placeholder="Search by case name, citation, or keywords..." />
-                </div>
-
-                <!-- Filter Buttons and Search Button -->
-                <div class="flex items-center gap-2 pr-2">
-                    <!-- Year Filter -->
-                    <div class="dropdown dropdown-end">
-                        <button type="button" class="btn btn-ghost btn-sm h-full" tabindex="0">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
-                            <span class="ml-1">Year</span>
-                        </button>
-                        <!-- Year Filter Dropdown Content -->
-                        <div tabindex="0" class="dropdown-content z-[1] menu p-4 shadow bg-base-100 rounded-box w-52">
-                            <div class="form-control">
-                                <label class="label">
-                                    <span class="label-text">From</span>
-                                </label>
-                                <input type="number" name="year_from" class="input input-bordered w-full search-filter"
-                                    placeholder="Start year" />
-                            </div>
-                            <div class="form-control mt-2">
-                                <label class="label">
-                                    <span class="label-text">To</span>
-                                </label>
-                                <input type="number" name="year_to" class="input input-bordered w-full search-filter"
-                                    placeholder="End year" />
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Courts Filter -->
-                    <div class="dropdown dropdown-end">
-                        <button type="button" class="btn btn-ghost btn-sm h-full" tabindex="0">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                            </svg>
-                            <span class="ml-1">Courts</span>
-                        </button>
-                        <!-- Courts Filter Dropdown Content -->
-                        <div tabindex="0" class="dropdown-content z-[1] menu p-4 shadow bg-base-100 rounded-box w-64">
-                            <div class="mb-2 font-semibold">Select Courts</div>
-                            <div class="max-h-60 overflow-y-auto mb-4">
-                                <div class="form-control">
-                                    <label class="label cursor-pointer justify-start">
-                                        <input type="checkbox" class="checkbox checkbox-primary search-filter"
-                                            name="court" value="all" checked />
-                                        <span class="label-text ml-2">All Courts</span>
-                                    </label>
-                                </div>
-                                <div class="form-control">
-                                    <label class="label cursor-pointer justify-start">
-                                        <input type="checkbox"
-                                            class="checkbox checkbox-primary search-filter court-option" name="court"
-                                            value="supreme_court" />
-                                        <span class="label-text ml-2">Supreme Court</span>
-                                    </label>
-                                </div>
-                                <div class="form-control">
-                                    <label class="label cursor-pointer justify-start">
-                                        <input type="checkbox"
-                                            class="checkbox checkbox-primary search-filter court-option" name="court"
-                                            value="circuit_courts" />
-                                        <span class="label-text ml-2">Circuit Courts of Appeals</span>
-                                    </label>
-                                </div>
-                                <div class="form-control">
-                                    <label class="label cursor-pointer justify-start">
-                                        <input type="checkbox"
-                                            class="checkbox checkbox-primary search-filter court-option" name="court"
-                                            value="district_courts" />
-                                        <span class="label-text ml-2">District Courts</span>
-                                    </label>
-                                </div>
-                                <div class="form-control">
-                                    <label class="label cursor-pointer justify-start">
-                                        <input type="checkbox"
-                                            class="checkbox checkbox-primary search-filter court-option" name="court"
-                                            value="state_supreme_courts" />
-                                        <span class="label-text ml-2">State Supreme Courts</span>
-                                    </label>
-                                </div>
-                                <div class="form-control">
-                                    <label class="label cursor-pointer justify-start">
-                                        <input type="checkbox"
-                                            class="checkbox checkbox-primary search-filter court-option" name="court"
-                                            value="state_appellate_courts" />
-                                        <span class="label-text ml-2">State Appellate Courts</span>
-                                    </label>
-                                </div>
-                                <div class="form-control">
-                                    <label class="label cursor-pointer justify-start">
-                                        <input type="checkbox"
-                                            class="checkbox checkbox-primary search-filter court-option" name="court"
-                                            value="specialized_courts" />
-                                        <span class="label-text ml-2">Specialized Courts</span>
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="flex justify-end">
-                                <button type="button" class="btn btn-sm reset-filters">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none"
-                                        viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                    </svg>
-                                    Reset
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <button type="submit" class="btn btn-primary h-full px-6" id="search-button">
+<!-- Search Section inside its own container -->
+<div class="container mx-auto px-4">
+    <div class="mb-0 relative">
+        <div class="flex flex-col md:flex-row gap-4 items-center">
+            <!-- Search Box with Buttons -->
+            <div class="relative w-full">
+                <form id="search-form" class="flex w-full border rounded-lg shadow-sm overflow-visible h-16"
+                    hx-get="/api/search" hx-trigger="submit, input[target='#search-input'] delay:500ms"
+                    hx-include=".search-filter" hx-target="#search-dropdown" hx-swap="innerHTML"
+                    hx-headers='{"Accept": "text/html"}' hx-indicator="#search-indicator">
+                    <div class="flex items-center pl-3 text-gray-500">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                         </svg>
-                        <span class="ml-2">Search</span>
-                    </button>
-                </div>
-            </form>
+                    </div>
+                    <!-- Search Input -->
+                    <div class="relative flex-grow">
+                        <input type="text" id="search-input" name="q"
+                            class="input border-0 w-full focus:outline-none h-full text-xl search-filter"
+                            placeholder="Search by case name, citation, or keywords..." />
+                    </div>
 
-            <div class="absolute right-28 top-5">
-                <div id="search-indicator" class="htmx-indicator">
-                    <span class="loading loading-spinner loading-sm text-primary"></span>
+                    <!-- Filter Buttons and Search Button -->
+                    <div class="flex items-center gap-2 pr-2">
+                        <!-- Year Filter -->
+                        <div class="dropdown dropdown-end">
+                            <button type="button" class="btn btn-ghost btn-sm h-full" tabindex="0">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
+                                <span class="ml-1">Year</span>
+                            </button>
+                            <!-- Year Filter Dropdown Content -->
+                            <div tabindex="0"
+                                class="dropdown-content z-[1] menu p-4 shadow bg-base-100 rounded-box w-52">
+                                <div class="form-control">
+                                    <label class="label">
+                                        <span class="label-text">From</span>
+                                    </label>
+                                    <input type="number" name="year_from"
+                                        class="input input-bordered w-full search-filter" placeholder="Start year" />
+                                </div>
+                                <div class="form-control mt-2">
+                                    <label class="label">
+                                        <span class="label-text">To</span>
+                                    </label>
+                                    <input type="number" name="year_to"
+                                        class="input input-bordered w-full search-filter" placeholder="End year" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Courts Filter -->
+                        <div class="dropdown dropdown-end">
+                            <button type="button" class="btn btn-ghost btn-sm h-full" tabindex="0">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                </svg>
+                                <span class="ml-1">Courts</span>
+                            </button>
+                            <!-- Courts Filter Dropdown Content -->
+                            <div tabindex="0"
+                                class="dropdown-content z-[1] menu p-4 shadow bg-base-100 rounded-box w-64">
+                                <div class="mb-2 font-semibold">Select Courts</div>
+                                <div class="max-h-60 overflow-y-auto mb-4">
+                                    <div class="form-control">
+                                        <label class="label cursor-pointer justify-start">
+                                            <input type="checkbox" class="checkbox checkbox-primary search-filter"
+                                                name="court" value="all" checked />
+                                            <span class="label-text ml-2">All Courts</span>
+                                        </label>
+                                    </div>
+                                    <div class="form-control">
+                                        <label class="label cursor-pointer justify-start">
+                                            <input type="checkbox"
+                                                class="checkbox checkbox-primary search-filter court-option"
+                                                name="court" value="supreme_court" />
+                                            <span class="label-text ml-2">Supreme Court</span>
+                                        </label>
+                                    </div>
+                                    <div class="form-control">
+                                        <label class="label cursor-pointer justify-start">
+                                            <input type="checkbox"
+                                                class="checkbox checkbox-primary search-filter court-option"
+                                                name="court" value="circuit_courts" />
+                                            <span class="label-text ml-2">Circuit Courts of Appeals</span>
+                                        </label>
+                                    </div>
+                                    <div class="form-control">
+                                        <label class="label cursor-pointer justify-start">
+                                            <input type="checkbox"
+                                                class="checkbox checkbox-primary search-filter court-option"
+                                                name="court" value="district_courts" />
+                                            <span class="label-text ml-2">District Courts</span>
+                                        </label>
+                                    </div>
+                                    <div class="form-control">
+                                        <label class="label cursor-pointer justify-start">
+                                            <input type="checkbox"
+                                                class="checkbox checkbox-primary search-filter court-option"
+                                                name="court" value="state_supreme_courts" />
+                                            <span class="label-text ml-2">State Supreme Courts</span>
+                                        </label>
+                                    </div>
+                                    <div class="form-control">
+                                        <label class="label cursor-pointer justify-start">
+                                            <input type="checkbox"
+                                                class="checkbox checkbox-primary search-filter court-option"
+                                                name="court" value="state_appellate_courts" />
+                                            <span class="label-text ml-2">State Appellate Courts</span>
+                                        </label>
+                                    </div>
+                                    <div class="form-control">
+                                        <label class="label cursor-pointer justify-start">
+                                            <input type="checkbox"
+                                                class="checkbox checkbox-primary search-filter court-option"
+                                                name="court" value="specialized_courts" />
+                                            <span class="label-text ml-2">Specialized Courts</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="flex justify-end">
+                                    <button type="button" class="btn btn-sm reset-filters">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none"
+                                            viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                        </svg>
+                                        Reset
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary h-full px-6" id="search-button">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                            <span class="ml-2">Search</span>
+                        </button>
+                    </div>
+                </form>
+
+                <div class="absolute right-28 top-5">
+                    <div id="search-indicator" class="htmx-indicator">
+                        <span class="loading loading-spinner loading-sm text-primary"></span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -162,19 +184,17 @@
     <div id="search-dropdown" class="relative z-50"></div>
 </div>
 
-<!-- Main Content Area -->
-<div id="main-content" class="w-full">
-    <div class="container mx-auto px-4 py-8">
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <!-- Left Column: Citation Network -->
-            <div class="lg:col-span-2">
-                {% include "components/citation_network.html" %}
-            </div>
+<!-- Main Content Area (Full-Width via parent's override) -->
+<div id="main-content" class="px-16 py-8">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Left Column: Citation Network -->
+        <div class="lg:col-span-2">
+            {% include "components/citation_network.html" %}
+        </div>
 
-            <!-- Right Column: Case Detail Card -->
-            <div class="lg:col-span-1">
-                {% include "components/case_detail_card.html" %}
-            </div>
+        <!-- Right Column: Case Detail Card -->
+        <div class="lg:col-span-1">
+            {% include "components/case_detail_card.html" %}
         </div>
     </div>
 </div>
