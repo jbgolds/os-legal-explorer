@@ -101,6 +101,13 @@
                                     <option value="CAUTION">Caution</option>
                                 </select>
                             </div>
+                            <div class="form-control mt-2">
+                                <label class="label cursor-pointer">
+                                    <span class="label-text">Enable Clustering</span>
+                                    <input type="checkbox" id="clusteringToggle" class="toggle toggle-primary"
+                                        checked />
+                                </label>
+                            </div>
                         </div>
                         <span class="text-xs">Filter</span>
                     </div>
@@ -127,42 +134,50 @@
         console.log("Citation network component: Initializing network for cluster ID {{ cluster_id }}");
 
         // Initialize with default settings
-        renderCitationNetwork(containerId, apiEndpoint);
+        renderCitationNetwork(containerId, apiEndpoint, {
+            enableClustering: true,
+            clusteringStrength: 0.2
+        });
+
+        // Function to update the visualization with current filters
+        function updateVisualization() {
+            const depthFilter = document.getElementById('depthFilter');
+            const treatmentFilter = document.getElementById('treatmentFilter');
+            const clusteringToggle = document.getElementById('clusteringToggle');
+
+            const depth = depthFilter ? depthFilter.value : '1';
+            const treatment = treatmentFilter ? treatmentFilter.value : '';
+            const enableClustering = clusteringToggle ? clusteringToggle.checked : false;
+
+            // Build the endpoint URL with filters
+            let updatedEndpoint = `/api/opinion/{{ cluster_id }}/citation-network/filtered?depth=${depth}`;
+            if (treatment) {
+                updatedEndpoint += `&treatment=${treatment}`;
+            }
+
+            // Render with current options
+            renderCitationNetwork(containerId, updatedEndpoint, {
+                enableClustering: enableClustering,
+                clusteringStrength: 0.2 // Slightly stronger than default when explicitly enabled
+            });
+        }
 
         // Handle depth filter changes
         const depthFilter = document.getElementById('depthFilter');
         if (depthFilter) {
-            depthFilter.addEventListener('change', function () {
-                const depth = this.value;
-                const treatmentFilter = document.getElementById('treatmentFilter');
-                const treatment = treatmentFilter ? treatmentFilter.value : '';
-
-                // Update visualization with new depth
-                let updatedEndpoint = `/api/opinion/{{ cluster_id }}/citation-network/filtered?depth=${depth}`;
-                if (treatment) {
-                    updatedEndpoint += `&treatment=${treatment}`;
-                }
-
-                renderCitationNetwork(containerId, updatedEndpoint);
-            });
+            depthFilter.addEventListener('change', updateVisualization);
         }
 
         // Handle treatment filter changes
         const treatmentFilter = document.getElementById('treatmentFilter');
         if (treatmentFilter) {
-            treatmentFilter.addEventListener('change', function () {
-                const treatment = this.value;
-                const depthFilter = document.getElementById('depthFilter');
-                const depth = depthFilter ? depthFilter.value : '1';
+            treatmentFilter.addEventListener('change', updateVisualization);
+        }
 
-                // Update visualization with new treatment filter
-                let updatedEndpoint = `/api/opinion/{{ cluster_id }}/citation-network/filtered?depth=${depth}`;
-                if (treatment) {
-                    updatedEndpoint += `&treatment=${treatment}`;
-                }
-
-                renderCitationNetwork(containerId, updatedEndpoint);
-            });
+        // Handle clustering toggle
+        const clusteringToggle = document.getElementById('clusteringToggle');
+        if (clusteringToggle) {
+            clusteringToggle.addEventListener('change', updateVisualization);
         }
 
         // Handle zoom buttons using D3's zoom behavior
@@ -209,15 +224,7 @@
                 }
             } else {
                 // Fallback: re-render the network with current filters
-                const depth = depthFilter.value;
-                const treatment = treatmentFilter.value;
-
-                let updatedEndpoint = `/api/opinion/{{ cluster_id }}/citation-network/filtered?depth=${depth}`;
-                if (treatment) {
-                    updatedEndpoint += `&treatment=${treatment}`;
-                }
-
-                renderCitationNetwork(containerId, updatedEndpoint);
+                updateVisualization();
             }
         });
     });

@@ -47,7 +47,8 @@
 
 /* Link styling */
 .links line {
-    stroke-opacity: 0.7;
+    stroke-opacity: 0.6;
+    cursor: pointer;
     transition: stroke-opacity 0.2s ease, stroke-width 0.2s ease;
 }
 
@@ -79,10 +80,35 @@
 
 /* Loading state */
 .network-loading {
-    padding: 30px;
-    text-align: center;
-    font-family: Arial, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
     color: #666;
+}
+
+/* Details panel styles */
+.network-details-panel {
+    color: #333;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.network-details-panel h3 {
+    border-bottom: 1px solid #eee;
+    padding-bottom: 8px;
+}
+
+.network-details-panel h4 {
+    color: #555;
+}
+
+.network-details-panel a:hover {
+    text-decoration: underline;
+}
+
+.details-close-btn:hover {
+    color: #f44336;
 }
 
 /* Responsive adjustments */
@@ -97,5 +123,11 @@
 
     .node-labels text {
         font-size: 8px;
+    }
+
+    .network-details-panel {
+        max-width: 90% !important;
+        left: 5% !important;
+        right: 5% !important;
     }
 }
