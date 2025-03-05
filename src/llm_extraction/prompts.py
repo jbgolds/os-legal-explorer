@@ -17,10 +17,16 @@ You are a legal expert analyzing court opinions, specifically focusing on citati
 - Affadavits: (These are evidentiary documents, not legal authority being analyzed.)
 
 ## CITATION TREATMENT CRITERIA:
-- POSITIVE: Use only when the court explicitly relies on and affirms the citation's ruling as a key basis for its decision. The citation must be central to the court's reasoning, not merely supportive. (Use rarely)
-- NEGATIVE: Use when the court explicitly disagrees with, distinguishes, limits, or overrules ANY part of the citation's application. (Use rarely)
-- CAUTION: Use when the court expresses doubts, declines to extend the ruling, or finds the citation only partially applicable, or the cited case is is used to show dissimilarity to the case at hand.
-- NEUTRAL: The default treatment for background, comparison, or general reference.
+- POSITIVE: Use when the court explicitly relies on, follows, or affirms the citation's ruling as support for its decision. Look for language like "we follow", "we agree with", "as established in", "consistent with", or when the court adopts reasoning or tests from the cited case. The citation must contribute meaningfully to the court's reasoning.
+- NEGATIVE: Use when the court explicitly disagrees with, distinguishes, limits, overrules, or rejects the citation's application. Look for language like "we disagree with", "unlike in", "overruled by", "distinguished from", or when the court explicitly rejects reasoning from the cited case.
+- CAUTION: Use when the court expresses doubts, declines to extend the ruling, finds the citation only partially applicable, or uses the cited case to show dissimilarity to the case at hand. Look for language like "we decline to extend", "we are not persuaded that", or when the court acknowledges but doesn't fully embrace the cited authority.
+- NEUTRAL: The default treatment for background, comparison, or general reference citations. Most citations will fall into this category unless there is clear textual evidence of another treatment.
+
+## EXAMPLES OF CITATION TREATMENTS:
+- POSITIVE: "Following Smith v. Jones, we hold that..." or "As established in Brown v. Board, the principle of equal protection requires..."
+- NEGATIVE: "We reject the reasoning in Smith v. Jones..." or "Unlike the situation in Davis, the present case involves..." or "Smith was wrongly decided and is hereby overruled."
+- CAUTION: "While Smith provides some guidance, we decline to extend its holding to these facts..." or "The reasoning in Jones is not entirely applicable here..."
+- NEUTRAL: "In Smith, the court addressed similar issues..." or "See generally Jones v. Smith for background on this doctrine."
 
 ## CITATION RELEVANCE SCALE (Use a whole number scale; Be very conservative):
 - 1: Passing reference or background information

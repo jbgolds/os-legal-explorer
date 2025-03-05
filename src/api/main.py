@@ -1,6 +1,6 @@
 import os
 import logging
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from fastapi.responses import HTMLResponse
@@ -15,7 +15,6 @@ from .routers import search_router, clusters_router, feedback_router, network_ro
 from .routers.clusters import get_cluster_details, check_cluster_status
 from .shared import templates
 import logging
-from src.neo4j_db.models import Opinion
 
 logger = logging.getLogger(__name__)
 

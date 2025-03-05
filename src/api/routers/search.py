@@ -87,23 +87,6 @@ class SearchResponse(BaseModel):
     results: List[SearchResult]
 
 
-class RecentCase(BaseModel):
-    id: str
-    name: str
-    court_name: str
-    date_filed: Optional[datetime] = None
-    docket_number: Optional[str] = None
-    citation: Optional[str] = None
-    snippet: Optional[str] = None
-
-
-class RecentCasesResponse(BaseModel):
-    count: int
-    results: List[RecentCase]
-    next: Optional[str] = None
-    previous: Optional[str] = None
-
-
 # CourtListener API endpoint
 COURTLISTENER_API_URL = "https://www.courtlistener.com/api/rest/v4/search/"
 COURTLISTENER_API_KEY = os.getenv(
@@ -260,80 +243,4 @@ async def search_cases(
         )
     except Exception as e:
         logger.error(f"Unexpected error during search: {e}", traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
-
-
-# Recent cases endpoint
-@router.get("/recent-cases", response_model=RecentCasesResponse)
-async def get_recent_cases(
-    limit: int = Query(10, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-):
-    """
-    Get a list of recent court cases.
-
-    Parameters:
-    - limit: Number of cases to return (default: 10, max: 100)
-    - offset: Offset for pagination (default: 0)
-    """
-    try:
-        # TODO: Implement Neo4j query to fetch recent cases
-        # For now, we'll use the CourtListener API as a temporary solution
-
-        # Make request to CourtListener API
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                COURTLISTENER_API_URL,
-                params={
-                    "type": "o",  # opinions
-                    "order_by": "-dateFiled",
-                    "page_size": limit,
-                    "page": (offset // limit) + 1 if limit > 0 else 1,
-                },
-                headers=(
-                    {"Authorization": f"Token {COURTLISTENER_API_KEY}"}
-                    if COURTLISTENER_API_KEY
-                    else {}
-                ),
-                timeout=30.0,
-            )
-
-            # Check for errors
-            response.raise_for_status()
-            data = response.json()
-
-            # Transform response to our format
-            results = []
-            for item in data.get("results", []):
-                case = RecentCase(
-                    id=item.get("id", ""),
-                    name=item.get("caseName", ""),
-                    court_name=item.get("court", {}).get("fullName", ""),
-                    date_filed=item.get("dateFiled"),
-                    docket_number=item.get("docketNumber", ""),
-                    citation=item.get("citation", ""),
-                    snippet=item.get("snippet", ""),
-                )
-                results.append(case)
-
-            return RecentCasesResponse(
-                count=data.get("count", 0),
-                results=results,
-                next=data.get("next"),
-                previous=data.get("previous"),
-            )
-
-    except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error fetching recent cases: {e}")
-        raise HTTPException(
-            status_code=e.response.status_code,
-            detail=f"Error from CourtListener API: {e.response.text}",
-        )
-    except httpx.RequestError as e:
-        logger.error(f"Request error fetching recent cases: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Error connecting to CourtListener API: {str(e)}"
-        )
-    except Exception as e:
-        logger.error(f"Unexpected error fetching recent cases: {e}")
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
