@@ -54,6 +54,9 @@ class ExtractionConfig(BaseModel):
     include_metadata: bool = Field(
         True, description="Include opinion metadata in extraction"
     )
+    single_cluster_id: Optional[int] = Field(
+        None, description="Process a single cluster by ID"
+    )
 
     @validator("limit")
     def validate_limit(cls, v):

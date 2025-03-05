@@ -37,7 +37,7 @@
             <div class="navbar-end">
                 <a href="/about" class="btn btn-ghost">About</a>
                 <a href="/feedback" class="btn btn-ghost">Feedback</a>
-                <a href="https://github.com/your-repo/os-legal-explorer" class="btn btn-ghost" aria-label="GitHub">
+                <a href="https://github.com/jbgolds" class="btn btn-ghost" aria-label="GitHub">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                         class="feather feather-github">
@@ -57,8 +57,9 @@
 
     <!-- Footer -->
     <div
-        style="position: fixed; bottom: 2px; right: 2px; z-index: 10; font-size: 0.6rem; text-align: right; font-family: serif; color: rgba(100, 100, 100, 0.5); padding: 3px;">
-        <div>Version: <span style="font-family: monospace;">{{ git_version }}</span></div>
+        style="position: fixed; bottom: 2px; left: 2px; z-index: 10; font-size: 0.6rem; text-align: right; font-family: serif; color: rgba(100, 100, 100, 0.5); padding: 3px;">
+        <!-- Force left alignment -->
+        <div style="text-align: left;">Build: <span style="font-family: monospace;">{{ git_version }}</span></div>
         <div>Made with ❤️ in Manhattan</div>
     </div>
 

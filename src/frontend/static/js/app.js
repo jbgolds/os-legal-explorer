@@ -177,10 +177,21 @@ async function loadClusterDetails(clusterId) {
     }
 }
 
-/**
- * Load citation network for a case
- * @param {string} caseId - ID of the case
- */
+// Add a function to process a cluster via the new API endpoint
+async function processCluster(clusterId) {
+    try {
+        const response = await fetch(`/api/pipeline/process-cluster/${clusterId}`, { method: 'POST' });
+        if (!response.ok) {
+            throw new Error('Failed to trigger cluster processing');
+        }
+        const data = await response.json();
+        createAlert('Cluster processing started.', 'success');
+    } catch (e) {
+        createAlert(e.message, 'error');
+    }
+}
+
+// Modify loadCitationNetwork to show a 'Process Cluster' button when loading fails
 function loadCitationNetwork(caseId) {
     const citationMap = document.getElementById('citation-map');
     if (!citationMap) return;
@@ -198,11 +209,19 @@ function loadCitationNetwork(caseId) {
                 try {
                     // Use the API utility function to get network data
                     const networkData = await getCitationNetwork(caseId);
-                    module.renderCitationNetwork(networkData, 'citation-map');
+                    module.renderCitationNetwork(networkData, 'citation-map', { clusterId: caseId });
                     citationMap.dataset.loaded = caseId;
                 } catch (error) {
                     console.error('Error fetching citation network data:', error);
-                    citationMap.innerHTML = '<div class="flex justify-center items-center h-full"><p>Failed to load citation network data.</p></div>';
+                    citationMap.innerHTML = `
+                        <div class="flex justify-center items-center h-full">
+                            <div class="text-center">
+                                <p class="text-xl font-bold">Failed to load citation network data.</p>
+                                <p class="text-gray-500">${error.message || 'No data available.'}</p>
+                                <button class="btn btn-sm btn-outline mt-4" onclick="processCluster(${caseId})">Process Cluster</button>
+                            </div>
+                        </div>
+                    `;
                 }
             } else {
                 console.error('Citation map module does not export renderCitationNetwork function');
@@ -210,10 +229,17 @@ function loadCitationNetwork(caseId) {
         })
         .catch(error => {
             console.error('Error loading citation map module:', error);
-            citationMap.innerHTML = '<div class="flex justify-center items-center h-full"><p>Failed to load citation network visualization.</p></div>';
+            citationMap.innerHTML = `
+                <div class="flex justify-center items-center h-full">
+                    <div class="text-center">
+                        <p class="text-xl font-bold">Failed to load citation network visualization.</p>
+                        <p class="text-gray-500">${error.message || 'Visualization error.'}</p>
+                        <button class="btn btn-sm btn-outline mt-4" onclick="processCluster(${caseId})">Process Cluster</button>
+                    </div>
+                </div>
+            `;
         });
 }
-
 
 // Check if we're on a case detail page and load the case
 document.addEventListener('DOMContentLoaded', () => {

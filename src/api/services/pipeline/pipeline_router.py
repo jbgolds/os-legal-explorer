@@ -18,10 +18,10 @@ from ...database import get_db, get_neo4j
 from .pipeline_model import (
     PipelineStatus,
     PipelineJob,
-    PipelineResult,
     ExtractionConfig,
 )
 from . import pipeline_service
+from .pipeline_single_cluster_ import process_single_cluster
 
 router = APIRouter(
     prefix="/api/pipeline",
@@ -58,7 +58,7 @@ async def extract_opinions(
     Returns:
         Job ID for tracking the extraction process
     """
-    job_id = pipeline_service.create_job(db, "extract", config.dict())
+    job_id = pipeline_service.create_job(db, "extract", config.model_dump())
 
     background_tasks.add_task(pipeline_service.run_extraction_job, db, job_id, config)
 
@@ -294,7 +294,7 @@ async def run_full_pipeline(
         List of job IDs for each step in the pipeline
     """
     # Create jobs for each step
-    extraction_job_id = pipeline_service.create_job(db, "extract", config.dict())
+    extraction_job_id = pipeline_service.create_job(db, "extract", config.model_dump())
     llm_job_id = pipeline_service.create_job(
         db, "llm_process", {"extraction_job_id": extraction_job_id}
     )
@@ -323,3 +323,36 @@ async def run_full_pipeline(
         {"job_id": resolution_job_id, "status": "queued"},
         {"job_id": neo4j_job_id, "status": "queued"},
     ]
+
+
+@router.post(
+    "/process-cluster/{cluster_id}",
+    response_model=dict,
+)
+async def process_single_cluster_endpoint(
+    cluster_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    neo4j_session=Depends(get_neo4j),
+):
+    """
+    Process a single cluster through the full pipeline.
+
+    This endpoint will extract the cluster, process it with LLM,
+    resolve citations, and load them into Neo4j.
+
+    This endpoint is publicly accessible without an API key.
+
+    Args:
+        cluster_id: ID of the cluster to process
+
+    Returns:
+        List of job IDs for each step in the pipeline
+    """
+    # Create a custom extraction config for this cluster
+
+    process_single_cluster(db, neo4j_session, cluster_id)
+    # Create jobs for each step
+
+    # return HTTP status code accepted
+    return {"message": "Cluster processing started"}

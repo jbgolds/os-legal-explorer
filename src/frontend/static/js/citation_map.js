@@ -71,13 +71,20 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
         })
         .then(data => {
             console.log(`Citation network data received: ${data.nodes.length} nodes, ${data.links.length} links`);
-
+            if (data.nodes.length === 1 && data.links.length === 0) {
+                console.error('Only one node found with no citation relationships.');
+                let processButton = options.clusterId ?
+                    `<button class="btn btn-sm btn-outline mt-4" onclick="processCluster(${options.clusterId})">Process Citations</button>` :
+                    `<button class="btn btn-sm btn-outline mt-4" onclick="processCluster()">Process Citations</button>`;
+                container.html(`<div class="flex items-center justify-center h-full"><div class="text-center"><p class="text-xl font-bold text-error">Only a single node was found in the graph, with no relations.</p><p class="text-gray-500">Please process the cluster to create a citation network.</p>${processButton}</div></div>`);
+                return;
+            }
             // Clear container and create SVG
             container.html('');
 
             // If no data, show a message
             if (!data.nodes.length) {
-                container.html('<div class="flex items-center justify-center h-full"><div class="text-center"><p class="text-xl font-bold">No Citation Data</p><p class="text-gray-500">No citation network data available for this document.</p></div></div>');
+                container.html(`<div class="flex items-center justify-center h-full"><div class="text-center"><p class="text-xl font-bold">No Citation Data</p><p class="text-gray-500">No citation network data available for this document.</p></div></div>`);
                 return;
             }
 
@@ -400,7 +407,7 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                     .on('end', dragended))
                 .on('click', function (event, d) {
                     event.stopPropagation(); // Prevent click from propagating to SVG
-                    showNodeDetails(d, event);
+                    showDetails(d, event);
                 });
 
             // Add tooltips
@@ -424,6 +431,10 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                         if (d.metadata.docket_number) {
                             tooltip += `Docket: ${d.metadata.docket_number}\n`;
                         }
+                    }
+
+                    if (d.reasoning) {
+                        tooltip += `Reasoning: ${d.reasoning}\n`;
                     }
 
                     return tooltip;
@@ -458,17 +469,16 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
             // Add click event to links
             link.on('click', function (event, d) {
                 event.stopPropagation(); // Prevent click from propagating to SVG
-                showLinkDetails(d, event);
+                showDetails(d, event);
             });
 
             // Add click handler to SVG to close any open details panel
             svg.on('click', function () {
-                // Close any open details panel
                 hideDetailsPanel();
             });
 
-            // Function to show node details
-            function showNodeDetails(node, event) {
+            // Function to show details
+            function showDetails(item, event) {
                 // Remove any existing details panel
                 hideDetailsPanel();
 
@@ -503,269 +513,377 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                         hideDetailsPanel();
                     });
 
-                // Add title
-                detailsPanel.append('h3')
-                    .style('margin', '0 0 10px 0')
-                    .style('font-size', '16px')
-                    .style('font-weight', 'bold')
-                    .text('Document Details');
-
                 // Create content container
                 const content = detailsPanel.append('div');
 
-                // Add node information
-                content.append('p')
-                    .style('font-weight', 'bold')
-                    .style('margin', '10px 0 5px 0')
-                    .text(node.citation_string || 'Unknown Document');
-
-                // Add type with colored indicator
-                const typeRow = content.append('div')
-                    .style('display', 'flex')
-                    .style('align-items', 'center')
-                    .style('margin-bottom', '5px');
-
-                const docType = getNodeType(node);
-                let typeColor = config.typeColors[docType] || config.typeColors.other;
-
-                typeRow.append('span')
-                    .style('display', 'inline-block')
-                    .style('width', '12px')
-                    .style('height', '12px')
-                    .style('border-radius', '50%')
-                    .style('background-color', typeColor)
-                    .style('margin-right', '8px');
-
-                typeRow.append('span')
-                    .text(`Type: ${node.type || 'Unknown'}`);
-
-                // Add other basic information
-                if (node.court) {
-                    content.append('p')
-                        .style('margin', '5px 0')
-                        .text(`Court: ${node.court}`);
-                }
-
-                if (node.year) {
-                    content.append('p')
-                        .style('margin', '5px 0')
-                        .text(`Year: ${node.year}`);
-                }
-
-                // Add metadata section if available
-                if (node.metadata) {
-                    content.append('h4')
-                        .style('margin', '15px 0 5px 0')
-                        .style('font-size', '14px')
+                // Check if the clicked item is a link (has source and target) or a node
+                if (item.source && item.target) {
+                    // Consolidated popup for a citation link
+                    detailsPanel.insert('h3', ':first-child')
+                        .style('margin', '0 0 10px 0')
+                        .style('font-size', '16px')
                         .style('font-weight', 'bold')
-                        .text('Additional Information');
+                        .text('Citation Relationship Details');
 
-                    const metadataList = content.append('dl')
-                        .style('margin', '0')
-                        .style('padding', '0');
-
-                    // Add all available metadata
-                    Object.entries(node.metadata).forEach(([key, value]) => {
-                        if (value && typeof value !== 'object') {
-                            const formattedKey = key.replace(/_/g, ' ')
-                                .split(' ')
-                                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-                                .join(' ');
-
-                            metadataList.append('dt')
-                                .style('font-weight', 'bold')
-                                .style('margin-top', '8px')
-                                .text(formattedKey);
-
-                            metadataList.append('dd')
-                                .style('margin-left', '0')
-                                .style('margin-bottom', '5px')
-                                .text(value);
-                        }
-                    });
-                }
-
-                // Add link to view full document if ID is available
-                if (node.id) {
-                    content.append('div')
-                        .style('margin-top', '15px')
-                        .append('a')
-                        .attr('href', `/opinion/${node.id}`)
-                        .attr('target', '_blank')
-                        .style('color', '#2196F3')
-                        .style('text-decoration', 'none')
-                        .text('View Full Document →');
-                }
-            }
-
-            // Function to show link details
-            function showLinkDetails(link, event) {
-                // Remove any existing details panel
-                hideDetailsPanel();
-
-                // Create details panel
-                const detailsPanel = container.append('div')
-                    .attr('class', 'network-details-panel')
-                    .style('position', 'absolute')
-                    .style('top', '10px')
-                    .style('right', '10px')
-                    .style('background', 'white')
-                    .style('border', '1px solid #ddd')
-                    .style('border-radius', '4px')
-                    .style('padding', '12px')
-                    .style('box-shadow', '0 2px 10px rgba(0,0,0,0.1)')
-                    .style('z-index', '1000')
-                    .style('max-width', '350px')
-                    .style('max-height', '80%')
-                    .style('overflow-y', 'auto');
-
-                // Add close button
-                detailsPanel.append('div')
-                    .style('text-align', 'right')
-                    .style('margin-bottom', '8px')
-                    .append('button')
-                    .attr('class', 'details-close-btn')
-                    .style('background', 'none')
-                    .style('border', 'none')
-                    .style('cursor', 'pointer')
-                    .style('font-size', '16px')
-                    .text('×')
-                    .on('click', function () {
-                        hideDetailsPanel();
-                    });
-
-                // Add title
-                detailsPanel.append('h3')
-                    .style('margin', '0 0 10px 0')
-                    .style('font-size', '16px')
-                    .style('font-weight', 'bold')
-                    .text('Citation Relationship');
-
-                // Create content container
-                const content = detailsPanel.append('div');
-
-                // Add citation relationship
-                const relationshipRow = content.append('div')
-                    .style('display', 'flex')
-                    .style('align-items', 'center')
-                    .style('margin-bottom', '10px');
-
-                // Source document
-                relationshipRow.append('span')
-                    .style('font-weight', 'bold')
-                    .text(link.source.citation_string || link.source);
-
-                // Arrow with treatment color
-                const arrowColor = link.treatment && config.treatmentColors[link.treatment]
-                    ? config.treatmentColors[link.treatment]
-                    : '#666';
-
-                relationshipRow.append('span')
-                    .style('margin', '0 8px')
-                    .style('color', arrowColor)
-                    .style('font-weight', 'bold')
-                    .text('→');
-
-                // Target document
-                relationshipRow.append('span')
-                    .style('font-weight', 'bold')
-                    .text(link.target.citation_string || link.target);
-
-                // Add treatment if available
-                if (link.treatment) {
-                    const treatmentRow = content.append('div')
-                        .style('margin', '10px 0')
+                    // Relationship section
+                    const relationshipRow = content.append('div')
                         .style('display', 'flex')
-                        .style('align-items', 'center');
+                        .style('align-items', 'flex-start')
+                        .style('flex-wrap', 'wrap')
+                        .style('gap', '8px')
+                        .style('margin-bottom', '10px');
 
-                    treatmentRow.append('span')
-                        .style('display', 'inline-block')
-                        .style('width', '12px')
-                        .style('height', '3px')
-                        .style('background-color', arrowColor)
-                        .style('margin-right', '8px');
-
-                    treatmentRow.append('span')
-                        .text(`Treatment: ${link.treatment}`);
-                }
-
-                // Add relevance if available
-                if (link.relevance) {
-                    content.append('p')
-                        .style('margin', '5px 0')
-                        .text(`Relevance: ${link.relevance}`);
-                }
-
-                // Add metadata section if available
-                if (link.metadata) {
-                    content.append('h4')
-                        .style('margin', '15px 0 5px 0')
-                        .style('font-size', '14px')
+                    // Source document info
+                    relationshipRow.append('span')
                         .style('font-weight', 'bold')
-                        .text('Citation Details');
+                        .style('word-wrap', 'break-word')
+                        .style('overflow-wrap', 'break-word')
+                        .style('flex', '1 1 100%')
+                        .text(item.source.citation_string || item.source);
 
-                    // Citation text
-                    if (link.metadata.citation_text) {
-                        content.append('div')
+                    // Arrow with treatment color
+                    const arrowColor = item.treatment && window.renderCitationNetwork ? window.renderCitationNetwork.treatmentColors && window.renderCitationNetwork.treatmentColors[item.treatment] : '#666';
+                    relationshipRow.append('span')
+                        .style('color', arrowColor || '#666')
+                        .style('font-weight', 'bold')
+                        .style('align-self', 'center')
+                        .text('→');
+
+                    // Target document info
+                    relationshipRow.append('span')
+                        .style('font-weight', 'bold')
+                        .style('word-wrap', 'break-word')
+                        .style('overflow-wrap', 'break-word')
+                        .style('flex', '1 1 100%')
+                        .text(item.target.citation_string || item.target);
+
+                    // Add treatment details if available
+                    if (item.treatment) {
+                        const treatmentRow = content.append('div')
                             .style('margin', '10px 0')
-                            .style('padding', '8px')
-                            .style('background', '#f5f5f5')
-                            .style('border-left', '3px solid ' + arrowColor)
-                            .style('font-style', 'italic')
-                            .text(link.metadata.citation_text);
+                            .style('display', 'flex')
+                            .style('align-items', 'center');
+
+                        treatmentRow.append('span')
+                            .style('display', 'inline-block')
+                            .style('width', '12px')
+                            .style('height', '3px')
+                            .style('background-color', arrowColor || '#666')
+                            .style('margin-right', '8px');
+
+                        treatmentRow.append('span')
+                            .text(`Treatment: ${item.treatment}`);
                     }
 
-                    // Reasoning
-                    if (link.metadata.reasoning) {
+                    // Add relevance if available
+                    if (item.relevance) {
                         content.append('p')
-                            .style('margin', '10px 0 5px 0')
+                            .style('margin', '5px 0')
+                            .text(`Relevance: ${item.relevance}`);
+                    }
+
+                    // Add link metadata section if available
+                    if (item.metadata) {
+                        content.append('h4')
+                            .style('margin', '15px 0 5px 0')
+                            .style('font-size', '14px')
                             .style('font-weight', 'bold')
-                            .text('Reasoning:');
+                            .text('Citation Details');
 
-                        content.append('p')
-                            .style('margin', '0')
-                            .text(link.metadata.reasoning);
-                    }
+                        // Citation text
+                        if (item.metadata.citation_text) {
+                            content.append('div')
+                                .style('margin', '10px 0')
+                                .style('padding', '8px')
+                                .style('background', '#f5f5f5')
+                                .style('border-left', '3px solid ' + (arrowColor || '#666'))
+                                .style('font-style', 'italic')
+                                .text(item.metadata.citation_text);
+                        }
 
-                    // Add any other metadata
-                    Object.entries(link.metadata).forEach(([key, value]) => {
-                        if (value && typeof value !== 'object' &&
-                            key !== 'citation_text' && key !== 'reasoning') {
-
-                            const formattedKey = key.replace(/_/g, ' ')
-                                .split(' ')
-                                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-                                .join(' ');
+                        // Reasoning
+                        if (item.reasoning) {
+                            content.append('p')
+                                .style('margin', '10px 0 5px 0')
+                                .style('font-weight', 'bold')
+                                .text('Reasoning:');
 
                             content.append('p')
-                                .style('margin', '5px 0')
-                                .text(`${formattedKey}: ${value}`);
+                                .style('margin', '0')
+                                .text(item.reasoning);
                         }
-                    });
-                }
 
-                // Add links to view the source and target documents
-                const linksSection = content.append('div')
-                    .style('margin-top', '15px')
-                    .style('display', 'flex')
-                    .style('justify-content', 'space-between');
+                        // Other metadata
+                        Object.entries(item.metadata).forEach(([key, value]) => {
+                            if (value && typeof value !== 'object' && key !== 'citation_text' && key !== 'reasoning') {
+                                const formattedKey = key.replace(/_/g, ' ')
+                                    .split(' ')
+                                    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                                    .join(' ');
 
-                if (link.source.id) {
-                    linksSection.append('a')
-                        .attr('href', `/opinion/${link.source.id}`)
-                        .attr('target', '_blank')
-                        .style('color', '#2196F3')
-                        .style('text-decoration', 'none')
-                        .text('View Citing Document');
-                }
+                                content.append('p')
+                                    .style('margin', '5px 0')
+                                    .text(`${formattedKey}: ${value}`);
+                            }
+                        });
+                    }
 
-                if (link.target.id) {
-                    linksSection.append('a')
-                        .attr('href', `/opinion/${link.target.id}`)
-                        .attr('target', '_blank')
-                        .style('color', '#2196F3')
-                        .style('text-decoration', 'none')
-                        .text('View Cited Document');
+                    // Add Source Document Details
+                    content.append('h4')
+                        .style('margin', '15px 0 5px 0')
+                        .style('font-size', '14px')
+                        .style('font-weight', 'bold')
+                        .text('Source Document Details');
+
+                    // Source details
+                    const sourceSection = content.append('div');
+                    sourceSection.append('p')
+                        .style('font-weight', 'bold')
+                        .style('margin', '10px 0 5px 0')
+                        .style('word-wrap', 'break-word')
+                        .style('overflow-wrap', 'break-word')
+                        .style('hyphens', 'auto')
+                        .style('max-width', '100%')
+                        .text(item.source.citation_string || 'Unknown Document');
+
+                    const sourceType = (item.source.type || 'Unknown').toLowerCase();
+                    const typeRowSrc = sourceSection.append('div')
+                        .style('display', 'flex')
+                        .style('align-items', 'center')
+                        .style('margin-bottom', '5px');
+                    let sourceTypeColor = '#666';
+                    if (window.renderCitationNetwork && window.renderCitationNetwork.defaults && window.renderCitationNetwork.defaults.typeColors) {
+                        sourceTypeColor = window.renderCitationNetwork.defaults.typeColors[sourceType] || window.renderCitationNetwork.defaults.typeColors.other;
+                    }
+                    typeRowSrc.append('span')
+                        .style('display', 'inline-block')
+                        .style('width', '12px')
+                        .style('height', '12px')
+                        .style('border-radius', '50%')
+                        .style('background-color', sourceTypeColor)
+                        .style('margin-right', '8px');
+                    typeRowSrc.append('span')
+                        .text(`Type: ${item.source.type || 'Unknown'}`);
+                    if (item.source.court) {
+                        sourceSection.append('p')
+                            .style('margin', '5px 0')
+                            .text(`Court: ${item.source.court}`);
+                    }
+                    if (item.source.year) {
+                        sourceSection.append('p')
+                            .style('margin', '5px 0')
+                            .text(`Year: ${item.source.year}`);
+                    }
+                    if (item.source.metadata) {
+                        sourceSection.append('h4')
+                            .style('margin', '15px 0 5px 0')
+                            .style('font-size', '14px')
+                            .style('font-weight', 'bold')
+                            .text('Additional Information');
+                        const metadataListSrc = sourceSection.append('dl')
+                            .style('margin', '0')
+                            .style('padding', '0');
+                        Object.entries(item.source.metadata).forEach(([key, value]) => {
+                            if (value && typeof value !== 'object') {
+                                const formattedKey = key.replace(/_/g, ' ')
+                                    .split(' ')
+                                    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                                    .join(' ');
+
+                                metadataListSrc.append('dt')
+                                    .style('font-weight', 'bold')
+                                    .style('margin-top', '8px')
+                                    .text(formattedKey);
+
+                                metadataListSrc.append('dd')
+                                    .style('margin-left', '0')
+                                    .style('margin-bottom', '5px')
+                                    .text(value);
+                            }
+                        });
+                    }
+                    if (item.source.id) {
+                        sourceSection.append('div')
+                            .style('margin-top', '15px')
+                            .append('a')
+                            .attr('href', `/opinion/${item.source.id}`)
+                            .attr('target', '_blank')
+                            .style('color', '#2196F3')
+                            .style('text-decoration', 'none')
+                            .text('View Full Document →');
+                    }
+
+                    // Add Target Document Details
+                    content.append('h4')
+                        .style('margin', '15px 0 5px 0')
+                        .style('font-size', '14px')
+                        .style('font-weight', 'bold')
+                        .text('Target Document Details');
+
+                    // Target details
+                    const targetSection = content.append('div');
+                    targetSection.append('p')
+                        .style('font-weight', 'bold')
+                        .style('margin', '10px 0 5px 0')
+                        .style('word-wrap', 'break-word')
+                        .style('overflow-wrap', 'break-word')
+                        .style('hyphens', 'auto')
+                        .style('max-width', '100%')
+                        .text(item.target.citation_string || 'Unknown Document');
+
+                    const targetType = (item.target.type || 'Unknown').toLowerCase();
+                    const typeRowTgt = targetSection.append('div')
+                        .style('display', 'flex')
+                        .style('align-items', 'center')
+                        .style('margin-bottom', '5px');
+                    let targetTypeColor = '#666';
+                    if (window.renderCitationNetwork && window.renderCitationNetwork.defaults && window.renderCitationNetwork.defaults.typeColors) {
+                        targetTypeColor = window.renderCitationNetwork.defaults.typeColors[targetType] || window.renderCitationNetwork.defaults.typeColors.other;
+                    }
+                    typeRowTgt.append('span')
+                        .style('display', 'inline-block')
+                        .style('width', '12px')
+                        .style('height', '12px')
+                        .style('border-radius', '50%')
+                        .style('background-color', targetTypeColor)
+                        .style('margin-right', '8px');
+                    typeRowTgt.append('span')
+                        .text(`Type: ${item.target.type || 'Unknown'}`);
+                    if (item.target.court) {
+                        targetSection.append('p')
+                            .style('margin', '5px 0')
+                            .text(`Court: ${item.target.court}`);
+                    }
+                    if (item.target.year) {
+                        targetSection.append('p')
+                            .style('margin', '5px 0')
+                            .text(`Year: ${item.target.year}`);
+                    }
+                    if (item.target.metadata) {
+                        targetSection.append('h4')
+                            .style('margin', '15px 0 5px 0')
+                            .style('font-size', '14px')
+                            .style('font-weight', 'bold')
+                            .text('Additional Information');
+                        const metadataListTgt = targetSection.append('dl')
+                            .style('margin', '0')
+                            .style('padding', '0');
+                        Object.entries(item.target.metadata).forEach(([key, value]) => {
+                            if (value && typeof value !== 'object') {
+                                const formattedKey = key.replace(/_/g, ' ')
+                                    .split(' ')
+                                    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                                    .join(' ');
+
+                                metadataListTgt.append('dt')
+                                    .style('font-weight', 'bold')
+                                    .style('margin-top', '8px')
+                                    .text(formattedKey);
+
+                                metadataListTgt.append('dd')
+                                    .style('margin-left', '0')
+                                    .style('margin-bottom', '5px')
+                                    .text(value);
+                            }
+                        });
+                    }
+                    if (item.target.id) {
+                        targetSection.append('div')
+                            .style('margin-top', '15px')
+                            .append('a')
+                            .attr('href', `/opinion/${item.target.id}`)
+                            .attr('target', '_blank')
+                            .style('color', '#2196F3')
+                            .style('text-decoration', 'none')
+                            .text('View Full Document →');
+                    }
+                } else {
+                    // Popup for a single node
+                    detailsPanel.insert('h3', ':first-child')
+                        .style('margin', '0 0 10px 0')
+                        .style('font-size', '16px')
+                        .style('font-weight', 'bold')
+                        .text('Document Details');
+
+                    // Add node title
+                    content.append('p')
+                        .style('font-weight', 'bold')
+                        .style('margin', '10px 0 5px 0')
+                        .style('word-wrap', 'break-word')
+                        .style('overflow-wrap', 'break-word')
+                        .style('hyphens', 'auto')
+                        .style('max-width', '100%')
+                        .text(item.citation_string || 'Unknown Document');
+
+                    // Add type with colored indicator
+                    const typeRow = content.append('div')
+                        .style('display', 'flex')
+                        .style('align-items', 'center')
+                        .style('margin-bottom', '5px');
+                    const docType = (item.type || 'other').toLowerCase();
+                    let typeColor = '#607D8B';
+                    if (window.renderCitationNetwork && window.renderCitationNetwork.defaults && window.renderCitationNetwork.defaults.typeColors) {
+                        typeColor = window.renderCitationNetwork.defaults.typeColors[docType] || window.renderCitationNetwork.defaults.typeColors.other;
+                    }
+                    typeRow.append('span')
+                        .style('display', 'inline-block')
+                        .style('width', '12px')
+                        .style('height', '12px')
+                        .style('border-radius', '50%')
+                        .style('background-color', typeColor)
+                        .style('margin-right', '8px');
+                    typeRow.append('span')
+                        .text(`Type: ${item.type || 'Unknown'}`);
+
+                    if (item.court) {
+                        content.append('p')
+                            .style('margin', '5px 0')
+                            .text(`Court: ${item.court}`);
+                    }
+                    if (item.year) {
+                        content.append('p')
+                            .style('margin', '5px 0')
+                            .text(`Year: ${item.year}`);
+                    }
+                    // Add metadata section if available
+                    if (item.metadata) {
+                        content.append('h4')
+                            .style('margin', '15px 0 5px 0')
+                            .style('font-size', '14px')
+                            .style('font-weight', 'bold')
+                            .text('Additional Information');
+                        const metadataList = content.append('dl')
+                            .style('margin', '0')
+                            .style('padding', '0');
+                        Object.entries(item.metadata).forEach(([key, value]) => {
+                            if (value && typeof value !== 'object') {
+                                const formattedKey = key.replace(/_/g, ' ')
+                                    .split(' ')
+                                    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                                    .join(' ');
+
+                                metadataList.append('dt')
+                                    .style('font-weight', 'bold')
+                                    .style('margin-top', '8px')
+                                    .text(formattedKey);
+
+                                metadataList.append('dd')
+                                    .style('margin-left', '0')
+                                    .style('margin-bottom', '5px')
+                                    .text(value);
+                            }
+                        });
+                    }
+                    if (item.id) {
+                        content.append('div')
+                            .style('margin-top', '15px')
+                            .append('a')
+                            .attr('href', `/opinion/${item.id}`)
+                            .attr('target', '_blank')
+                            .style('color', '#2196F3')
+                            .style('text-decoration', 'none')
+                            .text('View Full Document →');
+                    }
                 }
             }
 
@@ -910,17 +1028,54 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
         })
         .catch(error => {
             console.error('Error fetching or rendering citation network:', error);
+            let processButton = options.clusterId ?
+                `<button class="btn btn-sm btn-outline mt-4" onclick="processCluster(${options.clusterId})">Process Citations</button>` :
+                `<button class="btn btn-sm btn-outline mt-4" onclick="processCluster()">Process Citations</button>`;
             container.html(`
                 <div class="flex items-center justify-center h-full">
                     <div class="text-center">
                         <p class="text-xl font-bold text-error">Error Loading Citation Network</p>
-                        <p class="text-gray-500">${error.message || 'Failed to load citation network data'}</p>
-                        <button class="btn btn-sm btn-outline mt-4" onclick="location.reload()">Retry</button>
+                        <p class="text-gray-500">${error.message === 'API error: 404 - Not Found' ? 'Citation network data not found, please process the cluster to create a citation network.' : (error.message || 'Failed to load BRUH network data')}</p>
+                        ${processButton}
+                        ${error.message === 'API error: 404 - Not Found' ? '' : '<button class="btn btn-sm btn-outline mt-4" onclick="location.reload()">Retry</button>'}
                     </div>
                 </div>
             `);
         });
 }
+
+// Modify processCluster function to alert immediately when processButton is clicked
+function processCluster(id) {
+    if (!id) {
+        const match = window.location.pathname.match(/^\/opinion\/([^\/]+)/);
+        id = match ? match[1] : 'default cluster';
+    }
+    alert("Processing initiated. Please refresh in 1-2 minutes.");
+    console.log("Processing cluster", id);
+    // API call to start processing the cluster
+    fetch(`/api/pipeline/process-cluster/${id}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ clusterId: id })
+    })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Server responded with ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log("Cluster starting to be processed:", data);
+            // Removed alert from here
+        })
+        .catch(error => {
+            console.error("Error processing cluster:", error);
+            alert("There was an error processing the cluster. Please try again.");
+        });
+}
+window.processCluster = processCluster;
 
 // Export the function
 window.renderCitationNetwork = renderCitationNetwork; 

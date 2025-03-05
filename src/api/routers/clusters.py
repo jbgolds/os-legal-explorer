@@ -52,7 +52,7 @@ class Cluster(BaseModel):
 
 class ClusterDetail(BaseModel):
     id: str
-    name: str
+    case_name: str
     court_name: str
     date_filed: Optional[datetime] = None
     docket_number: Optional[str] = None
@@ -219,20 +219,15 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                                 )
 
                                 # Get citation name with fallback
-                                name = (
-                                    (
-                                        cited.case_name
-                                        if hasattr(cited, "case_name")
-                                        else None
-                                    )
+                                const_cited_name = (
+                                    (hasattr(cited, "case_name") and cited.case_name)
                                     or cited.title
                                     or "Unknown Case"
                                 )
-
                                 citations.append(
                                     Citation(
                                         id=cited.primary_id or "",
-                                        name=name,
+                                        name=const_cited_name,
                                         citation=cited.citation_string,
                                         treatment=treatment,
                                     )
@@ -247,7 +242,7 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                 # Create ClusterDetail object from the data we've gathered
                 cluster_detail = ClusterDetail(
                     id=str(cluster_id),
-                    name=name,
+                    case_name=name,
                     court_name=court_name,
                     date_filed=date_filed,
                     docket_number=docket_number,
@@ -297,6 +292,7 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                 return None
 
             data = response.json()
+            logger.debug(f"CourtListener response data: {data}")
 
             # Extract citation if available
             citation = None
@@ -378,7 +374,7 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
             # Create ClusterDetail object from API response
             cluster_detail = ClusterDetail(
                 id=str(data["id"]),
-                name=data.get("case_name", "Unknown Cluster"),
+                case_name=data.get("caseName", "Unknown Case"),
                 court_name=court_name,
                 date_filed=(
                     datetime.fromisoformat(data["date_filed"])
@@ -399,7 +395,7 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                     opinion = Opinion(
                         primary_id=str(cluster_id),
                         primary_table="search_opinioncluster",
-                        case_name=data.get("case_name", "Unknown Cluster"),
+                        case_name=data.get("caseName", "Unknown Case"),
                         court_name=court_name,
                         date_filed=(
                             datetime.fromisoformat(data["date_filed"])

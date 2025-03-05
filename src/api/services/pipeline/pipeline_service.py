@@ -400,6 +400,12 @@ def run_extraction_job(db: Session, job_id: int, config: ExtractionConfig) -> No
         filters = []
         params = {}
 
+        # Check if we're processing a single cluster ID
+        if config.single_cluster_id:
+            filters.append("soc.id = %(single_cluster_id)s")
+            params["single_cluster_id"] = config.single_cluster_id
+            logger.info(f"Extracting single cluster ID: {config.single_cluster_id}")
+
         if config.court_id:
             filters.append("sd.court_id = %(court_id)s")
             params["court_id"] = config.court_id
@@ -631,7 +637,12 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
         # Load and validate LLM results
         def load_and_validate_llm_data():
             with open(llm_job["result_path"], "r", encoding="utf-8") as f:
-                llm_json = json.load(f)
+                try:
+                    llm_json = json.load(f)
+                except json.decoder.JSONDecodeError as e:
+                    raise ValueError(
+                        f"Failed to decode JSON from file {f.name}: {str(e)}"
+                    )
 
             # Create type adapters for validation
             list_adapter = TypeAdapter(List[CitationAnalysis])
