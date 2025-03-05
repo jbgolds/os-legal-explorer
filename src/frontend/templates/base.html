@@ -55,6 +55,12 @@
         {% block content %}{% endblock %}
     </main>
 
+    <!-- Footer -->
+    <div
+        style="position: fixed; bottom: 2px; right: 2px; z-index: 10; font-size: 0.6rem; text-align: right; font-family: serif; color: rgba(100, 100, 100, 0.5); padding: 3px;">
+        <div>Version: <span style="font-family: monospace;">7d6fe34</span></div>
+        <div>Made with ❤️ in Manhattan</div>
+    </div>
 
     <!-- JavaScript -->
     <script src="{{ url_for('static', path='js/utils/api.js') }}" type="module"></script>
