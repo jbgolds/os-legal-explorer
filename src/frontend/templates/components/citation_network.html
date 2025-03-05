@@ -193,38 +193,50 @@
             });
         }
 
-        // Handle zoom buttons
-        let currentScale = 1;
-        const zoomStep = 0.2;
+        // Handle zoom buttons using D3's zoom behavior
+        const zoomStep = 1.5;
 
         document.getElementById('zoomIn').addEventListener('click', function () {
-            currentScale += zoomStep;
-            applyZoom(currentScale);
+            if (window.citationNetworkState && window.citationNetworkState[containerId]) {
+                const state = window.citationNetworkState[containerId];
+                if (state.svg && state.zoom) {
+                    state.svg.transition()
+                        .duration(300)
+                        .call(state.zoom.scaleBy, zoomStep);
+                }
+            }
         });
 
         document.getElementById('zoomOut').addEventListener('click', function () {
-            currentScale = Math.max(0.2, currentScale - zoomStep);
-            applyZoom(currentScale);
+            if (window.citationNetworkState && window.citationNetworkState[containerId]) {
+                const state = window.citationNetworkState[containerId];
+                if (state.svg && state.zoom) {
+                    state.svg.transition()
+                        .duration(300)
+                        .call(state.zoom.scaleBy, 1 / zoomStep);
+                }
+            }
         });
 
         document.getElementById('resetView').addEventListener('click', function () {
-            // Reset zoom
-            currentScale = 1;
-            applyZoom(currentScale);
-
-            // Re-center the network if possible
             if (window.citationNetworkState && window.citationNetworkState[containerId]) {
                 const state = window.citationNetworkState[containerId];
-                if (state.simulation) {
-                    state.simulation.force('center', d3.forceCenter(
-                        state.svg.attr('width') / 2,
-                        state.svg.attr('height') / 2
-                    )).alpha(0.3).restart();
-                }
-            }
+                if (state.svg && state.zoom) {
+                    // Reset zoom and center
+                    state.svg.transition()
+                        .duration(500)
+                        .call(state.zoom.transform, d3.zoomIdentity);
 
-            // Or re-render the network with current filters
-            else {
+                    // Re-center the network
+                    if (state.simulation) {
+                        state.simulation.force('center', d3.forceCenter(
+                            state.svg.attr('width') / 2,
+                            state.svg.attr('height') / 2
+                        )).alpha(0.3).restart();
+                    }
+                }
+            } else {
+                // Fallback: re-render the network with current filters
                 const depth = depthFilter.value;
                 const treatment = treatmentFilter.value;
 
@@ -236,22 +248,6 @@
                 renderCitationNetwork(containerId, updatedEndpoint);
             }
         });
-
-        function applyZoom(scale) {
-            // Use D3's transform for smoother scaling with better browser support
-            if (window.citationNetworkState && window.citationNetworkState[containerId]) {
-                const svg = window.citationNetworkState[containerId].svg;
-                if (svg) {
-                    // Target all child elements to apply the zoom transformation
-                    const g = svg.selectAll('g');
-                    const width = svg.attr('width');
-                    const height = svg.attr('height');
-
-                    // Apply transform around the center point
-                    g.attr('transform', `translate(${width / 2}, ${height / 2}) scale(${scale}) translate(${-width / 2}, ${-height / 2})`);
-                }
-            }
-        }
     });
 </script>
 {% endif %}

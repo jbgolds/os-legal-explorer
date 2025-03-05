@@ -31,7 +31,8 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
             1: 1.0,   // First level fully opaque
             2: 0.7,   // Second level slightly transparent
             3: 0.4    // Third level more transparent
-        }
+        },
+        zoomExtent: [0.2, 5]      // Min and max zoom levels
     };
 
     // Merge provided options with defaults
@@ -78,7 +79,7 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                 .attr('height', config.height)
                 .attr('class', 'citation-network-svg');
 
-            // Create definitions for markers (arrows)
+            // Create definitions for markers (arrows) - at SVG level so they can be used by both network and legend
             const defs = svg.append('defs');
 
             // Add arrow markers for different treatments
@@ -109,6 +110,10 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                 .attr('d', 'M0,-5L10,0L0,5')
                 .attr('fill', '#666');
 
+            // Create a group for all network elements that will be transformed during zoom
+            const g = svg.append('g')
+                .attr('class', 'network-container');
+
             // Set up the simulation
             const simulation = d3.forceSimulation(data.nodes)
                 .force('link', d3.forceLink(data.links)
@@ -118,7 +123,7 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                 .force('center', d3.forceCenter(config.width / 2, config.height / 2));
 
             // Create links
-            const link = svg.append('g')
+            const link = g.append('g')
                 .attr('class', 'links')
                 .selectAll('line')
                 .data(data.links)
@@ -151,7 +156,7 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                 });
 
             // Create nodes
-            const node = svg.append('g')
+            const node = g.append('g')
                 .attr('class', 'nodes')
                 .selectAll('circle')
                 .data(data.nodes)
@@ -173,7 +178,7 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                     .on('end', dragended));
 
             // Add node labels
-            const nodeLabels = svg.append('g')
+            const nodeLabels = g.append('g')
                 .attr('class', 'node-labels')
                 .selectAll('text')
                 .data(data.nodes)
@@ -238,6 +243,16 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                     return tooltip;
                 });
 
+            // Define zoom behavior
+            const zoom = d3.zoom()
+                .scaleExtent(config.zoomExtent)
+                .on('zoom', (event) => {
+                    g.attr('transform', event.transform);
+                });
+
+            // Apply zoom behavior to SVG
+            svg.call(zoom);
+
             // Update node and link positions on simulation tick
             simulation.on('tick', () => {
                 link
@@ -273,7 +288,7 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                 d.fy = null;
             }
 
-            // Add legend
+            // Add legend - OUTSIDE the zoom group so it stays static
             const legend = svg.append('g')
                 .attr('class', 'legend')
                 .attr('transform', 'translate(10, 20)');
@@ -325,11 +340,12 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                 yPos += 20;
             });
 
-            // Store the simulation in a global namespace for use with zoom controls
+            // Store the simulation and zoom in a global namespace for use with zoom controls
             window.citationNetworkState = window.citationNetworkState || {};
             window.citationNetworkState[containerId] = {
                 svg: svg,
-                simulation: simulation
+                simulation: simulation,
+                zoom: zoom
             };
         })
         .catch(error => {
