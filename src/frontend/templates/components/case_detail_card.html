@@ -1,6 +1,6 @@
 <!-- Case Detail Card Component -->
-<div class="card bg-base-100 shadow-xl">
-    <div class="card-body p-4">
+<div class="card bg-base-100 shadow-xl h-full">
+    <div class="card-body p-4 flex flex-col">
         {% if case %}
         <!-- Case information when a case is selected -->
         <div class="flex justify-between items-start mb-4">
@@ -57,74 +57,75 @@
         <div class="divider my-2">Opinion Text</div>
 
         <!-- Opinion Text -->
-        {% if case.opinion_text %}
-        <div class="mt-4 overflow-y-auto max-h-96 bg-base-200 p-4 rounded-lg text-sm">
-            <pre class="whitespace-pre-wrap font-sans">{{ case.opinion_text }}</pre>
-        </div>
+        <div class="flex-grow overflow-y-auto">
+            {% if case.opinion_text %}
+            <div class="bg-base-200 p-4 rounded-lg text-sm">
+                <pre class="whitespace-pre-wrap font-sans">{{ case.opinion_text }}</pre>
+            </div>
 
-        <div class="flex justify-end mt-4">
-            <button class="btn btn-primary btn-sm" hx-get="/api/opinion/{{ case.id }}" hx-target="#main-content"
-                hx-push-url="/opinion/{{ case.id }}/" hx-swap="innerHTML">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24"
-                    stroke="currentColor">
+            <div class="flex justify-end mt-4">
+                <button class="btn btn-primary btn-sm" hx-get="/api/opinion/{{ case.id }}" hx-target="#main-content"
+                    hx-push-url="/opinion/{{ case.id }}/" hx-swap="innerHTML">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    View Full Opinion
+                </button>
+            </div>
+            {% else %}
+            <div class="alert alert-info">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                    class="stroke-current shrink-0 w-6 h-6">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                 </svg>
-                View Full Opinion
-            </button>
-        </div>
-        {% else %}
-        <div class="alert alert-info">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-                class="stroke-current shrink-0 w-6 h-6">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-            </svg>
-            <span>Opinion text is not available for this case.</span>
-        </div>
-        {% endif %}
+                <span>Opinion text is not available for this case.</span>
+            </div>
+            {% endif %}
 
-        <!-- Citations -->
-        {% if case.citations and case.citations|length > 0 %}
-        <div class="divider my-2">Citations</div>
-        <div class="overflow-x-auto">
-            <table class="table table-zebra table-sm">
-                <thead>
-                    <tr>
-                        <th>Case</th>
-                        <th>Citation</th>
-                        <th>Treatment</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for citation in case.citations %}
-                    <tr>
-                        <td>
-                            <a href="/case/{{ citation.id }}/" class="link link-hover text-primary">
-                                {{ citation.name }}
-                            </a>
-                        </td>
-                        <td>{{ citation.citation or 'N/A' }}</td>
-                        <td>
-                            {% if citation.treatment == 'positive' %}
-                            <span class="badge badge-success">Positive</span>
-                            {% elif citation.treatment == 'negative' %}
-                            <span class="badge badge-error">Negative</span>
-                            {% elif citation.treatment == 'neutral' %}
-                            <span class="badge badge-info">Neutral</span>
-                            {% else %}
-                            <span class="badge badge-ghost">Unknown</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <!-- Citations -->
+            {% if case.citations and case.citations|length > 0 %}
+            <div class="divider my-2">Citations</div>
+            <div class="overflow-x-auto">
+                <table class="table table-zebra table-sm">
+                    <thead>
+                        <tr>
+                            <th>Case</th>
+                            <th>Citation</th>
+                            <th>Treatment</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for citation in case.citations %}
+                        <tr>
+                            <td>
+                                <a href="/case/{{ citation.id }}/" class="link link-hover text-primary">
+                                    {{ citation.name }}
+                                </a>
+                            </td>
+                            <td>{{ citation.citation or 'N/A' }}</td>
+                            <td>
+                                {% if citation.treatment == 'positive' %}
+                                <span class="badge badge-success">Positive</span>
+                                {% elif citation.treatment == 'negative' %}
+                                <span class="badge badge-error">Negative</span>
+                                {% elif citation.treatment == 'neutral' %}
+                                <span class="badge badge-info">Neutral</span>
+                                {% else %}
+                                <span class="badge badge-ghost">Unknown</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
         </div>
-        {% endif %}
-
         {% elif error %}
         <!-- Error state -->
         <div class="alert alert-error">
@@ -137,7 +138,7 @@
         </div>
         {% else %}
         <!-- Empty state when no case is selected -->
-        <div class="text-center py-8">
+        <div class="text-center py-8 flex-grow flex flex-col justify-center">
             <div class="flex justify-center mb-4">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-gray-300" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
