@@ -22,10 +22,16 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
             'CAUTION': '#FF9800'     // Orange
         },
         typeColors: {
-            'opinion_cluster': '#2196F3',  // Blue for opinions
-            'statutes': '#9C27B0',         // Purple for statutes
-            'constitution': '#E91E63',     // Pink for constitutional docs
-            'default': '#607D8B'           // Default blue-gray
+            'judicial_opinion': '#2196F3',           // Blue
+            'statutes_codes_regulations': '#9C27B0', // Purple
+            'constitution': '#E91E63',               // Pink
+            'administrative_agency_ruling': '#FF5722', // Deep Orange
+            'congressional_report': '#FFC107',       // Amber
+            'external_submission': '#8BC34A',        // Light Green
+            'electronic_resource': '#00BCD4',        // Cyan
+            'law_review': '#3F51B5',                 // Indigo
+            'legal_dictionary': '#009688',           // Teal
+            'other': '#607D8B'                       // Blue Gray for any unrecognized type
         },
         depthOpacity: {
             1: 1.0,   // First level fully opaque
@@ -120,7 +126,84 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                     .id(d => d.id)
                     .distance(config.linkDistance))
                 .force('charge', d3.forceManyBody().strength(config.charge))
-                .force('center', d3.forceCenter(config.width / 2, config.height / 2));
+                .force('center', d3.forceCenter(config.width / 2, config.height / 2))
+                // Add a new force to cluster nodes of the same type/color
+                .force('cluster', forceCluster()
+                    .strength(0.5)  // Adjust strength as needed (0-1)
+                    .nodes(data.nodes)
+                    .getType(d => {
+                        // Use the same logic as for coloring to determine node type
+                        const docType = d.type.toLowerCase();
+                        // First try exact match
+                        if (config.typeColors[docType]) {
+                            return docType;
+                        }
+                        // If no exact match, try partial match for backward compatibility
+                        for (const type of Object.keys(config.typeColors)) {
+                            if (type !== 'other' && docType.includes(type)) {
+                                return type;
+                            }
+                        }
+                        // Default to 'other' if no match found
+                        return 'other';
+                    }));
+
+            // Custom force to cluster nodes of the same type
+            function forceCluster() {
+                let nodes;
+                let strength = 0.1;
+                let getType;
+                let centers = {};
+
+                function force(alpha) {
+                    // Calculate the center of mass for each type
+                    centers = {};
+                    nodes.forEach(d => {
+                        const type = getType(d);
+                        if (!centers[type]) {
+                            centers[type] = { x: 0, y: 0, count: 0 };
+                        }
+                        centers[type].x += d.x;
+                        centers[type].y += d.y;
+                        centers[type].count += 1;
+                    });
+
+                    // Calculate the average position for each type
+                    Object.keys(centers).forEach(type => {
+                        if (centers[type].count > 0) {
+                            centers[type].x /= centers[type].count;
+                            centers[type].y /= centers[type].count;
+                        }
+                    });
+
+                    // Move nodes toward their type's center of mass
+                    nodes.forEach(d => {
+                        const type = getType(d);
+                        if (centers[type] && centers[type].count > 1) {  // Only if there are multiple nodes of this type
+                            d.vx += (centers[type].x - d.x) * strength * alpha;
+                            d.vy += (centers[type].y - d.y) * strength * alpha;
+                        }
+                    });
+                }
+
+                force.initialize = function (_) {
+                    nodes = _;
+                };
+
+                force.strength = function (_) {
+                    return arguments.length ? (strength = _, force) : strength;
+                };
+
+                force.getType = function (_) {
+                    return arguments.length ? (getType = _, force) : getType;
+                };
+
+                force.nodes = function (_) {
+                    return arguments.length ? (nodes = _, force) : nodes;
+                };
+
+                return force;
+            }
 
             // Create links
             const link = g.append('g')
@@ -165,12 +248,18 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                 .attr('fill', d => {
                     // Determine color based on document type
                     const docType = d.type.toLowerCase();
+                    // First try exact match
+                    if (config.typeColors[docType]) {
+                        return config.typeColors[docType];
+                    }
+                    // If no exact match, try partial match for backward compatibility
                     for (const [type, color] of Object.entries(config.typeColors)) {
-                        if (docType.includes(type)) {
+                        if (type !== 'other' && docType.includes(type)) {
                             return color;
                         }
                     }
-                    return config.typeColors.default;
+                    // Default to 'other' if no match found
+                    return config.typeColors.other;
                 })
                 .call(d3.drag()
                     .on('start', dragstarted)
@@ -293,51 +382,107 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                 .attr('class', 'legend')
                 .attr('transform', 'translate(10, 20)');
 
-            // Document type legend
-            const typeLegend = legend.append('g').attr('class', 'type-legend');
-            let yPos = 0;
+            // Common styling variables
+            const itemHeight = 24; // Increased height between items
+            const iconSize = 10; // Size for all icons (circles and arrows)
+            const textOffset = 20; // Consistent text offset
 
-            Object.entries(config.typeColors).forEach(([type, color], i) => {
-                const legendItem = typeLegend.append('g')
+            // Add a title for the document types legend
+            legend.append('text')
+                .attr('x', 0)
+                .attr('y', 0)
+                .attr('font-weight', 'bold')
+                .text('Document Types:');
+
+            // Find the unique document types present in the data
+            const activeTypes = new Set();
+            data.nodes.forEach(node => {
+                const docType = node.type.toLowerCase();
+                if (config.typeColors[docType]) {
+                    activeTypes.add(docType);
+                } else {
+                    for (const type of Object.keys(config.typeColors)) {
+                        if (type !== 'other' && docType.includes(type)) {
+                            activeTypes.add(type);
+                            break;
+                        }
+                    }
+                    if (!Array.from(activeTypes).some(type =>
+                        type !== 'other' && docType.includes(type))) {
+                        activeTypes.add('other');
+                    }
+                }
+            });
+
+            // Convert to array and sort for consistent display
+            const typeEntries = Array.from(activeTypes)
+                .sort()
+                .map(type => [type, config.typeColors[type]]);
+
+            // Document type legend
+            let yPos = 15; // Start below the title
+            typeEntries.forEach(([type, color], i) => {
+                const legendItem = legend.append('g')
                     .attr('transform', `translate(0, ${yPos})`);
 
+                // Draw colored circle
                 legendItem.append('circle')
-                    .attr('r', 6)
+                    .attr('r', iconSize / 2)
+                    .attr('cx', iconSize / 2)
+                    .attr('cy', 0)
+                    .attr('fill', color);
+
+                // Format the type name for better readability
+                let displayName = type.split('_').map(word =>
+                    word.charAt(0).toUpperCase() + word.slice(1)
+                ).join(' ');
+
+                legendItem.append('text')
+                    .attr('x', textOffset)
+                    .attr('y', 4)
+                    .text(displayName);
+
+                yPos += itemHeight;
+            });
+
+            // Add a title for the treatment legend
+            legend.append('text')
+                .attr('x', 0)
+                .attr('y', yPos + 10)
+                .attr('font-weight', 'bold')
+                .text('Citation Treatments:');
+
+            yPos += 25; // Extra space after title
+
+            // Treatment legend
+            Object.entries(config.treatmentColors).forEach(([treatment, color], i) => {
+                const legendItem = legend.append('g')
+                    .attr('transform', `translate(0, ${yPos})`);
+
+                // Create a colored arrow
+                const arrowGroup = legendItem.append('g')
+                    .attr('transform', `translate(${iconSize / 2}, 0)`);
+
+                // Arrow line
+                arrowGroup.append('line')
+                    .attr('x1', -iconSize / 2)
+                    .attr('y1', 0)
+                    .attr('x2', iconSize / 2)
+                    .attr('y2', 0)
+                    .attr('stroke', color)
+                    .attr('stroke-width', 2);
+
+                // Arrow head
+                arrowGroup.append('polygon')
+                    .attr('points', `${iconSize / 2},0 0,-${iconSize / 4} 0,${iconSize / 4}`)
                     .attr('fill', color);
 
                 legendItem.append('text')
-                    .attr('x', 12)
-                    .attr('y', 4)
-                    .text(type.charAt(0).toUpperCase() + type.slice(1));
-
-                yPos += 20;
-            });
-
-            // Treatment legend
-            const treatmentLegend = legend.append('g')
-                .attr('class', 'treatment-legend')
-                .attr('transform', `translate(150, 0)`);
-
-            yPos = 0;
-            Object.entries(config.treatmentColors).forEach(([treatment, color], i) => {
-                const legendItem = treatmentLegend.append('g')
-                    .attr('transform', `translate(0, ${yPos})`);
-
-                legendItem.append('line')
-                    .attr('x1', 0)
-                    .attr('y1', 0)
-                    .attr('x2', 20)
-                    .attr('y2', 0)
-                    .attr('stroke', color)
-                    .attr('stroke-width', 2)
-                    .attr('marker-end', `url(#arrow-${treatment.toLowerCase()})`);
-
-                legendItem.append('text')
-                    .attr('x', 25)
+                    .attr('x', textOffset)
                     .attr('y', 4)
                     .text(treatment);
 
-                yPos += 20;
+                yPos += itemHeight;
             });
 
             // Store the simulation and zoom in a global namespace for use with zoom controls
