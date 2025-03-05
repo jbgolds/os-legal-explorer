@@ -1,12 +1,11 @@
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import logging
 from src.neo4j_db.models import Opinion, LegalDocument, CITATION_TYPE_TO_NODE_TYPE
+from src.llm_extraction.models import CitationType
 from neomodel import db
-from src.api.shared import templates
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -24,90 +23,100 @@ class NetworkNode(BaseModel):
     """Node in the citation network graph visualization."""
 
     id: str
-    label: str
     type: str  # Opinion, Statute, etc.
     year: Optional[int] = None
     court: Optional[str] = None
+    court_name: Optional[str] = None
+    case_name: Optional[str] = None
+    citation_string: Optional[str] = None
+    docket_number: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
     @classmethod
-    def from_legal_doc(cls, doc: LegalDocument) -> "NetworkNode":
+    def from_legal_doc(cls, doc: LegalDocument | Opinion) -> "NetworkNode":
         """Create a network node from a legal document."""
-        # Extract year from date_filed if available
-        year = None
-        # Safely check for date_filed attribute and handle it appropriately
-        if isinstance(doc, Opinion) and hasattr(doc, "date_filed") and doc.date_filed:
-            try:
-                # Convert to string and try to parse
-                date_str = str(doc.date_filed)
-                # Try different date formats
-                for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y"]:
-                    try:
-                        date_obj = datetime.strptime(date_str, fmt).date()
-                        year = date_obj.year
-                        break
-                    except ValueError:
-                        continue
-
-                # If we couldn't parse the date, try to extract year directly from string
-                if year is None and len(date_str) >= 4:
-                    # Try to find a 4-digit year in the string
-                    import re
-
-                    year_match = re.search(r"\b(19|20)\d{2}\b", date_str)
-                    if year_match:
-                        year = int(year_match.group(0))
-            except Exception as e:
-                logger.debug(
-                    f"Could not extract year from date: {doc.date_filed}, error: {e}"
-                )
-
-        # Create metadata dictionary with safely extracted properties
         metadata = {}
 
-        # Add primary table
-        if doc.primary_table:
-            metadata["primary_table"] = str(doc.primary_table)
+        # Extract basic fields with simple getattr calls
+        year = cls._extract_year_from_date(getattr(doc, "date_filed", None))
+        court = getattr(doc, "court_id", None)
+        court_name = getattr(doc, "court_name", None)
+        case_name = getattr(doc, "case_name", None)
+        docket_number = getattr(doc, "docket_number", None)
+        citation_string = getattr(doc, "citation_string", None)
 
-        # Add citation string
-        if doc.citation_string:
-            metadata["citation"] = str(doc.citation_string)
+        # Add basic metadata
+        for field in ["docket_id", "opinion_id", "date_filed", "primary_table"]:
+            value = getattr(doc, field, None)
+            if value:
+                metadata[field] = str(value)
 
-        # Handle Opinion-specific fields
-        if isinstance(doc, Opinion):
-            # Add case_name if available
-            if doc.case_name:
-                metadata["case_name"] = str(doc.case_name)
+        # Add additional metadata from doc.metadata if it exists
+        if hasattr(doc, "metadata") and doc.metadata:
+            try:
+                doc_metadata = doc.metadata
+                if isinstance(doc_metadata, dict):
+                    for key, value in doc_metadata.items():
+                        if key not in metadata and value is not None:
+                            metadata[key] = str(value)
+            except Exception as e:
+                logger.warning(f"Error extracting document metadata: {e}")
 
-            # Add docket_number if available
-            if doc.docket_number:
-                metadata["docket_number"] = str(doc.docket_number)
-
-        # Get court name if available (for Opinion)
-        court = None
-        if isinstance(doc, Opinion) and doc.court_name:
-            court = str(doc.court_name)
-
-        # Determine the best label to use
-        label = None
-        if isinstance(doc, Opinion) and doc.case_name:
-            label = str(doc.case_name)
-        elif hasattr(doc, "title") and doc.title:
-            label = str(doc.title)
-        else:
-            label = str(doc.citation_string) or f"Document {doc.primary_id}"
-
-        # Determine document type
-        doc_type = str(doc.primary_table) if doc.primary_table else "Unknown"
+        # Generate a node ID - use primary_id if available, otherwise use citation_string
+        doc_type = getattr(doc, "primary_table", "Unknown")
+        node_id = getattr(doc, "primary_id", None) or f"cite-{citation_string}"
 
         return cls(
-            id=str(doc.primary_id) if doc.primary_id else f"doc-{id(doc)}",
-            label=label,
-            type=doc_type,
+            id=str(node_id),
+            type=str(doc_type),
             year=year,
             court=court,
+            court_name=court_name,
+            case_name=case_name,
+            docket_number=docket_number,
+            citation_string=citation_string,
             metadata=metadata,
         )
+
+    @staticmethod
+    def _extract_year_from_date(date_value) -> Optional[int]:
+        """Extract year from a date value that could be in various formats."""
+        try:
+            # Convert to string and try to parse
+            date_str = str(date_value)
+
+            # Try different date formats
+            for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y"]:
+                try:
+                    date_obj = datetime.strptime(date_str, fmt).date()
+                    return date_obj.year
+                except ValueError:
+                    continue
+
+            # If we couldn't parse the date, try to extract year directly from string
+            if len(date_str) >= 4:
+                # Try to find a 4-digit year in the string
+                import re
+
+                year_match = re.search(r"\b(19|20)\d{2}\b", date_str)
+                if year_match:
+                    return int(year_match.group(0))
+        except Exception as e:
+            logger.debug(f"Could not extract year from date: {date_value}, error: {e}")
+
+        return None
+
+    @staticmethod
+    def _add_to_metadata_if_exists(
+        metadata: Dict,
+        doc: LegalDocument,
+        attr_name: str,
+        metadata_key: Optional[str] = None,
+    ):
+        """Add an attribute to metadata if it exists on the document."""
+        if hasattr(doc, attr_name) and getattr(doc, attr_name) is not None:
+            key = metadata_key or attr_name
+            metadata[key] = str(getattr(doc, attr_name))
 
 
 class NetworkLink(BaseModel):
@@ -117,7 +126,9 @@ class NetworkLink(BaseModel):
     target: str
     type: str = "CITES"
     treatment: Optional[str] = None
+    reasoning: Optional[str] = None
     relevance: Optional[int] = None
+    section: Optional[str] = None  # MAJORITY, DISSENTING, CONCURRING
     metadata: Optional[Dict[str, Any]] = None
 
     @staticmethod
@@ -128,27 +139,24 @@ class NetworkLink(BaseModel):
         metadata = {}
 
         # Extract properties from relationship data
-        if rel_data.get("reasoning"):
-            metadata["reasoning"] = rel_data["reasoning"]
+        for field in ["page_number", "citation_text", "data_source"]:
+            if rel_data.get(field) is not None:
+                metadata[field] = rel_data[field]
 
-        if rel_data.get("page_number") is not None:
-            metadata["page_number"] = rel_data["page_number"]
-
-        if rel_data.get("opinion_section"):
-            metadata["opinion_section"] = rel_data["opinion_section"]
-
-        if rel_data.get("citation_text"):
-            metadata["citation_text"] = rel_data["citation_text"]
-
-        if rel_data.get("data_source"):
-            metadata["data_source"] = rel_data["data_source"]
+        # Generate a target ID - use primary_id if available, otherwise use citation_string
+        target_id = (
+            getattr(target_doc, "primary_id", None)
+            or f"cite-{target_doc.citation_string}"
+        )
 
         return NetworkLink(
             source=str(source_id),
-            target=str(target_doc.primary_id),
+            target=str(target_id),
             type="CITES",
             treatment=rel_data.get("treatment"),
             relevance=rel_data.get("relevance"),
+            reasoning=rel_data.get("reasoning"),
+            section=rel_data.get("opinion_section"),
             metadata=metadata,
         )
 
@@ -205,72 +213,201 @@ async def get_network(cluster_id: str, depth: int = 1):
             f"Source document found: {source_doc.primary_id}, should match {cluster_id}"
         )
 
-        # Use Cypher to efficiently get outgoing citations with specified depth
-        query = f"""
-        MATCH path = (source:Opinion {{primary_id: $cluster_id}})-[r:CITES*1..{depth}]->(cited)
-        WITH source, relationships(path) as rels, nodes(path) as ns
-        RETURN source, rels, ns
-        """
+        # Process first level of citations directly using Neomodel
+        cited_docs = []
 
-        logger.debug(f"Executing Cypher query: {query}")
-        logger.debug(
-            f"Query parameters: {{'cluster_id': {cluster_id}, 'depth': {depth}}}"
-        )
+        # Get direct citations from the source document
+        direct_citations = source_doc.cites.all()
+        logger.info(f"Found {len(direct_citations)} direct citations")
 
-        try:
-            results, _ = db.cypher_query(
-                query, {"cluster_id": cluster_id, "depth": depth}
+        # Process each citation
+        for target_doc in direct_citations:
+            # Skip if target_doc is None or doesn't have citation_string
+            if not target_doc or not getattr(target_doc, "citation_string", None):
+                logger.warning(f"Skipping invalid target document: {target_doc}")
+                continue
+
+            # Generate a node ID - use primary_id if available, otherwise use citation_string
+            target_id = (
+                getattr(target_doc, "primary_id", None)
+                or f"cite-{target_doc.citation_string}"
             )
-            logger.info(f"Query returned {len(results)} paths")
-        except Exception as e:
-            logger.error(f"Error executing Cypher query: {e}")
-            # Return empty network rather than failing
-            return NetworkGraph(nodes=list(nodes.values()), links=[])
+            target_id = str(target_id)
 
-        # Process results
-        for row in results:
+            # Add target node if not already added
+            if target_id not in nodes:
+                try:
+                    network_node = NetworkNode.from_legal_doc(target_doc)
+                    nodes[target_id] = network_node
+                except Exception as e:
+                    logger.error(f"Error creating network node for {target_id}: {e}")
+                    continue
+
+            # Get relationship properties
             try:
-                _, relationships, path_nodes = row
+                # Get the relationship object between source_doc and target_doc
+                rel = source_doc.cites.relationship(target_doc)
 
-                # Add nodes from the path
-                for i, node in enumerate(path_nodes[1:], 1):
-                    # Convert Neo4j node to our domain model
-                    doc_label = list(node.labels)[0]  # Get the primary label
+                # Extract relationship properties
+                rel_data = {}
+                if rel:
+                    for prop in [
+                        "treatment",
+                        "relevance",
+                        "reasoning",
+                        "citation_text",
+                        "page_number",
+                        "opinion_section",
+                        "data_source",
+                    ]:
+                        value = getattr(rel, prop, None)
+                        if value is not None:
+                            rel_data[prop] = value
 
-                    if doc_label in CITATION_TYPE_TO_NODE_TYPE:
-                        node_class = CITATION_TYPE_TO_NODE_TYPE[doc_label]
-                    else:
-                        # Default to LegalDocument if we don't have a specific mapping
-                        node_class = LegalDocument
+                # Create metadata dictionary
+                metadata = {}
+                for field in [
+                    "citation_text",
+                    "page_number",
+                    "opinion_section",
+                    "data_source",
+                ]:
+                    if field in rel_data:
+                        metadata[field] = rel_data[field]
 
-                    # Create a domain model instance from the Neo4j node
-                    doc = node_class.inflate(node)
+                # Create the link with relationship data
+                link = NetworkLink(
+                    source=str(source_doc.primary_id),
+                    target=target_id,
+                    type="CITES",
+                    treatment=rel_data.get("treatment"),
+                    reasoning=rel_data.get("reasoning"),
+                    relevance=rel_data.get("relevance"),
+                    section=rel_data.get("section"),
+                    metadata=metadata if metadata else None,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Error extracting relationship data: {e}, creating basic link"
+                )
+                # Create a basic link if relationship data extraction fails
+                link = NetworkLink(
+                    source=str(source_doc.primary_id), target=target_id, type="CITES"
+                )
 
-                    # Skip if we've already added this node
-                    if str(doc.primary_id) in nodes:
+            links.append(link)
+
+            # Track for next level processing if depth > 1
+            cited_docs.append(target_doc)
+
+        # Process additional levels if depth > 1
+        current_depth = 1
+        while current_depth < depth and cited_docs:
+            next_cited_docs = []
+
+            for current_doc in cited_docs:
+                # Skip if current_doc is None or doesn't have citation_string
+                if not current_doc or not getattr(current_doc, "citation_string", None):
+                    continue
+
+                # Generate a node ID for the current document
+                current_id = (
+                    getattr(current_doc, "primary_id", None)
+                    or f"cite-{current_doc.citation_string}"
+                )
+                current_id = str(current_id)
+
+                # Get citations from this document
+                try:
+                    next_level_citations = current_doc.cites.all()
+                except Exception as e:
+                    logger.error(f"Error getting citations for {current_id}: {e}")
+                    continue
+
+                for target_doc in next_level_citations:
+                    # Skip if target_doc is None or doesn't have citation_string
+                    if not target_doc or not getattr(
+                        target_doc, "citation_string", None
+                    ):
                         continue
 
-                    # Add to our nodes dictionary
-                    network_node = NetworkNode.from_legal_doc(doc)
-                    nodes[network_node.id] = network_node
-
-                # Add relationships (links)
-                for i, rel in enumerate(relationships):
-                    # Get source and target nodes
-                    source_id = str(path_nodes[i].primary_id)
-                    target_doc = node_class.inflate(path_nodes[i + 1])
-
-                    # Create a link from the relationship data
-                    rel_data = dict(rel)
-                    link = NetworkLink.create_from_relationship(
-                        source_id, rel_data, target_doc
+                    # Generate a node ID for the target document
+                    target_id = (
+                        getattr(target_doc, "primary_id", None)
+                        or f"cite-{target_doc.citation_string}"
                     )
+                    target_id = str(target_id)
 
-                    # Add to our links list
+                    # Add target node if not already added
+                    if target_id not in nodes:
+                        try:
+                            network_node = NetworkNode.from_legal_doc(target_doc)
+                            nodes[target_id] = network_node
+                        except Exception as e:
+                            logger.error(
+                                f"Error creating network node for {target_id}: {e}"
+                            )
+                            continue
+
+                    # Get relationship properties
+                    try:
+                        # Get the relationship object between current_doc and target_doc
+                        rel = current_doc.cites.relationship(target_doc)
+
+                        # Extract relationship properties
+                        rel_data = {}
+                        if rel:
+                            for prop in [
+                                "treatment",
+                                "relevance",
+                                "reasoning",
+                                "citation_text",
+                                "page_number",
+                                "opinion_section",
+                                "data_source",
+                            ]:
+                                value = getattr(rel, prop, None)
+                                if value is not None:
+                                    rel_data[prop] = value
+
+                        # Create metadata dictionary
+                        metadata = {}
+                        for field in [
+                            "citation_text",
+                            "page_number",
+                            "data_source",
+                        ]:
+                            if field in rel_data:
+                                metadata[field] = rel_data[field]
+
+                        # Create the link with relationship data
+                        link = NetworkLink(
+                            source=current_id,
+                            target=target_id,
+                            type="CITES",
+                            treatment=rel_data.get("treatment"),
+                            reasoning=rel_data.get("reasoning"),
+                            relevance=rel_data.get("relevance"),
+                            section=rel_data.get("section"),
+                            metadata=metadata if metadata else None,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Error extracting relationship data: {e}, creating basic link"
+                        )
+                        # Create a basic link if relationship data extraction fails
+                        link = NetworkLink(
+                            source=current_id, target=target_id, type="CITES"
+                        )
+
                     links.append(link)
-            except Exception as e:
-                logger.error(f"Error processing result row: {e}")
-                continue
+
+                    # Add to next level processing
+                    next_cited_docs.append(target_doc)
+
+            # Update for next iteration
+            cited_docs = next_cited_docs
+            current_depth += 1
 
         # Return the network graph
         network = NetworkGraph(nodes=list(nodes.values()), links=links)
@@ -290,192 +427,3 @@ async def get_network(cluster_id: str, depth: int = 1):
         else:
             # If we couldn't even create the source node, return an empty network
             return NetworkGraph(nodes=[], links=[])
-
-
-@router.get("/{cluster_id}/citation-network/filtered", response_model=NetworkGraph)
-async def get_filtered_network(
-    cluster_id: str,
-    depth: int = 1,
-    min_relevance: Optional[int] = None,
-    treatment: Optional[str] = None,
-    limit_nodes: int = 100,
-):
-    """
-    Get a citation network with filtering options (outgoing citations only).
-
-    Parameters:
-    - cluster_id: The primary ID of the document to analyze
-    - depth: How many layers of citations to include (default: 1)
-    - min_relevance: Minimum relevance score for citations (1-4)
-    - treatment: Filter by treatment type (POSITIVE, NEGATIVE, NEUTRAL, CAUTION)
-    - limit_nodes: Maximum number of nodes to return (for performance)
-
-    Returns:
-    - Network graph with nodes and links
-    """
-    logger.info(
-        f"Filtered citation network requested for cluster_id: {cluster_id}, depth: {depth}, min_relevance: {min_relevance}, treatment: {treatment}, limit_nodes: {limit_nodes}"
-    )
-
-    if depth > 3:
-        # Limit depth for performance reasons
-        depth = 3
-        logger.info(f"Depth limited to 3 for performance reasons")
-
-    try:
-        # Find the source document
-        source_doc = Opinion.nodes.first_or_none(primary_id=cluster_id)
-
-        if not source_doc:
-            # Try to find in other document types if needed
-            # For now, we'll just raise a 404
-            logger.warning(f"Document with ID {cluster_id} not found")
-            raise HTTPException(
-                status_code=404, detail=f"Document with ID {cluster_id} not found"
-            )
-
-        # Build the graph
-        nodes = {}  # Dictionary to track unique nodes by ID
-        links = []  # List to track all links
-
-        # Start with the source document
-        source_node = NetworkNode.from_legal_doc(source_doc)
-        nodes[source_node.id] = source_node
-
-        logger.info(f"Source document found: {source_doc.primary_id}")
-
-        # Build the Cypher query with filters
-        query = f"""
-        MATCH path = (source:Opinion {{primary_id: $cluster_id}})-[r:CITES*1..{depth}]->(cited)
-        WHERE 1=1
-        """
-
-        params = {"cluster_id": cluster_id, "depth": depth}
-
-        # Add relevance filter if provided
-        if min_relevance is not None:
-            query += " AND ALL(rel IN r WHERE rel.relevance >= $min_relevance)"
-            params["min_relevance"] = min_relevance
-
-        # Add treatment filter if provided
-        if treatment is not None:
-            query += " AND ALL(rel IN r WHERE rel.treatment = $treatment)"
-            params["treatment"] = treatment
-
-        # Add limit
-        query += " LIMIT $limit"
-        params["limit"] = limit_nodes
-
-        # Complete the query
-        query += " WITH source, relationships(path) as rels, nodes(path) as ns RETURN source, rels, ns"
-
-        logger.debug(f"Executing filtered Cypher query: {query}")
-        logger.debug(f"Query parameters: {params}")
-
-        try:
-            # Execute the query
-            results, _ = db.cypher_query(query, params)
-            logger.info(f"Filtered query returned {len(results)} paths")
-        except Exception as e:
-            logger.error(f"Error executing filtered Cypher query: {e}")
-            # Return empty network rather than failing
-            return NetworkGraph(nodes=list(nodes.values()), links=[])
-
-        # Process results - same as in get_network
-        for row in results:
-            try:
-                _, relationships, path_nodes = row
-
-                # Add nodes from the path
-                for i, node in enumerate(path_nodes[1:], 1):
-                    # Convert Neo4j node to our domain model
-                    doc_label = list(node.labels)[0]  # Get the primary label
-
-                    if doc_label in CITATION_TYPE_TO_NODE_TYPE:
-                        node_class = CITATION_TYPE_TO_NODE_TYPE[doc_label]
-                    else:
-                        # Default to LegalDocument if we don't have a specific mapping
-                        node_class = LegalDocument
-
-                    # Create a domain model instance from the Neo4j node
-                    doc = node_class.inflate(node)
-
-                    # Skip if we've already added this node
-                    if str(doc.primary_id) in nodes:
-                        continue
-
-                    # Add to our nodes dictionary
-                    network_node = NetworkNode.from_legal_doc(doc)
-                    nodes[network_node.id] = network_node
-
-                # Add relationships (links)
-                for i, rel in enumerate(relationships):
-                    # Get source and target nodes
-                    source_id = str(path_nodes[i].primary_id)
-                    target_doc = node_class.inflate(path_nodes[i + 1])
-
-                    # Create a link from the relationship data
-                    rel_data = dict(rel)
-                    link = NetworkLink.create_from_relationship(
-                        source_id, rel_data, target_doc
-                    )
-
-                    # Add to our links list
-                    links.append(link)
-            except Exception as e:
-                logger.error(f"Error processing filtered result row: {e}")
-                continue
-
-        # Return the network graph
-        network = NetworkGraph(nodes=list(nodes.values()), links=links)
-        logger.info(
-            f"Returning filtered network with {len(network.nodes)} nodes and {len(network.links)} links"
-        )
-        return network
-
-    except HTTPException:
-        # Re-raise HTTP exceptions
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error in get_filtered_network: {e}", exc_info=True)
-        # Return a minimal network with just the source node
-        if "source_node" in locals() and source_node:
-            return NetworkGraph(nodes=[source_node], links=[])
-        else:
-            # If we couldn't even create the source node, return an empty network
-            return NetworkGraph(nodes=[], links=[])
-
-
-@router.get("/{cluster_id}/citation-network/component", response_class=HTMLResponse)
-async def get_network_component(request: Request, cluster_id: str):
-    """
-    Get the citation network visualization component as HTML.
-
-    Parameters:
-    - cluster_id: The primary ID of the document to visualize
-
-    Returns:
-    - HTML component for the citation network
-    """
-    try:
-        # Check if the document exists and has citations
-        source_doc = Opinion.nodes.first_or_none(primary_id=cluster_id)
-
-        if not source_doc:
-            # Return empty component if document not found
-            return templates.TemplateResponse(
-                "components/citation_network.html", {"request": request}
-            )
-
-        # Return the network visualization component
-        return templates.TemplateResponse(
-            "components/citation_network.html",
-            {"request": request, "cluster_id": cluster_id},
-        )
-
-    except Exception as e:
-        logger.error(f"Error rendering network component: {str(e)}")
-        # Return error message in the component
-        return templates.TemplateResponse(
-            "components/citation_network.html", {"request": request, "error": str(e)}
-        )

@@ -13,8 +13,8 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
         width: 800,
         height: 600,
         nodeRadius: 10,
-        linkDistance: 100,
-        charge: -300,
+        linkDistance: 200,        // Increased from 100 to 200 to spread nodes out more
+        charge: -800,             // Increased from -300 to -800 for more repulsion
         treatmentColors: {
             'POSITIVE': '#4CAF50',   // Green
             'NEGATIVE': '#F44336',   // Red
@@ -123,7 +123,14 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                 .selectAll('line')
                 .data(data.links)
                 .enter().append('line')
-                .attr('stroke-width', d => (d.relevance ? d.relevance : 1))
+                .attr('stroke-width', d => {
+                    // Scale up the relevance value for better visibility
+                    if (d.relevance) {
+                        // Scale from 1-5 to 1-8 for better visibility
+                        return Math.min(1 + (d.relevance * 1.5), 8);
+                    }
+                    return 1; // Default width
+                })
                 .attr('stroke', d => {
                     if (d.treatment && config.treatmentColors[d.treatment]) {
                         return config.treatmentColors[d.treatment];
@@ -175,14 +182,14 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                 .attr('dy', 4)
                 .text(d => {
                     // Truncate long labels
-                    const label = d.label || '';
+                    const label = d.citation_string || '';
                     return label.length > 25 ? label.substring(0, 22) + '...' : label;
                 });
 
             // Add tooltips
             node.append('title')
                 .text(d => {
-                    let tooltip = `${d.label || 'Unknown'}\n`;
+                    let tooltip = `${d.citation_string || 'Unknown'}\n`;
                     tooltip += `Type: ${d.type || 'Unknown'}\n`;
 
                     if (d.court) {
@@ -208,7 +215,7 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
             // Link tooltips
             link.append('title')
                 .text(d => {
-                    let tooltip = `${d.source.label || d.source} → ${d.target.label || d.target}\n`;
+                    let tooltip = `${d.source.citation_string || d.source} → ${d.target.citation_string || d.target}\n`;
 
                     if (d.treatment) {
                         tooltip += `Treatment: ${d.treatment}\n`;
