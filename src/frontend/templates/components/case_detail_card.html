@@ -60,7 +60,7 @@
         <div class="flex-grow overflow-y-auto">
             {% if case.opinion_text %}
             <div class="bg-base-200 p-4 rounded-lg text-sm">
-                <pre class="whitespace-pre-wrap font-sans">{{ case.opinion_text }}</pre>
+                <pre class="whitespace-pre-wrap font-sans">{{ case.opinion_text | safe }}</pre>
             </div>
 
             {% else %}
