@@ -323,18 +323,18 @@ def clean_extracted_opinions(df: pd.DataFrame) -> pd.DataFrame:
     # Filter out rows with no text
     new_df = new_df[new_df["text_source"] != "no_text"]
 
-    # Filter out cases with fewer than 250 words
-    # new_df = new_df[new_df["text"].str.split().str.len() > 100]
+    # Filter out cases with fewer than 100 words
+    new_df = new_df[new_df["text"].str.split().str.len() > 100]
 
-    # # Filter out rows containing specific petition phrases
-    # petition_phrases = [
-    #     "Certiorari denied",
-    #     "Petition for writ of mandamus denied",
-    #     "Petitions for rehearing denied.",
-    #     "Petition for writ of habeas corpus denied",
-    # ]
-    # for phrase in petition_phrases:
-    #     new_df = new_df[~new_df["text"].fillna("").str.contains(phrase, na=False)]
+    # Filter out rows containing specific petition phrases
+    petition_phrases = [
+        "Certiorari denied",
+        "Petition for writ of mandamus denied",
+        "Petitions for rehearing denied.",
+        "Petition for writ of habeas corpus denied",
+    ]
+    for phrase in petition_phrases:
+        new_df = new_df[~new_df["text"].fillna("").str.contains(phrase, na=False)]
 
     if "soc_date_filed" in new_df.columns:
         new_df["soc_date_filed"] = pd.to_datetime(
@@ -459,6 +459,7 @@ def run_extraction_job(db: Session, job_id: int, config: ExtractionConfig) -> No
         if config.offset:
             query += f" OFFSET {config.offset}"
 
+        logger.info(f"Query: {query} with params: {params}")
         # Execute query
         update_job_status(
             db,
@@ -480,6 +481,8 @@ def run_extraction_job(db: Session, job_id: int, config: ExtractionConfig) -> No
 
         df.to_csv(output_path, index=False)
 
+        df_len = len(df)
+
         # Update job status with raw extraction complete
         update_job_status(
             db,
@@ -491,7 +494,7 @@ def run_extraction_job(db: Session, job_id: int, config: ExtractionConfig) -> No
         )
 
         logger.info(
-            f"Completed extraction job {job_id}, saved raw data to {output_path}"
+            f"Completed extraction job {job_id}, saved raw data to {output_path} with length {df_len}"
         )
 
     except Exception as e:
@@ -631,13 +634,19 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
 
         # Check if the dataframe is empty
         if len(cleaned_df) == 0:
+            # Save an empty JSON object instead of a CSV file
+            empty_results = {}
+            output_path = save_to_tmp(
+                empty_results, "llm_results", as_json=True, ensure_ascii=False
+            )
+
             update_job_status(
                 db,
                 job_id,
                 JobStatus.COMPLETED,
                 progress=100.0,
                 message="No opinions to process after cleaning",
-                result_path=cleaned_output_path,
+                result_path=output_path,
             )
             logger.warning(f"Completed LLM job {job_id} with empty dataframe")
             return
@@ -649,7 +658,7 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
             "LLM client initialization",
             30.0,
             lambda: GeminiClient(
-                api_key=os.environ["GEMINI_API_KEY"], rpm_limit=15, max_concurrent=10
+                api_key=os.environ["GEMINI_API_KEY"], rpm_limit=50, max_concurrent=10
             ),
         )
 
@@ -723,7 +732,9 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
         def load_and_validate_llm_data():
             # Check if the result file is a CSV (empty dataframe case) or JSON
             if llm_job["result_path"].endswith(".csv"):
-                raise ValueError("Got a CSV file, expected a JSON file")
+                raise ValueError(
+                    f"Got a CSV file ({llm_job['result_path']}), expected a JSON file. This may happen if the LLM job produced an empty result set but didn't save it in the correct format."
+                )
             with open(llm_job["result_path"], "r", encoding="utf-8") as f:
                 try:
                     llm_json = json.load(f)
@@ -854,13 +865,18 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
         if not resolved_citations:
             logger.info("No citations to resolve, completing job with empty result")
 
+            empty_results = {}
+            output_path = save_to_tmp(
+                empty_results, "resolved_citations", ensure_ascii=False
+            )
+
             update_job_status(
                 db,
                 job_id,
                 JobStatus.COMPLETED,
                 progress=100.0,
                 message="No citations to resolve after processing",
-                result_path=None,
+                result_path=output_path,
             )
             return
 

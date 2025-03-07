@@ -215,7 +215,7 @@ class TokenBucket:
 class RateLimiter:
     """Rate limiter using token bucket algorithm with concurrent request limiting."""
 
-    def __init__(self, rpm_limit: int = 15, max_concurrent: int = 10):
+    def __init__(self, rpm_limit: int = 50, max_concurrent: int = 10):
         # Be more conservative with the rate limit
         conservative_rpm = int(rpm_limit * 0.9)  # Use 90% of the limit
         self.token_bucket = TokenBucket(
@@ -402,7 +402,7 @@ class GlobalRateLimiter:
     instance is created and shared across all threads and processes.
 
     Usage:
-        limiter = GlobalRateLimiter.get_instance(rpm_limit=20, max_concurrent=10)
+        limiter = GlobalRateLimiter.get_instance(rpm_limit=25, max_concurrent=10)
     """
 
     _instance = None
@@ -419,7 +419,7 @@ class GlobalRateLimiter:
         )
 
     @classmethod
-    def get_instance(cls, rpm_limit: int = 15, max_concurrent: int = 10) -> RateLimiter:
+    def get_instance(cls, rpm_limit: int = 50, max_concurrent: int = 10) -> RateLimiter:
         """Get or create the global rate limiter instance.
 
         This method ensures a single rate limiter is shared across all threads and processes.
@@ -787,7 +787,7 @@ class GeminiClient:
     def __init__(
         self,
         api_key: str,
-        rpm_limit: int = 15,
+        rpm_limit: int = 50,
         max_concurrent: int = 10,
         config: Optional[GenerateContentConfig] = None,
         model: str = DEFAULT_MODEL,
@@ -843,7 +843,7 @@ class GeminiClient:
         cls,
         api_key: str,
         num_clients: int,
-        rpm_limit: int = 15,
+        rpm_limit: int = 50,
         max_concurrent: int = 10,
         model: str = DEFAULT_MODEL,
     ) -> List["GeminiClient"]:
