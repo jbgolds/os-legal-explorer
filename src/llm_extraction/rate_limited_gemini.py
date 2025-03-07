@@ -14,6 +14,7 @@ from threading import Lock, Semaphore
 from tqdm import tqdm
 from datetime import datetime
 from threading import local
+import random
 
 from src.llm_extraction.models import (
     Citation,
@@ -33,6 +34,9 @@ class TextChunker:
 
     # Word count threshold for chunking text
     WORD_COUNT_THRESHOLD = 8000
+
+    # Add a delay between processing chunks to avoid rate limit issues
+    CHUNK_PROCESSING_DELAY = 2.0  # seconds
 
     @staticmethod
     def count_words(text: str) -> int:
@@ -127,13 +131,37 @@ class TokenBucket:
         self.tokens = capacity
         self.last_update = time.time()
         self.lock = Lock()
+        # Add counter for tracking token usage
+        self.tokens_used = 0
+        self.last_minute = int(self.last_update / 60)
+        logging.info(f"TokenBucket initialized with rate={rate}, capacity={capacity}")
 
     def _add_tokens(self) -> None:
         """Add tokens based on elapsed time."""
         now = time.time()
         elapsed_minutes = (now - self.last_update) / 60.0  # Convert to minutes
         new_tokens = elapsed_minutes * self.rate  # Rate is already in tokens per minute
-        self.tokens = min(self.capacity, self.tokens + new_tokens)
+
+        # Reset counter if we've moved to a new minute
+        current_minute = int(now / 60)
+        if current_minute > self.last_minute:
+            logging.info(
+                f"New minute: {self.tokens_used} tokens used in previous minute"
+            )
+            self.tokens_used = 0
+            self.last_minute = current_minute
+
+        # Be more conservative - only add 90% of calculated tokens to account for timing issues
+        conservative_new_tokens = new_tokens * 0.9
+        old_tokens = self.tokens
+        self.tokens = min(self.capacity, self.tokens + conservative_new_tokens)
+
+        # Log token replenishment if significant
+        if conservative_new_tokens > 0.1:
+            logging.debug(
+                f"Added {conservative_new_tokens:.2f} tokens. Before: {old_tokens:.2f}, After: {self.tokens:.2f}"
+            )
+
         self.last_update = now
 
     def try_acquire(self) -> bool:
@@ -142,35 +170,71 @@ class TokenBucket:
             self._add_tokens()
             if self.tokens >= 1:
                 self.tokens -= 1
+                self.tokens_used += 1
                 return True
             return False
 
     def acquire(self) -> None:
         """Acquire a token, blocking if necessary."""
+        attempts = 0
         while True:
             with self.lock:
                 self._add_tokens()
                 if self.tokens >= 1:
                     self.tokens -= 1
+                    self.tokens_used += 1
+                    if attempts > 0:
+                        logging.info(f"Token acquired after {attempts} attempts")
                     return
-            time.sleep(0.1)  # Sleep outside the lock
+
+            attempts += 1
+            if attempts == 1:
+                logging.info(
+                    f"Waiting for token. Current tokens: {self.tokens:.2f}, Used in this minute: {self.tokens_used}"
+                )
+            elif attempts % 10 == 0:  # Log every 10 attempts
+                logging.info(
+                    f"Still waiting for token after {attempts} attempts. Current tokens: {self.tokens:.2f}"
+                )
+
+            # Exponential backoff with jitter to prevent thundering herd
+            sleep_time = min(0.1 * (1.5 ** min(attempts, 10)), 5.0)  # Cap at 5 seconds
+            sleep_time = sleep_time * (0.5 + random.random())  # Add jitter
+            time.sleep(sleep_time)  # Sleep outside the lock
 
 
 class RateLimiter:
     """Rate limiter using token bucket algorithm with concurrent request limiting."""
 
     def __init__(self, rpm_limit: int = 15, max_concurrent: int = 10):
-        self.token_bucket = TokenBucket(rate=rpm_limit, capacity=rpm_limit)
+        # Be more conservative with the rate limit
+        conservative_rpm = int(rpm_limit * 0.9)  # Use 90% of the limit
+        self.token_bucket = TokenBucket(
+            rate=conservative_rpm, capacity=conservative_rpm
+        )
         self.concurrent_semaphore = Semaphore(max_concurrent)
+        self.acquire_count = 0
+        self.lock = Lock()
+        logging.info(
+            f"RateLimiter initialized with rpm_limit={conservative_rpm} (90% of {rpm_limit}), max_concurrent={max_concurrent}"
+        )
 
     def acquire(self) -> None:
         """Acquire both rate limit and concurrency permits."""
+        with self.lock:
+            self.acquire_count += 1
+            count = self.acquire_count
+
+        logging.debug(f"Attempting to acquire token #{count}")
         self.token_bucket.acquire()
+        logging.debug(f"Token #{count} acquired, now waiting for concurrency slot")
         self.concurrent_semaphore.acquire()
+        logging.debug(f"Concurrency slot for #{count} acquired")
 
     def release(self) -> None:
         """Release concurrency permit."""
         self.concurrent_semaphore.release()
+        logging.debug(f"Concurrency slot released")
 
 
 def repair_json_string(json_str: str) -> Optional[dict]:
@@ -181,13 +245,23 @@ def repair_json_string(json_str: str) -> Optional[dict]:
         json_str: Potentially malformed JSON string
 
     Returns:
-        Repaired JSON string if successful, otherwise None. Note: Although json.loads returns a dictionary, we use it here only for validation and still return the JSON string.
+        Repaired JSON as dict if successful, otherwise None.
     """
     try:
         # First try standard repair
         repaired = repair_json(json_str, return_objects=True)
         # Test if it's valid JSON
-        return repaired
+        if isinstance(repaired, dict):
+            return repaired
+        elif (
+            isinstance(repaired, tuple)
+            and len(repaired) > 0
+            and isinstance(repaired[0], dict)
+        ):
+            return repaired[0]
+        else:
+            logging.warning(f"Repaired JSON is not a dict: {type(repaired)}")
+            return None
     except Exception as e:
         logging.error(f"JSON repair failed: {str(e)}")
         return None
@@ -331,25 +405,56 @@ class ResponseSerializer:
         """Validate and convert JSON data (dict or list) to CitationAnalysis."""
         prefix = "repaired_" if repaired else ""
 
+        # Debug logging to check data types
+        if isinstance(json_data, list):
+            logging.debug(
+                f"_validate_json_data received a list of length {len(json_data)}"
+            )
+            if len(json_data) > 0:
+                logging.debug(f"First item type: {type(json_data[0])}")
+        else:
+            logging.debug(f"_validate_json_data received a {type(json_data)}")
+
         # Handle list responses (common from LLM)
-        if (
-            isinstance(json_data, list)
-            and len(json_data) > 0
-            and isinstance(json_data[0], dict)
-        ):
-            try:
-                return CitationAnalysis.model_validate(json_data[0])
-            except Exception as e:
-                validation_errors.append(
-                    {
-                        "stage": f"{prefix}list_validation",
-                        "error": str(e),
-                        "input": json_data[0],
-                    }
-                )
-                logging.warning(
-                    f"Failed to validate first item in {prefix}list: {str(e)}"
-                )
+        if isinstance(json_data, list) and len(json_data) > 0:
+            # Try each item in the list until we find a valid one
+            for i, item in enumerate(json_data):
+                if not isinstance(item, dict):
+                    logging.debug(f"Skipping non-dict item at index {i}: {type(item)}")
+                    continue
+
+                try:
+                    return CitationAnalysis.model_validate(item)
+                except Exception as e:
+                    validation_errors.append(
+                        {
+                            "stage": f"{prefix}list_item_{i}_validation",
+                            "error": str(e),
+                            "input": item,
+                        }
+                    )
+                    logging.debug(f"Failed to validate list item {i}: {str(e)}")
+                    # Try cleaning the data before giving up
+                    try:
+                        cleaned_data = ResponseSerializer._try_clean_citation_lists(
+                            item, validation_errors, f"{prefix}list_item_{i}_"
+                        )
+                        if cleaned_data:
+                            try:
+                                return CitationAnalysis.model_validate(cleaned_data)
+                            except Exception as e2:
+                                logging.debug(
+                                    f"Failed to validate cleaned list item {i}: {str(e2)}"
+                                )
+                    except Exception as clean_error:
+                        logging.debug(
+                            f"Error while trying to clean list item {i}: {str(clean_error)}"
+                        )
+
+            # If we get here, none of the list items were valid
+            logging.warning(
+                f"None of the {len(json_data)} items in the list could be validated"
+            )
 
         # Handle dict responses
         elif isinstance(json_data, dict):
@@ -387,6 +492,9 @@ class ResponseSerializer:
                         }
                     )
                     logging.warning(f"Failed to validate {prefix}dict: {str(e)}")
+        else:
+            logging.warning(f"Unsupported data type: {type(json_data)}")
+            raise ValueError(f"Unsupported data type: {type(json_data)}")
 
         # Store for potential fallback
         if not hasattr(ResponseSerializer, "_thread_local"):
@@ -410,11 +518,18 @@ class ResponseSerializer:
             Cleaned dictionary or None if cleaning failed
         """
         try:
+            if isinstance(data, list):
+                error_msg = f"_try_clean_citation_lists received a list: {data[:100] if len(data) > 100 else data}"
+                logging.error(error_msg)
+                raise ValueError(error_msg)
+
             # Create a copy to avoid modifying the original
             cleaned_data = data.copy()
+
+            # Use the correct field names from the CitationAnalysis model
             citation_fields = [
-                "majority_citations",
-                "concurring_citations",
+                "majority_opinion_citations",
+                "concurring_opinion_citations",
                 "dissenting_citations",
             ]
 
@@ -529,38 +644,6 @@ class GeminiClient:
                 self.worker_data.worker_id = self.worker_counter
         return self.worker_data.worker_id
 
-    # def combine_chunk_responses(
-    #     self, responses: List[CitationAnalysis], cluster_id: int
-    # ) -> Optional[CombinedResolvedCitationAnalysis]:
-    #     """
-    #     Combine multiple chunk responses into a single citation analysis result.
-
-    #     Args:
-    #         responses: List of CitationAnalysis objects from processing chunks
-    #         cluster_id: The cluster ID to associate with the combined response
-
-    #     Returns:
-    #         CombinedResolvedCitationAnalysis or None if no valid responses
-
-    #     Raises:
-    #         ValueError: If no valid CitationAnalysis objects are provided
-    #     """
-    #     # Filter out None responses and ensure we have valid ones
-    #     valid_responses = [r for r in responses if r is not None]
-    #     if not valid_responses:
-    #         logging.warning("No valid responses to combine")
-    #         return None
-
-    #     try:
-    #         # Create combined analysis using from_citations
-    #         combined = CombinedResolvedCitationAnalysis.from_citations(
-    #             valid_responses, cluster_id
-    #         )
-    #         return combined
-    #     except Exception as e:
-    #         logging.error(f"Error combining responses: {str(e)}")
-    #         return None
-
     def generate_content_with_chat(
         self,
         text: str,
@@ -621,7 +704,14 @@ class GeminiClient:
                         logging.warning(
                             f"Worker {worker_id}: Validation failed, retrying (attempt {attempt + 1}/{max_retries})"
                         )
-                        time.sleep(1)  # Short delay before retry
+                        # Use exponential backoff with jitter for retries
+                        backoff_time = 1.0 * (2**attempt) * (0.5 + random.random())
+                        logging.info(
+                            f"Worker {worker_id}: Backing off for {backoff_time:.2f} seconds before retry"
+                        )
+                        time.sleep(
+                            backoff_time
+                        )  # Longer delay before retry with exponential backoff
                     else:
                         logging.warning(
                             f"Worker {worker_id}: All {max_retries} validation attempts failed"
@@ -632,14 +722,30 @@ class GeminiClient:
                     # Always release on exception
                     self.rate_limiter.release()
 
-                    logging.error(f"Worker {worker_id}: API call failed: {str(e)}")
+                    error_msg = str(e)
+                    logging.error(f"Worker {worker_id}: API call failed: {error_msg}")
+
+                    # Check if this is a rate limit error
+                    if "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg:
+                        # Use longer backoff for rate limit errors
+                        backoff_time = 5.0 * (2**attempt) * (0.5 + random.random())
+                        logging.warning(
+                            f"Worker {worker_id}: Rate limit error detected. Backing off for {backoff_time:.2f} seconds"
+                        )
+                        time.sleep(backoff_time)
+                    else:
+                        # Standard backoff for other errors
+                        backoff_time = 1.0 * (2**attempt) * (0.5 + random.random())
+                        logging.info(
+                            f"Worker {worker_id}: Backing off for {backoff_time:.2f} seconds before retry"
+                        )
+                        time.sleep(backoff_time)
 
                     # Only retry if we haven't exceeded max attempts
                     if attempt < max_retries - 1:
                         logging.info(
                             f"Worker {worker_id}: Retrying after error (attempt {attempt + 1}/{max_retries})"
                         )
-                        time.sleep(1)  # Short delay before retry
                     else:
                         logging.error(
                             f"Worker {worker_id}: All {max_retries} attempts failed with errors"
@@ -701,7 +807,14 @@ class GeminiClient:
 
                             # Only retry if we haven't exceeded max attempts
                             if attempt < max_retries - 1:
-                                time.sleep(1)  # Short delay before retry
+                                # Use exponential backoff with jitter for retries
+                                backoff_time = (
+                                    1.0 * (2**attempt) * (0.5 + random.random())
+                                )
+                                logging.info(
+                                    f"Worker {worker_id}: Backing off for {backoff_time:.2f} seconds before retry"
+                                )
+                                time.sleep(backoff_time)  # Longer delay before retry
                                 continue
                             else:
                                 chunk_failures += 1
@@ -724,7 +837,12 @@ class GeminiClient:
                             logging.warning(
                                 f"Worker {worker_id}: Validation failed for chunk {i}, retrying (attempt {attempt + 1}/{max_retries})"
                             )
-                            time.sleep(1)  # Short delay before retry
+                            # Use exponential backoff with jitter for retries
+                            backoff_time = 1.0 * (2**attempt) * (0.5 + random.random())
+                            logging.info(
+                                f"Worker {worker_id}: Backing off for {backoff_time:.2f} seconds before retry"
+                            )
+                            time.sleep(backoff_time)  # Longer delay before retry
                         else:
                             logging.warning(
                                 f"Worker {worker_id}: All {max_retries} validation attempts failed for chunk {i}"
@@ -735,16 +853,33 @@ class GeminiClient:
                         # Always release on exception
                         self.rate_limiter.release()
 
+                        error_msg = str(e)
                         logging.error(
-                            f"Worker {worker_id}: Error processing chunk {i}: {str(e)}"
+                            f"Worker {worker_id}: Error processing chunk {i}: {error_msg}"
                         )
+
+                        # Check if this is a rate limit error
+                        if "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg:
+                            # Use longer backoff for rate limit errors
+                            backoff_time = 5.0 * (2**attempt) * (0.5 + random.random())
+                            logging.warning(
+                                f"Worker {worker_id}: Rate limit error detected. Backing off for {backoff_time:.2f} seconds"
+                            )
+                            time.sleep(backoff_time)
+                        else:
+                            # Standard backoff for other errors
+                            backoff_time = 1.0 * (2**attempt) * (0.5 + random.random())
+                            logging.info(
+                                f"Worker {worker_id}: Backing off for {backoff_time:.2f} seconds before retry"
+                            )
+                            time.sleep(backoff_time)
 
                         # Only retry if we haven't exceeded max attempts
                         if attempt < max_retries - 1:
                             logging.warning(
                                 f"Worker {worker_id}: Retrying chunk {i} after error (attempt {attempt + 1}/{max_retries})"
                             )
-                            time.sleep(1)  # Short delay before retry
+
                         else:
                             logging.error(
                                 f"Worker {worker_id}: All {max_retries} attempts failed for chunk {i}"
@@ -761,6 +896,16 @@ class GeminiClient:
                     logging.warning(
                         f"Worker {worker_id}: Failed to process chunk {i}/{len(chunks)} after {max_retries} attempts"
                     )
+
+                # Add delay between chunks to avoid rate limit issues
+                if i < len(chunks):
+                    delay = TextChunker.CHUNK_PROCESSING_DELAY * (
+                        0.5 + random.random()
+                    )  # Add jitter
+                    logging.info(
+                        f"Worker {worker_id}: Waiting {delay:.2f}s before processing next chunk"
+                    )
+                    time.sleep(delay)
 
             if not responses:
                 logging.warning(
@@ -810,9 +955,17 @@ class GeminiClient:
         """Process a DataFrame of content generation requests using thread pool."""
         # Adjust max_workers based on DataFrame size and rate limit
         if max_workers is None:
-            max_workers = min(
-                self.max_concurrent,  # Use stored max_concurrent instead of hardcoded 10
+            # Be more conservative with max_workers to avoid overwhelming the rate limiter
+            suggested_workers = min(
+                max(
+                    1, int(self.rpm_limit * 0.7)
+                ),  # Use at most 70% of RPM as worker count
+                self.max_concurrent,
                 len(df),
+            )
+            max_workers = suggested_workers
+            logging.info(
+                f"Auto-adjusted max_workers to {max_workers} (70% of RPM limit)"
             )
 
         # Adjust batch_size to be no larger than the DataFrame
