@@ -290,6 +290,7 @@ def update_job_status(
 def clean_extracted_opinions(df: pd.DataFrame) -> pd.DataFrame:
 
     logger.info(f"Cleaning extracted opinions, original length: {len(df)}")
+    logger.info(f"Original DataFrame columns: {list(df.columns)}")
     # Make a copy and reset index
     new_df = df.copy().reset_index(drop=True)
 
@@ -593,11 +594,15 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
 
         # Load and clean data
         df = pd.read_csv(extraction_job["result_path"])
+        logger.info(f"Columns in raw DataFrame: {list(df.columns)}")
         cleaned_df = job_step(
             db, job_id, "data cleaning", 20.0, lambda: clean_extracted_opinions(df)
         )
+        logger.info(f"Columns in cleaned DataFrame: {list(cleaned_df.columns)}")
 
-        already_processed_df = pd.DataFrame()
+        # Initialize already_processed_df with the same columns as cleaned_df
+        already_processed_df = pd.DataFrame(columns=cleaned_df.columns)
+
         # now go through the cleaned df and check if the cluster_id is already in Neo4j with ai_summary
         for index, row in cleaned_df.iterrows():
             cluster_id = row["cluster_id"]
