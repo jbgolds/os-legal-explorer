@@ -15,6 +15,7 @@ from tqdm import tqdm
 from datetime import datetime
 from threading import local
 import random
+import threading
 
 from src.llm_extraction.models import (
     Citation,
@@ -136,6 +137,14 @@ class TokenBucket:
         self.last_minute = int(self.last_update / 60)
         logging.info(f"TokenBucket initialized with rate={rate}, capacity={capacity}")
 
+    def update_rate(self, new_rate: float) -> None:
+        """Update the token generation rate."""
+        with self.lock:
+            old_rate = self.rate
+            self.rate = new_rate
+            self.capacity = new_rate  # Update capacity to match rate
+            logging.info(f"TokenBucket rate updated: {old_rate:.2f} -> {new_rate:.2f}")
+
     def _add_tokens(self) -> None:
         """Add tokens based on elapsed time."""
         now = time.time()
@@ -215,26 +224,145 @@ class RateLimiter:
         self.concurrent_semaphore = Semaphore(max_concurrent)
         self.acquire_count = 0
         self.lock = Lock()
+        self.rpm_limit = rpm_limit
+        self.max_concurrent = max_concurrent
+        self.error_count = 0
+        self.success_count = 0
+        self.last_adjustment = time.time()
+        self.rate_limit_errors = 0
+        self.active_requests = 0  # Track currently active requests
+        self.creation_time = time.time()
+        self.last_stats_log = time.time()
+        self.stats_log_interval = 60  # Log stats every minute
+
+        # Create a unique ID for this rate limiter instance for logging
+        self.limiter_id = f"RL-{int(self.creation_time % 10000):04d}"
+
         logging.info(
-            f"RateLimiter initialized with rpm_limit={conservative_rpm} (90% of {rpm_limit}), max_concurrent={max_concurrent}"
+            f"[{self.limiter_id}] RateLimiter initialized with rpm_limit={conservative_rpm} (90% of {rpm_limit}), max_concurrent={max_concurrent}"
         )
 
+    def log_stats(self, force: bool = False):
+        """Log current statistics about the rate limiter usage."""
+        now = time.time()
+        if force or (now - self.last_stats_log) >= self.stats_log_interval:
+            uptime = now - self.creation_time
+            requests_per_minute = (
+                self.acquire_count / (uptime / 60) if uptime > 0 else 0
+            )
+            success_rate = (
+                (self.success_count / self.acquire_count * 100)
+                if self.acquire_count > 0
+                else 0
+            )
+
+            logging.info(
+                f"[{self.limiter_id}] Stats: "
+                f"Uptime={uptime:.1f}s, "
+                f"Requests={self.acquire_count}, "
+                f"RPM={requests_per_minute:.1f}, "
+                f"Active={self.active_requests}, "
+                f"Success={self.success_count} ({success_rate:.1f}%), "
+                f"Errors={self.error_count}, "
+                f"RateLimit={self.rate_limit_errors}"
+            )
+            self.last_stats_log = now
+
     def acquire(self) -> None:
-        """Acquire both rate limit and concurrency permits."""
+        """Acquire permission to make a request, blocking if necessary."""
         with self.lock:
             self.acquire_count += 1
-            count = self.acquire_count
 
-        logging.debug(f"Attempting to acquire token #{count}")
+        # First acquire a token from the token bucket (rate limit)
         self.token_bucket.acquire()
-        logging.debug(f"Token #{count} acquired, now waiting for concurrency slot")
+
+        # Then acquire the semaphore (concurrent limit)
         self.concurrent_semaphore.acquire()
-        logging.debug(f"Concurrency slot for #{count} acquired")
+
+        # Track active requests
+        with self.lock:
+            self.active_requests += 1
+            # Log stats periodically
+            self.log_stats()
+
+        logging.debug(
+            f"[{self.limiter_id}] Acquired permission (active: {self.active_requests})"
+        )
 
     def release(self) -> None:
-        """Release concurrency permit."""
+        """Release a permit, allowing another request to proceed."""
+        # Update active requests count
+        with self.lock:
+            self.active_requests = max(0, self.active_requests - 1)
+
+        # Release the semaphore
         self.concurrent_semaphore.release()
-        logging.debug(f"Concurrency slot released")
+
+        logging.debug(
+            f"[{self.limiter_id}] Released permission (active: {self.active_requests})"
+        )
+
+    def report_success(self) -> None:
+        """Report a successful API call, potentially adjusting rate limit upward."""
+        with self.lock:
+            self.success_count += 1
+
+            # Only consider increasing rate if we've had a good number of successes
+            now = time.time()
+            if (
+                self.success_count >= 20  # At least 20 successful requests
+                and self.error_count == 0  # No errors
+                and now - self.last_adjustment
+                > 300  # At least 5 minutes since last adjustment
+            ):
+                current_rate = self.token_bucket.rate
+                # Don't exceed the original RPM limit
+                new_rate = min(self.rpm_limit, current_rate * 1.1)  # Increase by 10%
+
+                # Only log if there's an actual change
+                if new_rate > current_rate:
+                    self.token_bucket.update_rate(new_rate)
+                    logging.info(
+                        f"[{self.limiter_id}] Increasing rate limit from {current_rate:.2f} to {new_rate:.2f} RPM after {self.success_count} successful requests"
+                    )
+                    self.last_adjustment = now
+                    self.success_count = 0  # Reset counter
+
+                    # Force log stats after adjustment
+                    self.log_stats(force=True)
+
+    def report_error(self, is_rate_limit_error: bool = False) -> None:
+        """Report an error, potentially adjusting the rate limit."""
+        with self.lock:
+            self.error_count += 1
+            if is_rate_limit_error:
+                self.rate_limit_errors += 1
+                logging.warning(
+                    f"[{self.limiter_id}] Rate limit error detected (total: {self.rate_limit_errors})"
+                )
+
+            # Only adjust if we've seen enough errors and it's been a while since last adjustment
+            now = time.time()
+            if (
+                is_rate_limit_error
+                and now - self.last_adjustment
+                > 60  # At least 1 minute since last adjustment
+            ):
+                # Calculate error rate over the last minute
+                error_rate = self.error_count / max(1, self.acquire_count)
+
+                # If error rate is high, reduce the rate limit
+                if error_rate > 0.1:  # More than 10% errors
+                    current_rate = self.token_bucket.rate
+                    new_rate = max(1, int(current_rate * 0.8))  # Reduce by 20%
+                    self.token_bucket.update_rate(new_rate)
+                    logging.warning(
+                        f"[{self.limiter_id}] Reducing rate limit from {current_rate} to {new_rate} due to high error rate ({error_rate:.2f})"
+                    )
+                    self.last_adjustment = now
+
+                    # Force log stats after adjustment
+                    self.log_stats(force=True)
 
 
 def repair_json_string(json_str: str) -> Optional[dict]:
@@ -265,6 +393,84 @@ def repair_json_string(json_str: str) -> Optional[dict]:
     except Exception as e:
         logging.error(f"JSON repair failed: {str(e)}")
         return None
+
+
+class GlobalRateLimiter:
+    """Global singleton rate limiter that can be shared across all clients.
+
+    This class implements the Singleton pattern to ensure only one rate limiter
+    instance is created and shared across all threads and processes.
+
+    Usage:
+        limiter = GlobalRateLimiter.get_instance(rpm_limit=20, max_concurrent=10)
+    """
+
+    _instance = None
+    _lock = Lock()
+    _initialized_params = None
+
+    def __new__(cls, *args, **kwargs):
+        """Prevent direct instantiation of this class.
+
+        Users should use get_instance() instead.
+        """
+        raise TypeError(
+            "GlobalRateLimiter cannot be instantiated directly. Use GlobalRateLimiter.get_instance() instead."
+        )
+
+    @classmethod
+    def get_instance(cls, rpm_limit: int = 15, max_concurrent: int = 10) -> RateLimiter:
+        """Get or create the global rate limiter instance.
+
+        This method ensures a single rate limiter is shared across all threads and processes.
+        If an instance already exists, it will be returned regardless of the parameters provided.
+
+        Args:
+            rpm_limit: Requests per minute limit
+            max_concurrent: Maximum number of concurrent requests
+
+        Returns:
+            The global RateLimiter instance
+        """
+        with cls._lock:
+            if cls._instance is None:
+                logging.info(
+                    f"Creating global rate limiter with RPM={rpm_limit}, concurrent={max_concurrent}"
+                )
+                cls._instance = RateLimiter(
+                    rpm_limit=rpm_limit, max_concurrent=max_concurrent
+                )
+                cls._initialized_params = {
+                    "rpm_limit": rpm_limit,
+                    "max_concurrent": max_concurrent,
+                }
+            else:
+                # Log if parameters are different from what was used to initialize
+                if cls._initialized_params is not None:
+                    if (
+                        cls._initialized_params["rpm_limit"] != rpm_limit
+                        or cls._initialized_params["max_concurrent"] != max_concurrent
+                    ):
+                        logging.warning(
+                            f"Requested rate limiter with RPM={rpm_limit}, concurrent={max_concurrent}, "
+                            f"but using existing instance with RPM={cls._initialized_params['rpm_limit']}, "
+                            f"concurrent={cls._initialized_params['max_concurrent']}"
+                        )
+
+                logging.debug(f"Reusing existing global rate limiter instance")
+
+            return cls._instance
+
+    @classmethod
+    def reset_instance(cls):
+        """Reset the global rate limiter instance.
+
+        This is primarily useful for testing purposes.
+        """
+        with cls._lock:
+            cls._instance = None
+            cls._initialized_params = None
+            logging.info("Global rate limiter instance has been reset")
 
 
 class ResponseSerializer:
@@ -405,56 +611,46 @@ class ResponseSerializer:
         """Validate and convert JSON data (dict or list) to CitationAnalysis."""
         prefix = "repaired_" if repaired else ""
 
-        # Debug logging to check data types
-        if isinstance(json_data, list):
-            logging.debug(
-                f"_validate_json_data received a list of length {len(json_data)}"
-            )
-            if len(json_data) > 0:
-                logging.debug(f"First item type: {type(json_data[0])}")
-        else:
-            logging.debug(f"_validate_json_data received a {type(json_data)}")
-
         # Handle list responses (common from LLM)
-        if isinstance(json_data, list) and len(json_data) > 0:
-            # Try each item in the list until we find a valid one
-            for i, item in enumerate(json_data):
-                if not isinstance(item, dict):
-                    logging.debug(f"Skipping non-dict item at index {i}: {type(item)}")
-                    continue
+        if (
+            isinstance(json_data, list)
+            and len(json_data) > 0
+            and isinstance(json_data[0], dict)
+        ):
+            if len(json_data) > 1:
+                logging.warning(
+                    f"Found {len(json_data)} items in list, using first item, but here is preview of second item: {json_data[1]}"
+                )
 
+            try:
+                return CitationAnalysis.model_validate(json_data[0])
+            except Exception as e:
+                validation_errors.append(
+                    {
+                        "stage": f"{prefix}list_validation",
+                        "error": str(e),
+                        "input": json_data[0],
+                    }
+                )
+                logging.warning(
+                    f"Failed to validate first item in {prefix}list: {str(e)}"
+                )
+                # Try cleaning the data before giving up
                 try:
-                    return CitationAnalysis.model_validate(item)
-                except Exception as e:
-                    validation_errors.append(
-                        {
-                            "stage": f"{prefix}list_item_{i}_validation",
-                            "error": str(e),
-                            "input": item,
-                        }
+                    cleaned_data = ResponseSerializer._try_clean_citation_lists(
+                        json_data[0], validation_errors, prefix
                     )
-                    logging.debug(f"Failed to validate list item {i}: {str(e)}")
-                    # Try cleaning the data before giving up
-                    try:
-                        cleaned_data = ResponseSerializer._try_clean_citation_lists(
-                            item, validation_errors, f"{prefix}list_item_{i}_"
-                        )
-                        if cleaned_data:
-                            try:
-                                return CitationAnalysis.model_validate(cleaned_data)
-                            except Exception as e2:
-                                logging.debug(
-                                    f"Failed to validate cleaned list item {i}: {str(e2)}"
-                                )
-                    except Exception as clean_error:
-                        logging.debug(
-                            f"Error while trying to clean list item {i}: {str(clean_error)}"
-                        )
-
-            # If we get here, none of the list items were valid
-            logging.warning(
-                f"None of the {len(json_data)} items in the list could be validated"
-            )
+                    if cleaned_data:
+                        try:
+                            return CitationAnalysis.model_validate(cleaned_data)
+                        except Exception as e2:
+                            logging.warning(
+                                f"Failed to validate cleaned list item: {str(e2)}"
+                            )
+                except Exception as clean_error:
+                    logging.warning(
+                        f"Error while trying to clean list item: {str(clean_error)}"
+                    )
 
         # Handle dict responses
         elif isinstance(json_data, dict):
@@ -492,9 +688,6 @@ class ResponseSerializer:
                         }
                     )
                     logging.warning(f"Failed to validate {prefix}dict: {str(e)}")
-        else:
-            logging.warning(f"Unsupported data type: {type(json_data)}")
-            raise ValueError(f"Unsupported data type: {type(json_data)}")
 
         # Store for potential fallback
         if not hasattr(ResponseSerializer, "_thread_local"):
@@ -518,11 +711,6 @@ class ResponseSerializer:
             Cleaned dictionary or None if cleaning failed
         """
         try:
-            if isinstance(data, list):
-                error_msg = f"_try_clean_citation_lists received a list: {data[:100] if len(data) > 100 else data}"
-                logging.error(error_msg)
-                raise ValueError(error_msg)
-
             # Create a copy to avoid modifying the original
             cleaned_data = data.copy()
 
@@ -593,6 +781,8 @@ class ResponseSerializer:
 
 class GeminiClient:
     DEFAULT_MODEL = "gemini-2.0-flash-001"
+    _worker_counter = 0
+    _worker_counter_lock = Lock()
 
     def __init__(
         self,
@@ -601,7 +791,9 @@ class GeminiClient:
         max_concurrent: int = 10,
         config: Optional[GenerateContentConfig] = None,
         model: str = DEFAULT_MODEL,
+        use_global_rate_limiter: bool = True,
     ):
+        self.api_key = api_key  # Store the API key directly
         self.client = genai.Client(api_key=api_key)
         # Ensure we have a valid config
         self.config = GenerateContentConfig(
@@ -619,30 +811,127 @@ class GeminiClient:
         self.rpm_limit = rpm_limit
         self.max_concurrent = max_concurrent
 
-        self.rate_limiter = RateLimiter(
-            rpm_limit=rpm_limit, max_concurrent=max_concurrent
-        )
+        # Use either global or local rate limiter based on parameter
+        if use_global_rate_limiter:
+            # Get the global singleton rate limiter
+            self.rate_limiter = GlobalRateLimiter.get_instance(
+                rpm_limit=rpm_limit, max_concurrent=max_concurrent
+            )
+            logging.info(f"Using global rate limiter for GeminiClient instance")
+        else:
+            # Create a new instance-specific rate limiter
+            self.rate_limiter = RateLimiter(
+                rpm_limit=rpm_limit, max_concurrent=max_concurrent
+            )
+            logging.info(f"Using local rate limiter for GeminiClient instance")
+
+        # For tracking worker IDs in multi-threaded environments
+        with self._worker_counter_lock:
+            self._worker_id = self._worker_counter
+            GeminiClient._worker_counter += 1
+
         self.chunker = TextChunker()
         self.serializer = ResponseSerializer()
         self.model = model
-
-        # Initialize thread-local storage for worker IDs
-        self.worker_data = local()
-        self.worker_counter = 0
-        self.worker_counter_lock = Lock()
 
         logging.info(
             f"Initialized client with RPM limit: {rpm_limit}, AFC concurrent limit: {max_concurrent}, model: {model}"
         )
 
+    @classmethod
+    def create_shared_clients(
+        cls,
+        api_key: str,
+        num_clients: int,
+        rpm_limit: int = 15,
+        max_concurrent: int = 10,
+        model: str = DEFAULT_MODEL,
+    ) -> List["GeminiClient"]:
+        """Create multiple GeminiClient instances that share the same rate limiter.
+
+        This is useful for creating a pool of clients that will be used in a multi-threaded
+        environment, ensuring they all respect the same rate limits.
+
+        This method leverages the GlobalRateLimiter singleton pattern to ensure all clients
+        share exactly the same rate limiter instance, preventing race conditions and ensuring
+        proper rate limiting across all threads.
+
+        Args:
+            api_key: The API key to use for all clients
+            num_clients: The number of clients to create
+            rpm_limit: The requests per minute limit to use
+            max_concurrent: The maximum number of concurrent requests
+            model: The model to use
+
+        Returns:
+            A list of GeminiClient instances that share the same rate limiter
+        """
+        # First, ensure the global rate limiter is initialized with the desired parameters
+        # This will create the singleton if it doesn't exist yet
+        GlobalRateLimiter.get_instance(
+            rpm_limit=rpm_limit, max_concurrent=max_concurrent
+        )
+
+        # Then create the clients, all using the same global rate limiter
+        clients = []
+        for _ in range(num_clients):
+            clients.append(
+                cls(
+                    api_key=api_key,
+                    rpm_limit=rpm_limit,
+                    max_concurrent=max_concurrent,
+                    model=model,
+                    use_global_rate_limiter=True,  # Always use global rate limiter for shared clients
+                )
+            )
+
+        logging.info(
+            f"Created {num_clients} GeminiClient instances with shared rate limiter"
+        )
+        return clients
+
     def get_worker_id(self) -> int:
-        """Get or create worker ID for current thread."""
-        # Make the entire check-and-assign operation atomic
-        with self.worker_counter_lock:
-            if not hasattr(self.worker_data, "worker_id"):
-                self.worker_counter += 1
-                self.worker_data.worker_id = self.worker_counter
-        return self.worker_data.worker_id
+        """Get worker ID for current thread/client instance.
+
+        Each GeminiClient instance has a unique worker ID assigned at creation time.
+        This is useful for tracking which client is handling which request in logs.
+
+        Returns:
+            The worker ID for this client instance
+        """
+        return self._worker_id
+
+    # def combine_chunk_responses(
+    #     self, responses: List[CitationAnalysis], cluster_id: int
+    # ) -> Optional[CombinedResolvedCitationAnalysis]:
+    #     """
+    #     Combine multiple chunk responses into a single citation analysis result.
+
+    #     Args:
+    #         responses: List of CitationAnalysis objects from processing chunks
+    #         cluster_id: The cluster ID to associate with the combined response
+
+    #     Returns:
+    #         CombinedResolvedCitationAnalysis or None if no valid responses
+
+    #     Raises:
+    #         ValueError: If no valid CitationAnalysis objects are provided
+    #     """
+    #     # Filter out None responses and ensure we have valid ones
+    #     valid_responses = [r for r in responses if r is not None]
+    #     if not valid_responses:
+    #         logging.warning("No valid responses to combine")
+    #         return None
+
+    #     try:
+    #         # Create combined analysis using from_citations
+    #         combined = CombinedResolvedCitationAnalysis.from_citations(
+    #             valid_responses, cluster_id
+    #         )
+    #         return combined
+    #     except Exception as e:
+    #         logging.error(f"Error combining responses: {str(e)}")
+    #         return None
 
     def generate_content_with_chat(
         self,
@@ -694,6 +983,8 @@ class GeminiClient:
                     if result:
                         # Success! Release the rate limiter and return the result
                         self.rate_limiter.release()
+                        # Report success to the rate limiter
+                        self.rate_limiter.report_success()
                         return result
 
                     # Validation failed
@@ -726,7 +1017,12 @@ class GeminiClient:
                     logging.error(f"Worker {worker_id}: API call failed: {error_msg}")
 
                     # Check if this is a rate limit error
-                    if "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg:
+                    is_rate_limit_error = (
+                        "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg
+                    )
+                    if is_rate_limit_error:
+                        # Report rate limit error to the rate limiter
+                        self.rate_limiter.report_error(is_rate_limit_error=True)
                         # Use longer backoff for rate limit errors
                         backoff_time = 5.0 * (2**attempt) * (0.5 + random.random())
                         logging.warning(
@@ -734,6 +1030,8 @@ class GeminiClient:
                         )
                         time.sleep(backoff_time)
                     else:
+                        # Report other error to the rate limiter
+                        self.rate_limiter.report_error(is_rate_limit_error=False)
                         # Standard backoff for other errors
                         backoff_time = 1.0 * (2**attempt) * (0.5 + random.random())
                         logging.info(
@@ -825,6 +1123,8 @@ class GeminiClient:
                         if result:
                             # Success! Release the rate limiter and store the result
                             self.rate_limiter.release()
+                            # Report success to the rate limiter
+                            self.rate_limiter.report_success()
                             responses.append(result)
                             success = True
                             break
@@ -859,7 +1159,12 @@ class GeminiClient:
                         )
 
                         # Check if this is a rate limit error
-                        if "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg:
+                        is_rate_limit_error = (
+                            "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg
+                        )
+                        if is_rate_limit_error:
+                            # Report rate limit error to the rate limiter
+                            self.rate_limiter.report_error(is_rate_limit_error=True)
                             # Use longer backoff for rate limit errors
                             backoff_time = 5.0 * (2**attempt) * (0.5 + random.random())
                             logging.warning(
@@ -867,6 +1172,8 @@ class GeminiClient:
                             )
                             time.sleep(backoff_time)
                         else:
+                            # Report other error to the rate limiter
+                            self.rate_limiter.report_error(is_rate_limit_error=False)
                             # Standard backoff for other errors
                             backoff_time = 1.0 * (2**attempt) * (0.5 + random.random())
                             logging.info(
@@ -974,6 +1281,43 @@ class GeminiClient:
             len(df),
         )
 
+        # Create a pool of clients that share the same rate limiter
+        # This ensures all workers respect the same global rate limits
+        # Use the stored API key
+        api_key = self.api_key
+
+        # Use the class method to create shared clients
+        shared_clients = self.create_shared_clients(
+            api_key=api_key,
+            num_clients=max_workers,
+            rpm_limit=self.rpm_limit,
+            max_concurrent=self.max_concurrent,
+            model=model,
+        )
+
+        # Create a thread-local storage to assign clients to worker threads
+        thread_local = threading.local()
+
+        # Function to get a client for the current thread
+        def get_thread_client():
+            if not hasattr(thread_local, "client_index"):
+                # Assign a client to this thread
+                with threading.Lock():
+                    if not hasattr(thread_local, "client_index"):
+                        thread_local.client_index = random.randint(
+                            0, len(shared_clients) - 1
+                        )
+                        logging.debug(
+                            f"Thread assigned client index {thread_local.client_index}"
+                        )
+                        thread_local.client_index = random.randint(
+                            0, len(shared_clients) - 1
+                        )
+                        logging.debug(
+                            f"Thread assigned client index {thread_local.client_index}"
+                        )
+            return shared_clients[thread_local.client_index]
+
         results: Dict[int, Optional[CitationAnalysis]] = {}
         errors = []
         total_processed = 0
@@ -987,12 +1331,16 @@ class GeminiClient:
         def process_row(
             row,
         ) -> tuple[int, Optional[CitationAnalysis], Optional[str], dict]:
-            worker_id = self.get_worker_id()
+            # Get the client assigned to this thread
+            thread_client = get_thread_client()
+            worker_id = thread_client.get_worker_id()
+
             try:
                 logging.info(
                     f"Worker {worker_id}: Starting processing cluster_id {row['cluster_id']}"
                 )
-                result = self.generate_content_with_chat(
+                # Use the thread's client to generate content
+                result = thread_client.generate_content_with_chat(
                     row[text_column], row["cluster_id"], model
                 )
 
