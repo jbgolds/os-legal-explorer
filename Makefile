@@ -9,7 +9,17 @@ see-logs:
 # Make command to access the logs from a specific job 
 
 copy-logs:
+	LATEST_DATE_HOUR=$$(docker exec os-legal-explorer-api-1 ls -la /tmp | grep -E '\.json|\.csv' | awk '{print $$9}' | sed 's/.*_\([0-9]\{8\}_[0-9]\{4\}\)[0-9]\{2\}\..*/\1/' | sort -r | head -1) && \
+	echo "Copying files with date/hour: $$LATEST_DATE_HOUR" && \
+	for file in $$(docker exec os-legal-explorer-api-1 ls /tmp | grep -E "\.json|\.csv" | grep "$$LATEST_DATE_HOUR"); do \
+		echo "Copying $$file" && \
+		docker cp os-legal-explorer-api-1:/tmp/$$file debug_files/; \
+	done
+
+
+copy-all-logs:
 	for file in $(docker exec os-legal-explorer-api-1 ls /tmp | grep -E '\.json|\.csv'); do docker cp os-legal-explorer-api-1:/tmp/$file debug_files/; done
+
 
 repomix:
 	repomix --ignore "*.csv,*.json,uv.lock,.venv/,prd.md"

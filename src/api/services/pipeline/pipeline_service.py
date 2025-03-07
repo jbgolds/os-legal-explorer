@@ -8,8 +8,10 @@ from typing import List, Dict, Optional, Any, Union, Callable, TypeVar, cast
 from datetime import datetime
 from sqlalchemy.orm import Session
 from src.llm_extraction.models import CitationAnalysis, Citation, resolve_citation
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, BaseModel
 from typing import List
+from neomodel import db
+from src.neo4j_db.models import Opinion
 
 # Use the consolidated citation parser
 from .pipeline_model import JobStatus, JobType, ExtractionConfig
@@ -500,6 +502,63 @@ def run_extraction_job(db: Session, job_id: int, config: ExtractionConfig) -> No
         update_job_status(db, job_id, JobStatus.FAILED, error=str(e))
 
 
+class NodeStatus(BaseModel):
+    """Status of a node in Neo4j."""
+
+    exists: bool
+    has_citations: bool
+    citation_count: int
+    has_ai_summary: bool = False
+
+
+def check_node_status(cluster_id: str) -> NodeStatus:
+    """
+    Check if a node exists in Neo4j, has outgoing citations, and has ai_summary.
+
+    Args:
+        cluster_id: The ID of the cluster to check
+
+    Returns:
+        NodeStatus object with:
+        - exists: Whether the node exists
+        - has_citations: Whether the node has outgoing citations
+        - citation_count: Number of outgoing citations
+        - has_ai_summary: Whether the node has an ai_summary field filled out
+    """
+    try:
+        # Try to find the opinion by primary_id (cluster_id)
+        opinion = Opinion.nodes.first_or_none(primary_id=cluster_id)
+
+        if not opinion:
+            return NodeStatus(
+                exists=False,
+                has_citations=False,
+                citation_count=0,
+                has_ai_summary=False,
+            )
+
+        # Count outgoing citations using neomodel relationship
+        # Get all outgoing CITES relationships
+        citation_count = len(opinion.cites.all())
+
+        # Check if ai_summary is filled out
+        has_ai_summary = bool(opinion.ai_summary)
+
+        return NodeStatus(
+            exists=True,
+            has_citations=citation_count > 0,
+            citation_count=citation_count,
+            has_ai_summary=has_ai_summary,
+        )
+
+    except Exception as e:
+        logger.error(f"Error checking node status: {e}")
+        # Return "not found" status on any error
+        return NodeStatus(
+            exists=False, has_citations=False, citation_count=0, has_ai_summary=False
+        )
+
+
 def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
     """
     Run an LLM processing job.
@@ -536,6 +595,27 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
         df = pd.read_csv(extraction_job["result_path"])
         cleaned_df = job_step(
             db, job_id, "data cleaning", 20.0, lambda: clean_extracted_opinions(df)
+        )
+
+        already_processed_df = pd.DataFrame()
+        # now go through the cleaned df and check if the cluster_id is already in Neo4j with ai_summary
+        for index, row in cleaned_df.iterrows():
+            cluster_id = row["cluster_id"]
+            node_status = check_node_status(str(cluster_id))
+            if node_status.exists and node_status.has_ai_summary:
+                logger.info(
+                    f"Cluster {cluster_id} already exists in Neo4j with ai_summary. Skipping LLM processing to save API requests."
+                )
+                already_processed_df = pd.concat(
+                    [already_processed_df, pd.DataFrame([row])], ignore_index=True
+                )
+
+        # drop the already processed rows from the cleaned df
+        cleaned_df = cleaned_df[
+            ~cleaned_df["cluster_id"].isin(already_processed_df["cluster_id"])
+        ]
+        logger.info(
+            f"Remaining opinions to process: {len(cleaned_df)}. Dropped {len(already_processed_df)} opinions that already exist in Neo4j"
         )
 
         # Save intermediate CSV
@@ -636,6 +716,9 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
 
         # Load and validate LLM results
         def load_and_validate_llm_data():
+            # Check if the result file is a CSV (empty dataframe case) or JSON
+            if llm_job["result_path"].endswith(".csv"):
+                raise ValueError("Got a CSV file, expected a JSON file")
             with open(llm_job["result_path"], "r", encoding="utf-8") as f:
                 try:
                     llm_json = json.load(f)
@@ -643,6 +726,11 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
                     raise ValueError(
                         f"Failed to decode JSON from file {f.name}: {str(e)}"
                     )
+
+            # If the JSON is empty, return an empty dictionary
+            if not llm_json:
+                logger.info("LLM job result is an empty JSON object")
+                return {}
 
             # Create type adapters for validation
             list_adapter = TypeAdapter(List[CitationAnalysis])
@@ -693,6 +781,11 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
         def create_combined_analyses():
             resolved = []
             errors = {}
+
+            # If there are no validated results, return empty lists
+            if not validated_llm_results:
+                logger.info("No validated LLM results to process")
+                return resolved, errors
 
             for cluster_id, analyses in validated_llm_results.items():
                 if not analyses:
@@ -751,6 +844,20 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
             )
             # preview errors
             logger.warning(errors)
+
+        # Check if there are any resolved citations
+        if not resolved_citations:
+            logger.info("No citations to resolve, completing job with empty result")
+
+            update_job_status(
+                db,
+                job_id,
+                JobStatus.COMPLETED,
+                progress=100.0,
+                message="No citations to resolve after processing",
+                result_path=None,
+            )
+            return
 
         # Serialize and save results
         serialized_citations = [
@@ -824,6 +931,19 @@ def run_neo4j_job(
         # Load resolution job result
         with open(resolution_job["result_path"], "r", encoding="utf-8") as f:
             resolved_citations = json.load(f)
+
+        # Check if there are any resolved citations
+        if not resolved_citations:
+            logger.info(f"No citations to load from resolution job {resolution_job_id}")
+            update_job_status(
+                db,
+                job_id,
+                JobStatus.COMPLETED,
+                progress=100.0,
+                message="No citations to load into Neo4j",
+                result_path=resolution_job["result_path"],
+            )
+            return
 
         # Convert to list of CombinedResolvedCitationAnalysis
         resolved_citations = [

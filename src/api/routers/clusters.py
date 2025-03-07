@@ -66,6 +66,7 @@ class ClusterStatus(BaseModel):
     exists: bool
     has_citations: bool
     citation_count: Optional[int] = None
+    has_ai_summary: bool = False
 
 
 # CourtListener API endpoint
@@ -423,20 +424,25 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
 @router.get("/{cluster_id}/status")
 async def check_cluster_status(cluster_id: str) -> ClusterStatus:
     """
-    Check if a cluster exists in Neo4j and has outgoing citations.
+    Check if a cluster exists in Neo4j, has outgoing citations, and has ai_summary.
 
     Parameters:
     - cluster_id: The ID of the cluster to check
 
     Returns:
-    - ClusterStatus object with existence and citation information
+    - ClusterStatus object with existence, citation, and ai_summary information
     """
     try:
         # Try to find the opinion by primary_id (cluster_id)
         opinion = Opinion.nodes.first_or_none(primary_id=cluster_id)
 
         if not opinion:
-            return ClusterStatus(exists=False, has_citations=False)
+            return ClusterStatus(
+                exists=False, has_citations=False, has_ai_summary=False
+            )
+
+        # Check if ai_summary is filled out
+        has_ai_summary = bool(opinion.ai_summary)
 
         # Count outgoing citations in a separate transaction
         with db.transaction:
@@ -449,13 +455,16 @@ async def check_cluster_status(cluster_id: str) -> ClusterStatus:
             citation_count = results[0][0] if results and results[0] else 0
 
         return ClusterStatus(
-            exists=True, has_citations=citation_count > 0, citation_count=citation_count
+            exists=True,
+            has_citations=citation_count > 0,
+            citation_count=citation_count,
+            has_ai_summary=has_ai_summary,
         )
 
     except Exception as e:
         logger.error(f"Error checking cluster status: {e}")
         # Return "not found" status on any error
-        return ClusterStatus(exists=False, has_citations=False)
+        return ClusterStatus(exists=False, has_citations=False, has_ai_summary=False)
 
 
 # Opinion page route - serves the same index.html but with pre-loaded cluster data

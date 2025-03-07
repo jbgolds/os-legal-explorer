@@ -1035,7 +1035,7 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                 <div class="flex items-center justify-center h-full">
                     <div class="text-center">
                         <p class="text-xl font-bold text-error">Error Loading Citation Network</p>
-                        <p class="text-gray-500">${error.message === 'API error: 404 - Not Found' ? 'Citation network data not found, please process the cluster to create a citation network.' : (error.message || 'Failed to load BRUH network data')}</p>
+                        <p class="text-gray-500">${error.message === 'API error: 404 - Not Found' ? 'Citation network data not found, please process the cluster to create a citation network.' : (error.message || 'Failed to load network data')}</p>
                         ${processButton}
                         ${error.message === 'API error: 404 - Not Found' ? '' : '<button class="btn btn-sm btn-outline mt-4" onclick="location.reload()">Retry</button>'}
                     </div>
