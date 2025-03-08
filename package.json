@@ -1,0 +1,11 @@
+{
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.0.9",
+    "@tailwindcss/typography": "^0.5.10",
+    "daisyui": "^5.0.0",
+    "tailwindcss": "^4.0.9"
+  },
+  "scripts": {
+    "build:css": "tailwindcss -i ./src/frontend/static/css/global.css -o ./src/frontend/static/css/output.css"
+  }
+}

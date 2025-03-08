@@ -670,7 +670,7 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
             f"LLM processing of {len(cleaned_df)} opinions",
             40.0,
             lambda: gemini_client.process_dataframe(
-                cleaned_df, text_column="text", max_workers=10, batch_size=batch_size
+                cleaned_df, text_column="text", max_workers=20, batch_size=batch_size
             ),
         )
 

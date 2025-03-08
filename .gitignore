@@ -13,6 +13,8 @@ wheels/
 *.csv
 *.log
 .env 
+!package.json
+!package-lock.json
 
 repomix-output.txt
 
