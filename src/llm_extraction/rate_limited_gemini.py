@@ -1367,14 +1367,19 @@ class GeminiClient:
             f"Processing {len(df)} rows with {max_workers} workers in batches of {batch_size}"
         )
 
+        # Calculate total number of batches
+        total_batches = (len(df) + batch_size - 1) // batch_size
+        logging.info(f"Total number of batches: {total_batches}")
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Process in batches
             for batch_start in range(0, len(df), batch_size):
                 batch_end = min(batch_start + batch_size, len(df))
                 batch_df = df.iloc[batch_start:batch_end]
+                current_batch = batch_start // batch_size + 1
 
                 logging.info(
-                    f"Processing batch {batch_start//batch_size + 1}, rows {batch_start} to {batch_end}"
+                    f"Processing batch {current_batch}/{total_batches}, rows {batch_start} to {batch_end}"
                 )
 
                 # Create futures for this batch only
@@ -1386,7 +1391,7 @@ class GeminiClient:
                 for future in tqdm(
                     as_completed(futures),
                     total=len(futures),
-                    desc=f"Processing batch {batch_start//batch_size + 1}",
+                    desc=f"Processing batch {current_batch}/{total_batches}",
                     position=0,
                     leave=True,
                 ):
