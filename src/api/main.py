@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 # Import and include routers
 from .services.pipeline import pipeline_router
 from .services.batch_gemini.batch_gemini_router import router as batch_gemini_router
-from .routers import search_router, clusters_router, feedback_router, network_router
+from .routers import search_router, clusters_router, feedback_router, network_router, stats_router
 from .routers.clusters import get_cluster_details, check_cluster_status
 from .shared import templates
 import logging
@@ -77,6 +77,7 @@ app.include_router(clusters_router)
 app.include_router(feedback_router)
 app.include_router(network_router)
 app.include_router(batch_gemini_router)
+app.include_router(stats_router)
 
 
 # Direct route for opinion pages
@@ -100,6 +101,20 @@ async def opinion_page(request: Request, cluster_id: str):
         )
     except Exception as e:
         logger.error(f"Error loading case: {e}")
+        return templates.TemplateResponse(
+            "index.html", {"request": request, "error": str(e)}
+        )
+
+# Stats page route
+@app.get("/stats", response_class=HTMLResponse)
+async def stats_page(request: Request):
+    """
+    Render the statistics page.
+    """
+    try:
+        return templates.TemplateResponse("stats.html", {"request": request})
+    except Exception as e:
+        logger.error(f"Error loading stats page: {e}")
         return templates.TemplateResponse(
             "index.html", {"request": request, "error": str(e)}
         )

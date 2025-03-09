@@ -1,0 +1,107 @@
+function populateTopCitedList(topCitedOpinions) {
+const listElement = document.getElementById('top-cited-list');
+listElement.innerHTML = '';
+
+topCitedOpinions.forEach(opinion => {
+const listItem = document.createElement('li');
+listItem.className = 'top-cited-item';
+
+const nameElement = document.createElement('div');
+nameElement.className = 'top-cited-name';
+
+// Create a link to the opinion
+const linkElement = document.createElement('a');
+linkElement.href = `/opinion/${opinion.cluster_id}/`;
+linkElement.textContent = opinion.case_name || 'Unknown Case';
+nameElement.appendChild(linkElement);
+
+const countElement = document.createElement('div');
+countElement.className = 'top-cited-count';
+countElement.textContent = `${formatNumber(opinion.citation_count)} citations`;
+
+listItem.appendChild(nameElement);
+listItem.appendChild(countElement);
+
+listElement.appendChild(listItem);
+});
+}
+
+function createCitationsByYearChart(citationsByYear) {
+const years = Object.keys(citationsByYear).sort();
+const counts = years.map(year => citationsByYear[year]);
+
+const ctx = document.getElementById('citations-by-year-chart').getContext('2d');
+const chart = new Chart(ctx, {
+type: 'line',
+data: {
+labels: years,
+datasets: [{
+label: 'Citations',
+data: counts,
+borderColor: 'rgba(75, 192, 192, 1)',
+backgroundColor: 'rgba(75, 192, 192, 0.2)',
+tension: 0.1,
+fill: true
+}]
+},
+options: {
+responsive: true,
+maintainAspectRatio: false,
+scales: {
+y: {
+beginAtZero: true,
+title: {
+display: true,
+text: 'Number of Citations'
+}
+},
+x: {
+title: {
+display: true,
+text: 'Year'
+}
+}
+}
+}
+});
+}
+
+function createOpinionsByYearChart(opinionsByYear) {
+const years = Object.keys(opinionsByYear).sort();
+const counts = years.map(year => opinionsByYear[year]);
+
+const ctx = document.getElementById('opinions-by-year-chart').getContext('2d');
+new Chart(ctx, {
+type: 'line',
+data: {
+labels: years,
+datasets: [{
+label: 'Opinions',
+data: counts,
+borderColor: 'rgba(153, 102, 255, 1)',
+backgroundColor: 'rgba(153, 102, 255, 0.2)',
+tension: 0.1,
+fill: true
+}]
+},
+options: {
+responsive: true,
+maintainAspectRatio: false,
+scales: {
+y: {
+beginAtZero: true,
+title: {
+display: true,
+text: 'Number of Opinions'
+}
+},
+x: {
+title: {
+display: true,
+text: 'Year'
+}
+}
+}
+}
+});
+}

@@ -318,11 +318,25 @@ def clean_extracted_opinions(df: pd.DataFrame) -> pd.DataFrame:
             pd.notna(row.get("so_html_with_citations"))
             and row.get("so_html_with_citations") != ""
         ):
-            new_df.at[i, "text"] = clean_text(row["so_html_with_citations"], ["html"])
-            new_df.at[i, "text_source"] = "so_html_with_citations"
+            try:
+                # Remove XML declaration before processing
+                html_content = row["so_html_with_citations"].replace("<?xml version=\"1.0\" encoding=\"utf-8\"?>", "")
+                new_df.at[i, "text"] = clean_text(html_content, ["html"])
+                new_df.at[i, "text_source"] = "so_html_with_citations"
+            except Exception as e:
+                logger.error(f"Error cleaning so_html_with_citations: {e} for row {i} cluster_id {row['cluster_id']} with text {row['so_html_with_citations'][:100]}")
+                raise e
+            
         elif pd.notna(row.get("so_html")) and row.get("so_html") != "":
-            new_df.at[i, "text"] = clean_text(row["so_html"], ["html"])
-            new_df.at[i, "text_source"] = "so_html"
+            try:
+                # Remove XML declaration before processing
+                html_content = row["so_html"].replace("<?xml version=\"1.0\" encoding=\"utf-8\"?>", "")
+                new_df.at[i, "text"] = clean_text(html_content, ["html"])
+                new_df.at[i, "text_source"] = "so_html"
+            except Exception as e:
+                logger.error(f"Error cleaning so_html: {e} for row {i} cluster_id {row['cluster_id']} with text {row['so_html'][:100]}")
+                raise e
+
         elif pd.notna(row.get("so_plain_text")) and row.get("so_plain_text") != "":
             new_df.at[i, "text"] = row["so_plain_text"]
             new_df.at[i, "text_source"] = "so_plain_text"
@@ -668,7 +682,7 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
             "LLM client initialization",
             30.0,
             lambda: GeminiClient(
-                api_key=os.environ["GEMINI_API_KEY"], rpm_limit=50, max_concurrent=10
+                api_key=os.environ["GEMINI_API_KEY"], rpm_limit=50, max_concurrent=25
             ),
         )
 
