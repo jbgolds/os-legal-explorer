@@ -24,13 +24,11 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Get database credentials from environment variables
-DB_USER = os.getenv("DB_USER", "courtlistener")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "postgrespassword")
-DB_HOST = os.getenv(
-    "DB_HOST", "host.docker.internal"
-)  # Connect to host machine's PostgreSQL
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_NAME = os.getenv("DB_NAME", "courtlistener")
+DB_USER = os.environ["POSTGRES_USER"]
+DB_PASSWORD = os.environ["POSTGRES_PASSWORD"]
+DB_HOST = os.environ["POSTGRES_HOST"]
+DB_PORT = os.environ["POSTGRES_PORT"]
+DB_NAME = os.environ["POSTGRES_DB"]
 
 # Create database URL
 DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"

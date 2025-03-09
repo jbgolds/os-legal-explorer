@@ -52,15 +52,17 @@ CITATION_TYPE_TO_PRIMARY_TABLE = {
 # Load environment variables
 load_dotenv()
 
-# Neo4j Configuration
-NEO4J_URI = os.getenv("NEO4J_URI", "bolt://host.docker.internal:7687")
-NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "courtlistener")
+# Neo4j Configuration using .env variables
+DB_NEO4J_URL = os.environ["DB_NEO4J_URL"]
+NEO4J_USER = os.environ["DB_NEO4J_USER"]
+NEO4J_PASSWORD = os.environ["DB_NEO4J_PASSWORD"] 
 
+
+
+# Print connection details for debugging
 # Set connection URL
-config.DATABASE_URL = (
-    f"bolt://{NEO4J_USER}:{NEO4J_PASSWORD}@{NEO4J_URI.replace('bolt://', '')}"
-)
+config.DATABASE_URL = f"bolt://{NEO4J_USER}:{NEO4J_PASSWORD}@{DB_NEO4J_URL}"
+
 
 # Configure logging
 logging.basicConfig(
@@ -76,16 +78,38 @@ _neo4j_driver = None
 def get_neo4j_driver():
     """
     Get the Neo4j driver instance, creating it if it doesn't exist.
+    Implements retry logic with exponential backoff to handle Neo4j startup delays.
 
     Returns:
         Neo4j driver
     """
     global _neo4j_driver
     if _neo4j_driver is None:
-        # Extract credentials from connection URL if needed
-        _neo4j_driver = GraphDatabase.driver(
-            NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD)
-        )
+        max_retries = 5
+        retry_count = 0
+        base_delay = 2  # Start with 2 seconds delay
+        
+        while retry_count < max_retries:
+            try:
+                # Use the GraphDatabase.driver method with separate auth parameter
+                _neo4j_driver = GraphDatabase.driver(
+                    uri=f"bolt://{DB_NEO4J_URL}", auth=(NEO4J_USER, NEO4J_PASSWORD)
+                )
+                # Verify connection works immediately to catch auth errors
+                _neo4j_driver.verify_connectivity()
+                logger.info(f"Successfully connected to Neo4j at bolt://{DB_NEO4J_URL}")
+                return _neo4j_driver
+            except Exception as e:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    logger.error(f"Failed to create Neo4j driver after {max_retries} attempts: {e}")
+                    raise e
+                
+                # Calculate delay with exponential backoff (2s, 4s, 8s, 16s, 32s)
+                delay = base_delay * (2 ** (retry_count - 1))
+                logger.warning(f"Neo4j connection attempt {retry_count} failed. Retrying in {delay} seconds. Error: {e}")
+                time.sleep(delay)
+    
     return _neo4j_driver
 
 
@@ -160,7 +184,7 @@ class NeomodelLoader:
 
     def __init__(
         self,
-        uri: Optional[str] = None,
+        url: Optional[str] = None,
         username: Optional[str] = None,
         password: Optional[str] = None,
         batch_size: int = 1000,
@@ -175,14 +199,14 @@ class NeomodelLoader:
             batch_size: Number of nodes to process in each batch
         """
         # Use parameters if provided, otherwise fall back to module-level defaults
-        self.uri = uri or NEO4J_URI
+        self.url = url or DB_NEO4J_URL
         self.username = username or NEO4J_USER
         self.password = password or NEO4J_PASSWORD
         self.batch_size = batch_size
 
         # Ensure URI has protocol
-        if self.uri and "://" not in self.uri:
-            self.uri = f"bolt://{self.uri}"
+        if self.url and "://" not in self.url:
+            self.url = f"bolt://{self.url}"
 
         # Configure neomodel connection if not already set
         if not config.DATABASE_URL:

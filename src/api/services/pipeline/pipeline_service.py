@@ -986,9 +986,9 @@ def run_neo4j_job(
         )
 
         loader = NeomodelLoader(
-            uri=os.getenv("NEO4J_URI"),
-            username=os.getenv("NEO4J_USER"),
-            password=os.getenv("NEO4J_PASSWORD"),
+            url=os.environ["DB_NEO4J_URL"],
+            username=os.environ["DB_NEO4J_USER"],
+            password=os.environ["DB_NEO4J_PASSWORD"],
         )
 
         # Load citations into Neo4j

@@ -31,3 +31,8 @@ clear-neo4j:
 	docker volume rm os-legal-explorer_neo4j_data
 # MATCH (n) DETACH DELETE n
 # CALL apoc.schema.assert({},{},true) YIELD label, key RETURN *
+
+
+# put old neo4j.dumps into neo4j_backups/ and run to restore
+restore-neo4j:
+	docker compose run --rm --entrypoint="" neo4j bash -c "neo4j-admin database load --from-path=/backups --overwrite-destination neo4j"

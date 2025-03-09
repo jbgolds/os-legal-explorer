@@ -45,4 +45,5 @@ EXPOSE ${PORT}
 
 # Simple development command
 # "--proxy-headers", for when running behind caddy
-CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"] 
+# sleep 5 and tthen run
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--reload", "--proxy-headers"] 
