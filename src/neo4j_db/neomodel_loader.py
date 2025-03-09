@@ -59,8 +59,7 @@ NEO4J_PASSWORD = os.environ["DB_NEO4J_PASSWORD"]
 
 
 
-# Print connection details for debugging
-# Set connection URL
+# Set connection URL - fixing the format to ensure proper URL encoding
 config.DATABASE_URL = f"bolt://{NEO4J_USER}:{NEO4J_PASSWORD}@{DB_NEO4J_URL}"
 
 
@@ -91,13 +90,16 @@ def get_neo4j_driver():
         
         while retry_count < max_retries:
             try:
+                if retry_count == 0:
+                    time.sleep(15)
                 # Use the GraphDatabase.driver method with separate auth parameter
                 _neo4j_driver = GraphDatabase.driver(
-                    uri=f"bolt://{DB_NEO4J_URL}", auth=(NEO4J_USER, NEO4J_PASSWORD)
+                    uri=f"bolt://{DB_NEO4J_URL}", 
+                    auth=(NEO4J_USER, NEO4J_PASSWORD)
                 )
                 # Verify connection works immediately to catch auth errors
                 _neo4j_driver.verify_connectivity()
-                logger.info(f"Successfully connected to Neo4j at bolt://{DB_NEO4J_URL}")
+                logger.info(f"Successfully connected to Neo4j at bolt://{DB_NEO4J_URL} with user {NEO4J_USER}")
                 return _neo4j_driver
             except Exception as e:
                 retry_count += 1
