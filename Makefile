@@ -18,7 +18,10 @@ copy-logs:
 
 
 copy-all-logs:
-	for file in $(docker exec os-legal-explorer-api-1 ls /tmp | grep -E '\.json|\.csv'); do docker cp os-legal-explorer-api-1:/tmp/$file debug_files/; done
+	for file in $$(docker exec os-legal-explorer-api-1 ls /tmp | grep -E '\.json|\.csv'); do \
+		echo "Copying $$file" && \
+		docker cp os-legal-explorer-api-1:/tmp/$$file debug_files/; \
+	done
 
 
 repomix:

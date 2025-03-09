@@ -182,46 +182,6 @@ async def load_neo4j(
     return {"job_id": neo4j_job_id, "status": "started"}
 
 
-@router.post(
-    "/upload-csv", response_model=PipelineJob, dependencies=[Depends(verify_api_key)]
-)
-async def upload_csv(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-):
-    """
-    Upload a CSV file with opinions for processing.
-    This is an alternative to the extract endpoint.
-
-    Args:
-        file: CSV file with opinions
-
-    Returns:
-        Job ID for tracking the upload process
-    """
-    # Create a temporary file to store the uploaded CSV
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"upload_{timestamp}_{file.filename}"
-    file_path = os.path.join("/tmp", filename)
-
-    # Save the uploaded file
-    with open(file_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
-
-    # Create a job for the upload
-    job_id = pipeline_service.create_job(
-        db, "csv_upload", {"file_path": file_path, "original_filename": file.filename}
-    )
-
-    # Process the uploaded file in the background
-    background_tasks.add_task(
-        pipeline_service.process_uploaded_csv, db, job_id, file_path
-    )
-
-    return {"job_id": job_id, "status": "started"}
-
 
 @router.get(
     "/job/{job_id}",

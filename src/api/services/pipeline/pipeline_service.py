@@ -4,7 +4,7 @@ import logging
 from eyecite import clean_text
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Optional, Any, Union, Callable, TypeVar
+from typing import List, Dict, Optional, Any, Union, Callable, TypeVar, Tuple
 from datetime import datetime
 from sqlalchemy.orm import Session
 from src.llm_extraction.models import CitationAnalysis
@@ -285,6 +285,19 @@ def update_job_status(
 
 # New helper function to clean extracted opinions
 def clean_extracted_opinions(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Clean opinions extracted from our internal database.
+    
+    IMPORTANT: This function is specifically designed for data extracted from our own database
+    and assumes certain column names and data structures. DO NOT use this for cleaning
+    data from external sources or uploaded files.
+    
+    Args:
+        df: DataFrame containing opinions extracted from our database
+        
+    Returns:
+        Cleaned DataFrame with standardized text fields
+    """
 
     logger.info(f"Cleaning extracted opinions, original length: {len(df)}")
     logger.info(f"Original DataFrame columns: {list(df.columns)}")
@@ -667,7 +680,7 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
             f"LLM processing of {len(cleaned_df)} opinions",
             40.0,
             lambda: gemini_client.process_dataframe(
-                cleaned_df, text_column="text", max_workers=20, batch_size=batch_size
+                cleaned_df, text_column="text", max_workers=25, batch_size=1
             ),
         )
 
@@ -697,6 +710,213 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
         update_job_status(db, job_id, JobStatus.FAILED, error=str(e))
 
 
+def validate_llm_job(llm_job: Optional[Dict[str, Any]], llm_job_id: int) -> bool:
+    """
+    Validate that the LLM job exists and is completed.
+    
+    Args:
+        llm_job: The LLM job dictionary
+        llm_job_id: The LLM job ID
+        
+    Returns:
+        bool: True if the job is valid, False otherwise
+    """
+    if llm_job is None:
+        logger.error(f"LLM job {llm_job_id} not found, aborting pipeline")
+        return False
+    if llm_job["status"] != JobStatus.COMPLETED:
+        logger.error(f"LLM job {llm_job_id} failed, aborting pipeline")
+        return False
+    return True
+
+
+def load_and_validate_llm_data(llm_job: Dict[str, Any]) -> Dict[str, List[CitationAnalysis]]:
+    """
+    Load and validate LLM results from a job result file.
+    
+    Args:
+        llm_job: The LLM job dictionary
+        
+    Returns:
+        Dict[str, List[CitationAnalysis]]: Validated results by cluster ID
+        
+    Raises:
+        ValueError: If the file format is invalid or cannot be parsed
+    """
+    # Check if the result file is a CSV (empty dataframe case) or JSON
+    if llm_job["result_path"].endswith(".csv"):
+        raise ValueError(
+            f"Got a CSV file ({llm_job['result_path']}), expected a JSON file. This may happen if the LLM job produced an empty result set but didn't save it in the correct format."
+        )
+    with open(llm_job["result_path"], "r", encoding="utf-8") as f:
+        try:
+            llm_json = json.load(f)
+        except json.decoder.JSONDecodeError as e:
+            raise ValueError(
+                f"Failed to decode JSON from file {f.name}: {str(e)}"
+            )
+
+    # If the JSON is empty, return an empty dictionary
+    if not llm_json:
+        logger.info("LLM job result is an empty JSON object")
+        return {}
+
+    # Create type adapters for validation
+    list_adapter = TypeAdapter(List[CitationAnalysis])
+    single_adapter = TypeAdapter(CitationAnalysis)
+
+    validated_results = {}
+    for cluster_id, dumped in llm_json.items():
+        try:
+            if dumped is None:
+                continue
+
+            # Check if dumped is a string (JSON) or already a dictionary
+            if isinstance(dumped, str):
+                # Try parsing as a list first, then as a single object
+                try:
+                    validated = list_adapter.validate_json(dumped)
+                except Exception:
+                    single_obj = single_adapter.validate_json(dumped)
+                    validated = [single_obj]
+            elif isinstance(dumped, dict):
+                # Direct dictionary validation
+                try:
+                    validated = [single_adapter.validate_python(dumped)]
+                except Exception:
+                    # Try as a list if single validation fails
+                    validated = list_adapter.validate_python([dumped])
+            else:
+                logger.warning(
+                    f"Unexpected format for cluster {cluster_id}: {type(dumped)}"
+                )
+                continue
+
+            # Store validated results
+            validated_results[cluster_id] = validated
+        except Exception as e:
+            logger.warning(
+                f"Validation failed for cluster {cluster_id}: {str(e)}"
+            )
+
+    logger.info(f"Loaded and validated {len(validated_results)} LLM results")
+    return validated_results
+
+
+def create_combined_analyses(validated_llm_results: Dict[str, List[CitationAnalysis]]) -> Tuple[List[CombinedResolvedCitationAnalysis], Dict[str, Any]]:
+    """
+    Process validated LLM results and create combined analyses.
+    
+    Args:
+        validated_llm_results: Dictionary of validated LLM results by cluster ID
+        
+    Returns:
+        Tuple containing:
+        - List of resolved citation analyses
+        - Dictionary of errors by cluster ID
+    """
+    resolved = []
+    errors = {}
+
+    # If there are no validated results, return empty lists
+    if not validated_llm_results:
+        logger.info("No validated LLM results to process")
+        return resolved, errors
+
+    for cluster_id, analyses in validated_llm_results.items():
+        if not analyses:
+            continue
+
+        try:
+            # Filter and validate analyses
+            filtered_analyses = []
+            for analysis in analyses:
+                if isinstance(analysis, CitationAnalysis):
+                    filtered_analyses.append(analysis)
+                else:
+                    logger.warning(
+                        f"Unexpected analysis type for cluster {cluster_id}: {type(analysis)}"
+                    )
+
+            # Use the from_citations method to create a combined resolved analysis
+            if filtered_analyses:
+                # This method handles the resolution of citations internally
+                combined = CombinedResolvedCitationAnalysis.from_citations(
+                    filtered_analyses, int(cluster_id)
+                )
+                resolved.append(combined)
+            else:
+                logger.warning(
+                    f"No valid analyses for cluster {cluster_id} after filtering"
+                )
+
+        except Exception as e:
+            logger.warning(
+                f"Error creating combined analysis for cluster {cluster_id}: {str(e)}"
+            )
+            errors[str(cluster_id)] = {
+                "error": f"Error in combined analysis: {str(e)}",
+                "analyses_count": len(analyses),
+            }
+
+    # Log summary information
+    logger.info(
+        f"Processed {len(validated_llm_results)} clusters, created {len(resolved)} valid citations"
+    )
+    if errors:
+        logger.warning(
+            f"Encountered {len(errors)} errors during citation resolution"
+        )
+
+    return resolved, errors
+
+
+def serialize_and_save_citations(resolved_citations: List[CombinedResolvedCitationAnalysis]) -> str:
+    """
+    Serialize and save resolved citations to a temporary file.
+    
+    Args:
+        resolved_citations: List of resolved citation analyses
+        
+    Returns:
+        str: Path to the saved file
+    """
+    # Serialize citations
+    serialized_citations = [
+        citation.model_dump()  # Use model_dump() instead of model_dump_json() to get dictionaries
+        for citation in resolved_citations
+        if citation is not None
+        and isinstance(citation, CombinedResolvedCitationAnalysis)
+    ]
+
+    if len(serialized_citations) < len(resolved_citations):
+        logger.warning(
+            f"Filtered out {len(resolved_citations) - len(serialized_citations)} invalid citation objects during serialization"
+        )
+
+    # Save to temporary file
+    output_path = save_to_tmp(
+        serialized_citations, "resolved_citations", ensure_ascii=False
+    )
+    
+    return output_path
+
+
+def handle_empty_citations() -> str:
+    """
+    Handle the case when there are no resolved citations.
+    
+    Returns:
+        str: Path to the saved empty results file
+    """
+    logger.info("No citations to resolve, completing job with empty result")
+    empty_results = {}
+    output_path = save_to_tmp(
+        empty_results, "resolved_citations", ensure_ascii=False
+    )
+    return output_path
+
+
 def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
     """
     Run a citation resolution job.
@@ -716,157 +936,50 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
             message="Starting citation resolution",
         )
 
-        # Get LLM job
+        # Get and validate LLM job
         llm_job = get_job(db, llm_job_id)
-        if llm_job is None:
-            logger.error(f"LLM job {llm_job_id} not found, aborting pipeline")
-            return
-        if llm_job["status"] != JobStatus.COMPLETED:
-            logger.error(f"LLM job {llm_job_id} failed, aborting pipeline")
+        if not validate_llm_job(llm_job, llm_job_id):
+            update_job_status(
+                db,
+                job_id,
+                JobStatus.FAILED,
+                error=f"LLM job {llm_job_id} is invalid or not completed"
+            )
             return
 
         # Load and validate LLM results
-        def load_and_validate_llm_data():
-            # Check if the result file is a CSV (empty dataframe case) or JSON
-            if llm_job["result_path"].endswith(".csv"):
-                raise ValueError(
-                    f"Got a CSV file ({llm_job['result_path']}), expected a JSON file. This may happen if the LLM job produced an empty result set but didn't save it in the correct format."
-                )
-            with open(llm_job["result_path"], "r", encoding="utf-8") as f:
-                try:
-                    llm_json = json.load(f)
-                except json.decoder.JSONDecodeError as e:
-                    raise ValueError(
-                        f"Failed to decode JSON from file {f.name}: {str(e)}"
-                    )
-
-            # If the JSON is empty, return an empty dictionary
-            if not llm_json:
-                logger.info("LLM job result is an empty JSON object")
-                return {}
-
-            # Create type adapters for validation
-            list_adapter = TypeAdapter(List[CitationAnalysis])
-            single_adapter = TypeAdapter(CitationAnalysis)
-
-            validated_results = {}
-            for cluster_id, dumped in llm_json.items():
-                try:
-                    if dumped is None:
-                        continue
-
-                    # Check if dumped is a string (JSON) or already a dictionary
-                    if isinstance(dumped, str):
-                        # Try parsing as a list first, then as a single object
-                        try:
-                            validated = list_adapter.validate_json(dumped)
-                        except Exception:
-                            single_obj = single_adapter.validate_json(dumped)
-                            validated = [single_obj]
-                    elif isinstance(dumped, dict):
-                        # Direct dictionary validation
-                        try:
-                            validated = [single_adapter.validate_python(dumped)]
-                        except Exception:
-                            # Try as a list if single validation fails
-                            validated = list_adapter.validate_python([dumped])
-                    else:
-                        logger.warning(
-                            f"Unexpected format for cluster {cluster_id}: {type(dumped)}"
-                        )
-                        continue
-
-                    # Store validated results
-                    validated_results[cluster_id] = validated
-                except Exception as e:
-                    logger.warning(
-                        f"Validation failed for cluster {cluster_id}: {str(e)}"
-                    )
-
-            logger.info(f"Loaded and validated {len(validated_results)} LLM results")
-            return validated_results
-
-        validated_llm_results = job_step(
-            db, job_id, "data validation", 20.0, load_and_validate_llm_data
-        )
+        try:
+            # At this point, llm_job is guaranteed to be not None because validate_llm_job would have returned False otherwise
+            assert llm_job is not None, "LLM job should not be None at this point"
+            
+            validated_llm_results = job_step(
+                db, job_id, "data validation", 20.0, 
+                lambda: load_and_validate_llm_data(llm_job)
+            )
+        except Exception as e:
+            logger.error(f"Failed to load and validate LLM data: {str(e)}")
+            update_job_status(
+                db, job_id, JobStatus.FAILED, 
+                error=f"Failed to load and validate LLM data: {str(e)}"
+            )
+            return
 
         # Process all validated results and create combined analyses
-        def create_combined_analyses():
-            resolved = []
-            errors = {}
-
-            # If there are no validated results, return empty lists
-            if not validated_llm_results:
-                logger.info("No validated LLM results to process")
-                return resolved, errors
-
-            for cluster_id, analyses in validated_llm_results.items():
-                if not analyses:
-                    continue
-
-                try:
-                    # Filter and validate analyses
-                    filtered_analyses = []
-                    for analysis in analyses:
-                        if isinstance(analysis, CitationAnalysis):
-                            filtered_analyses.append(analysis)
-                        else:
-                            logger.warning(
-                                f"Unexpected analysis type for cluster {cluster_id}: {type(analysis)}"
-                            )
-
-                    # Use the from_citations method to create a combined resolved analysis
-                    if filtered_analyses:
-                        # This method handles the resolution of citations internally
-                        combined = CombinedResolvedCitationAnalysis.from_citations(
-                            filtered_analyses, int(cluster_id)
-                        )
-                        resolved.append(combined)
-                    else:
-                        logger.warning(
-                            f"No valid analyses for cluster {cluster_id} after filtering"
-                        )
-
-                except Exception as e:
-                    logger.warning(
-                        f"Error creating combined analysis for cluster {cluster_id}: {str(e)}"
-                    )
-                    errors[str(cluster_id)] = {
-                        "error": f"Error in combined analysis: {str(e)}",
-                        "analyses_count": len(analyses),
-                    }
-
-            # Log summary information
-            logger.info(
-                f"Processed {len(validated_llm_results)} clusters, created {len(resolved)} valid citations"
-            )
-            if errors:
-                logger.warning(
-                    f"Encountered {len(errors)} errors during citation resolution"
-                )
-
-            return resolved, errors
-
         resolved_citations, errors = job_step(
-            db, job_id, "combining analyses", 50.0, create_combined_analyses
+            db, job_id, "combining analyses", 50.0,
+            lambda: create_combined_analyses(validated_llm_results)
         )
 
+        # Log any errors encountered during resolution
         if errors:
             logger.warning(
                 f"Encountered {len(errors)} errors during citation resolution"
             )
-            # preview errors
             logger.warning(errors)
 
-        # Check if there are any resolved citations
+        # Handle empty citations case
         if not resolved_citations:
-            logger.info("No citations to resolve, completing job with empty result")
-
-            empty_results = {}
-            output_path = save_to_tmp(
-                empty_results, "resolved_citations", ensure_ascii=False
-            )
-
+            output_path = handle_empty_citations()
             update_job_status(
                 db,
                 job_id,
@@ -878,21 +991,7 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
             return
 
         # Serialize and save results
-        serialized_citations = [
-            citation.model_dump()  # Use model_dump() instead of model_dump_json() to get dictionaries
-            for citation in resolved_citations
-            if citation is not None
-            and isinstance(citation, CombinedResolvedCitationAnalysis)
-        ]
-
-        if len(serialized_citations) < len(resolved_citations):
-            logger.warning(
-                f"Filtered out {len(resolved_citations) - len(serialized_citations)} invalid citation objects during serialization"
-            )
-
-        output_path = save_to_tmp(
-            serialized_citations, "resolved_citations", ensure_ascii=False
-        )
+        output_path = serialize_and_save_citations(resolved_citations)
 
         # Update job status to complete
         update_job_status(
@@ -1025,56 +1124,6 @@ def run_neo4j_job(
         import traceback
 
         logger.error(f"Error in Neo4j job {job_id}: {str(e)}\n{traceback.format_exc()}")
-        update_job_status(db, job_id, JobStatus.FAILED, error=str(e))
-
-
-def process_uploaded_csv(db: Session, job_id: int, file_path: str) -> None:
-    """
-    Process an uploaded CSV file.
-
-    Args:
-        db: Database session
-        job_id: Job ID
-        file_path: Path to the uploaded CSV file
-    """
-    try:
-        # Update job status
-        update_job_status(
-            db,
-            job_id,
-            JobStatus.STARTED,
-            progress=0.0,
-            message="Starting CSV processing",
-        )
-
-        # Load CSV
-        update_job_status(
-            db, job_id, JobStatus.PROCESSING, progress=10.0, message="Loading CSV file"
-        )
-
-        # Load the actual CSV file
-        df = pd.read_csv(file_path)
-
-        # Create LLM job
-        llm_job_id = create_job(db, JobType.LLM_PROCESS, {"file_path": file_path})
-
-        # Run LLM job
-        run_llm_job(db, llm_job_id, job_id)
-
-        # Update job status
-        update_job_status(
-            db,
-            job_id,
-            JobStatus.COMPLETED,
-            progress=100.0,
-            message=f"Processed CSV file with {len(df)} opinions",
-            result_path=file_path,
-        )
-
-        logger.info(f"Completed CSV processing job {job_id}")
-
-    except Exception as e:
-        logger.error(f"Error in CSV processing job {job_id}: {str(e)}")
         update_job_status(db, job_id, JobStatus.FAILED, error=str(e))
 
 

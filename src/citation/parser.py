@@ -281,6 +281,8 @@ def extract_citation_components(citation_text: str) -> List[Dict[str, str]]:
         r"(\d+)\s+([A-Za-z\.]+(?:\s+[A-Za-z\.]+)?)\s+(\d+)(?:\s*,\s*\d+\s+[A-Za-z\.]+(?:\s+[A-Za-z\.]+)?\s+\d+)?",
         # Pattern for citations with section symbol: § volume-page
         r"§\s*(\d+)-(\d+)",
+        # Pattern for case name with volume, reporter, page format: Name v. Name, volume reporter page (year)
+        r"(?:[A-Za-z\s\.]+\sv\.\s[A-Za-z\s\.]+,\s+)?(\d+)\s+([A-Za-z\.\s]+)\s+(\d+)(?:,\s+\d+)?\s*(?:\(\d{4}\))?",
     ]
 
     extracted_components = []
@@ -294,6 +296,7 @@ def extract_citation_components(citation_text: str) -> List[Dict[str, str]]:
                 pattern == patterns[0]
                 or pattern == patterns[1]
                 or pattern == patterns[5]
+                or pattern == patterns[7]  # New case name pattern
             ):
                 volume, reporter, page = matches.groups()
             elif pattern == patterns[2] or pattern == patterns[3]:
@@ -315,7 +318,6 @@ def extract_citation_components(citation_text: str) -> List[Dict[str, str]]:
                     "volume": volume,
                     "reporter": reporter,
                     "page": page,
-                    "pattern": pattern,
                 }
             )
 
@@ -353,7 +355,6 @@ def extract_parallel_citations(citation_text: str) -> List[Dict[str, str]]:
                 "volume": vol1,
                 "reporter": rep1.strip(),
                 "page": page1,
-                "pattern": "parallel_first",
             }
         )
 
@@ -362,7 +363,6 @@ def extract_parallel_citations(citation_text: str) -> List[Dict[str, str]]:
                 "volume": vol2,
                 "reporter": rep2.strip(),
                 "page": page2,
-                "pattern": "parallel_second",
             }
         )
 
@@ -448,12 +448,17 @@ def find_best_match(
     best_match = None
     best_score = 0.0
 
+    # If no components were extracted, return early
+    if not extracted_components:
+        logger.warning(f"No components extracted from citation: {citation_text}")
+        return None, 0.0
+
     with get_db_session() as session:
         # Try different matching strategies for each extracted component set
         for components in extracted_components:
-            volume = components.get("volume", "")
-            reporter_raw = components.get("reporter", "")
-            page = components.get("page", "")
+            volume = components.get("volume")
+            reporter_raw = components.get("reporter")
+            page = components.get("page")
 
             if not volume or not reporter_raw or not page:
                 continue
@@ -526,6 +531,11 @@ def try_exact_match(
     from src.postgres.database import Citation
 
     try:
+        # Check for None or 'None' values and handle them properly
+        if volume is None or volume == 'None' or reporter is None or reporter == 'None' or page is None or page == 'None':
+            logger.warning(f"Invalid citation components: volume={volume}, reporter={reporter}, page={page}")
+            return None, 0.0
+            
         result = (
             session.query(Citation)
             .filter(
@@ -621,6 +631,11 @@ def try_volume_page_match(
     from src.postgres.database import Citation
 
     try:
+        # Check for None or 'None' values and handle them properly
+        if volume is None or volume == 'None' or page is None or page == 'None':
+            logger.warning(f"Invalid citation components for volume-page match: volume={volume}, page={page}")
+            return None, 0.0
+            
         result = (
             session.query(Citation)
             .filter(

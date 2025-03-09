@@ -18,7 +18,7 @@ services:
       # PostgreSQL variables will be loaded from .env file
     volumes:
       - .:/app
-      - $HOME/.config/gcloud/application_default_credentials.json:/app/google-credentials/credentials.json
+      - ./google-credentials/gen-lang-client-0880888016-41345dc4d59a.json:/app/google-credentials/credentials.json
     depends_on:
       - neo4j # Simple dependency without health check
     restart: always
