@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 # Import and include routers
 from .services.pipeline import pipeline_router
+from .services.batch_gemini.batch_gemini_router import router as batch_gemini_router
 from .routers import search_router, clusters_router, feedback_router, network_router
 from .routers.clusters import get_cluster_details, check_cluster_status
 from .shared import templates
@@ -75,6 +76,7 @@ app.include_router(search_router)
 app.include_router(clusters_router)
 app.include_router(feedback_router)
 app.include_router(network_router)
+app.include_router(batch_gemini_router)
 
 
 # Direct route for opinion pages

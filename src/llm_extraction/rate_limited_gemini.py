@@ -4,8 +4,8 @@ from typing import Any, Dict, List, Optional, Union, Tuple
 from google import genai
 from google.genai.types import GenerateContentConfig, GenerateContentResponse
 from google.genai.chats import Chat
+
 from json_repair import repair_json
-import re
 import os
 import pandas as pd
 import logging
@@ -901,38 +901,6 @@ class GeminiClient:
         """
         return self._worker_id
 
-    # def combine_chunk_responses(
-    #     self, responses: List[CitationAnalysis], cluster_id: int
-    # ) -> Optional[CombinedResolvedCitationAnalysis]:
-    #     """
-    #     Combine multiple chunk responses into a single citation analysis result.
-
-    #     Args:
-    #         responses: List of CitationAnalysis objects from processing chunks
-    #         cluster_id: The cluster ID to associate with the combined response
-
-    #     Returns:
-    #         CombinedResolvedCitationAnalysis or None if no valid responses
-
-    #     Raises:
-    #         ValueError: If no valid CitationAnalysis objects are provided
-    #     """
-    #     # Filter out None responses and ensure we have valid ones
-    #     valid_responses = [r for r in responses if r is not None]
-    #     if not valid_responses:
-    #         logging.warning("No valid responses to combine")
-    #         return None
-
-    #     try:
-    #         # Create combined analysis using from_citations
-    #         combined = CombinedResolvedCitationAnalysis.from_citations(
-    #             valid_responses, cluster_id
-    #         )
-    #         return combined
-    #     except Exception as e:
-    #         logging.error(f"Error combining responses: {str(e)}")
-    #         return None
-
     def generate_content_with_chat(
         self,
         text: str,
@@ -1307,15 +1275,6 @@ class GeminiClient:
                         thread_local.client_index = random.randint(
                             0, len(shared_clients) - 1
                         )
-                        logging.debug(
-                            f"Thread assigned client index {thread_local.client_index}"
-                        )
-                        thread_local.client_index = random.randint(
-                            0, len(shared_clients) - 1
-                        )
-                        logging.debug(
-                            f"Thread assigned client index {thread_local.client_index}"
-                        )
             return shared_clients[thread_local.client_index]
 
         results: Dict[int, Optional[CitationAnalysis]] = {}
@@ -1461,3 +1420,5 @@ class GeminiClient:
             logging.warning(f"Encountered {len(errors)} errors during processing")
 
         return results
+
+
