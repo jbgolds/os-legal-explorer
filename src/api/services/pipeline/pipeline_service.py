@@ -4,10 +4,10 @@ import logging
 from eyecite import clean_text
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Optional, Any, Union, Callable, TypeVar, cast
+from typing import List, Dict, Optional, Any, Union, Callable, TypeVar
 from datetime import datetime
 from sqlalchemy.orm import Session
-from src.llm_extraction.models import CitationAnalysis, Citation, resolve_citation
+from src.llm_extraction.models import CitationAnalysis
 from pydantic import TypeAdapter, BaseModel
 from typing import List
 from neomodel import db
@@ -17,11 +17,8 @@ from src.neo4j_db.models import Opinion
 from .pipeline_model import JobStatus, JobType, ExtractionConfig
 from src.llm_extraction.rate_limited_gemini import GeminiClient
 from src.llm_extraction.models import (
-    Citation,
     CitationAnalysis,
-    CitationResolved,
     CombinedResolvedCitationAnalysis,
-    resolve_citation,
 )
 from src.neo4j_db.neomodel_loader import NeomodelLoader
 

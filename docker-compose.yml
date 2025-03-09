@@ -14,9 +14,11 @@ services:
     environment:
       - API_PUBLIC_URL=https://law.jbgolds.com
       - PYTHONPATH=/app
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/google-credentials/credentials.json
       # PostgreSQL variables will be loaded from .env file
     volumes:
       - .:/app
+      - $HOME/.config/gcloud/application_default_credentials.json:/app/google-credentials/credentials.json
     depends_on:
       - neo4j # Simple dependency without health check
     restart: always

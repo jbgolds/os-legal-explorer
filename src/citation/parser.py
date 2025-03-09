@@ -20,6 +20,12 @@ from src.postgres.database import get_db_session, Citation
 
 logger = logging.getLogger(__name__)
 
+
+# TODO DONT FORGET TO ADD INDEXES:
+# CREATE INDEX idx_citation_volume_page ON search_citation (volume, page)
+# CREATE INDEX idx_citation_volume_reporter_page ON search_citation (volume, reporter, page);
+
+
 # Create a global reporter lookup dictionary - computed once and reused
 _REPORTER_LOOKUP = None
 

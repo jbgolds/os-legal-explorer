@@ -14,14 +14,14 @@ import pandas as pd
 import os
 from datetime import datetime
 
-from ...database import get_db, get_neo4j
-from .pipeline_model import (
+from src.api.database import get_db, get_neo4j
+from src.api.services.pipeline.pipeline_model import (
     PipelineStatus,
     PipelineJob,
     ExtractionConfig,
 )
-from . import pipeline_service
-from .pipeline_single_cluster_ import process_single_cluster
+from src.api.services.pipeline import pipeline_service
+from src.api.services.pipeline.pipeline_single_cluster import process_single_cluster
 
 router = APIRouter(
     prefix="/api/pipeline",
