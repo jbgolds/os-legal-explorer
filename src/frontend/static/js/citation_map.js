@@ -80,6 +80,12 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
                 window.citationNetworkState = {};
             }
 
+            // Check for incoming citation treatments
+            if (containerId.includes("incoming") && data.links && data.links.length > 0) {
+                const treatments = data.links.map(link => link.treatment || "").filter(t => t);
+                updateTreatmentBanner(treatments);
+            }
+
             // Process and render the full network with all data
             renderNetwork(containerId, data, config);
         })
@@ -89,18 +95,63 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
         });
 }
 
+// Helper function to update the treatment banner
+function updateTreatmentBanner(treatments) {
+    const bannerEl = document.getElementById('incoming-treatment-banner');
+    const textEl = document.getElementById('incoming-treatment-text');
+
+    if (bannerEl && textEl) {
+        // Always show banner if there are any incoming citations
+        bannerEl.classList.remove('hidden');
+
+        // Check for treatments in priority order: POSITIVE > NEGATIVE > CAUTION > NEUTRAL
+        if (treatments.includes("POSITIVE")) {
+            bannerEl.querySelector('.alert').className = "alert alert-success";
+            textEl.textContent = "This case has POSITIVE incoming citations";
+        }
+        else if (treatments.includes("NEGATIVE")) {
+            bannerEl.querySelector('.alert').className = "alert alert-error";
+            textEl.textContent = "This case has NEGATIVE incoming citations";
+        }
+        else if (treatments.includes("CAUTION")) {
+            bannerEl.querySelector('.alert').className = "alert alert-warning";
+            textEl.textContent = "This case has CAUTION incoming citations";
+        }
+        else {
+            // Default for NEUTRAL or unspecified treatments
+            bannerEl.querySelector('.alert').className = "alert alert-info";
+            textEl.textContent = "This case has incoming citations";
+        }
+    }
+}
+
 // Function to render the network with the given data and config
 function renderNetwork(containerId, data, config) {
     const container = d3.select(`#${containerId}`);
     const match = window.location.pathname.match(/^\/opinion\/([^\/]+)/);
     const clusterId = match ? match[1] : null;
 
+    // Check for incoming citation treatments if this is an incoming network
+    if (containerId.includes("incoming") && data.links && data.links.length > 0) {
+        const treatments = data.links.map(link => link.treatment || "").filter(t => t);
+        updateTreatmentBanner(treatments);
+    }
+
     if (data.nodes.length === 1 && data.links.length === 0) {
         console.error('Only one node found with no citation relationships.');
-        let processButton = config.clusterId ?
-            `<button class="btn btn-sm btn-outline mt-4" onclick="processCluster(${config.clusterId})">Process Citations</button>` :
-            `<button class="btn btn-sm btn-outline mt-4" onclick="processCluster()">Process Citations</button>`;
-        container.html(`<div class="flex items-center justify-center h-full"><div class="text-center"><p class="text-xl font-bold text-error">Only a single node was found in the graph, with no relations.</p><p class="text-gray-500">Please process the cluster to create a citation network.</p>${processButton}</div></div>`);
+        // Check if we should hide the process button (for incoming citations)
+        let processButton = '';
+        if (!config.hideProcessButton) {
+            processButton = config.clusterId ?
+                `<button class="btn btn-sm btn-outline mt-4" onclick="processCluster(${config.clusterId})">Process Citations</button>` :
+                `<button class="btn btn-sm btn-outline mt-4" onclick="processCluster()">Process Citations</button>`;
+        }
+
+        // Use custom message if provided, otherwise use default
+        const errorMessage = config.customEmptyMessage || "Only a single node was found in the graph, with no relations.";
+        const subMessage = config.hideProcessButton ? "" : "Please process the cluster to create a citation network.";
+
+        container.html(`<div class="flex items-center justify-center h-full"><div class="text-center"><p class="text-xl font-bold text-error">${errorMessage}</p>${subMessage ? `<p class="text-gray-500">${subMessage}</p>` : ''}${processButton}</div></div>`);
         return;
     }
 
@@ -109,7 +160,9 @@ function renderNetwork(containerId, data, config) {
 
     // If no data, show a message
     if (!data.nodes.length) {
-        container.html(`<div class="flex items-center justify-center h-full"><div class="text-center"><p class="text-xl font-bold">No Citation Data</p><p class="text-gray-500">No citation network data available for this document.</p></div></div>`);
+        const noDataMessage = config.customEmptyMessage || "No Citation Data";
+        const noDataSubMessage = config.customEmptySubMessage || "No citation network data available for this document.";
+        container.html(`<div class="flex items-center justify-center h-full"><div class="text-center"><p class="text-xl font-bold">${noDataMessage}</p><p class="text-gray-500">${noDataSubMessage}</p></div></div>`);
         return;
     }
 

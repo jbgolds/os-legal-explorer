@@ -169,25 +169,37 @@ class NetworkGraph(BaseModel):
 
 
 @router.get("/{cluster_id}/citation-network", response_model=NetworkGraph)
-async def get_network(cluster_id: str, depth: int = 1):
+async def get_network(cluster_id: str, depth: int = 1, direction: str = "outgoing"):
     """
-    Get a citation network centered on a specific document (outgoing citations only).
+    Get a citation network centered on a specific document.
 
     Parameters:
     - cluster_id: The primary ID of the document to analyze
     - depth: How many layers of citations to include (default: 1)
+    - direction: "outgoing" for documents cited by this document (default),
+                "incoming" for documents that cite this document
 
     Returns:
     - Network graph with nodes and links
     """
     logger.info(
-        f"Citation network requested for cluster_id: {cluster_id}, depth: {depth}"
+        f"Citation network requested for cluster_id: {cluster_id}, depth: {depth}, direction: {direction}"
     )
 
     if depth > 3:
         # Limit depth for performance reasons
         depth = 3
         logger.info(f"Depth limited to 3 for performance reasons")
+
+    # Validate and normalize direction
+    direction = direction.lower()
+    if direction not in ["incoming", "outgoing"]:
+        logger.warning(f"Invalid direction '{direction}', defaulting to 'outgoing'")
+        direction = "outgoing"
+
+    # Convert to Neo4j direction constant
+    from neomodel import OUTGOING, INCOMING
+    neo4j_direction = INCOMING if direction == "incoming" else OUTGOING
 
     try:
         # Find the source document
@@ -221,40 +233,62 @@ async def get_network(cluster_id: str, depth: int = 1):
                 detail=f"Source document ID {source_doc.primary_id} does not match cluster_id {cluster_id}",
             )
 
-        # Process first level of citations directly using Neomodel
-        cited_docs = []
+        # Process first level of citations using traversal
+        related_docs = []
 
-        # Get direct citations from the source document
-        direct_citations = source_doc.cites.all()
-        logger.info(f"Found {len(direct_citations)} direct citations")
+        # Define traversal parameters
+        from neomodel import Traversal
+        definition = dict(
+            node_class=Opinion,  # Use Opinion as the target node class
+            direction=neo4j_direction,
+            relation_type="CITES",  # Use the CITES relationship type
+            model=None  # No specific relationship model class
+        )
 
-        # Process each citation
-        for target_doc in direct_citations:
-            # Skip if target_doc is None or doesn't have citation_string
-            if not target_doc or not getattr(target_doc, "citation_string", None):
-                logger.warning(f"Skipping invalid target document: {target_doc}")
+        # Create and execute traversal
+        citation_traversal = Traversal(
+            source_doc, 
+            Opinion.__label__,
+            definition
+        )
+        
+        direct_citations = citation_traversal.all()
+        logger.info(f"Found {len(direct_citations)} {direction} citations")
+
+        # Process each citation based on direction
+        for related_doc in direct_citations:
+            # Skip if related_doc is None or doesn't have citation_string
+            if not related_doc or not getattr(related_doc, "citation_string", None):
+                logger.warning(f"Skipping invalid related document: {related_doc}")
                 continue
 
             # Generate a node ID - use primary_id if available, otherwise use citation_string
-            target_id = (
-                getattr(target_doc, "primary_id", None)
-                or f"cite-{target_doc.citation_string}"
+            related_id = (
+                getattr(related_doc, "primary_id", None)
+                or f"cite-{related_doc.citation_string}"
             )
-            target_id = str(target_id)
+            related_id = str(related_id)
 
-            # Add target node if not already added
-            if target_id not in nodes:
+            # Add related node if not already added
+            if related_id not in nodes:
                 try:
-                    network_node = NetworkNode.from_legal_doc(target_doc)
-                    nodes[target_id] = network_node
+                    network_node = NetworkNode.from_legal_doc(related_doc)
+                    nodes[related_id] = network_node
                 except Exception as e:
-                    logger.error(f"Error creating network node for {target_id}: {e}")
+                    logger.error(f"Error creating network node for {related_id}: {e}")
                     continue
 
-            # Get relationship properties
+            # Get relationship properties and create link
             try:
-                # Get the relationship object between source_doc and target_doc
-                rel = source_doc.cites.relationship(target_doc)
+                # The relationship direction affects how we get the relationship and create links
+                if direction == "outgoing":
+                    # Source document cites the related document
+                    rel = source_doc.cites.relationship(related_doc)
+                    source_id, target_id = str(source_doc.primary_id), related_id
+                else:
+                    # Related document cites the source document
+                    rel = related_doc.cites.relationship(source_doc)
+                    source_id, target_id = related_id, str(source_doc.primary_id)
 
                 # Extract relationship properties
                 rel_data = {}
@@ -285,7 +319,7 @@ async def get_network(cluster_id: str, depth: int = 1):
 
                 # Create the link with relationship data
                 link = NetworkLink(
-                    source=str(source_doc.primary_id),
+                    source=source_id,
                     target=target_id,
                     type="CITES",
                     treatment=rel_data.get("treatment"),
@@ -299,139 +333,107 @@ async def get_network(cluster_id: str, depth: int = 1):
                     f"Error extracting relationship data: {e}, creating basic link"
                 )
                 # Create a basic link if relationship data extraction fails
-                link = NetworkLink(
-                    source=str(source_doc.primary_id), target=target_id, type="CITES"
-                )
+                if direction == "outgoing":
+                    link = NetworkLink(
+                        source=str(source_doc.primary_id), target=related_id, type="CITES"
+                    )
+                else:
+                    link = NetworkLink(
+                        source=related_id, target=str(source_doc.primary_id), type="CITES"
+                    )
 
             links.append(link)
 
             # Track for next level processing if depth > 1
-            cited_docs.append(target_doc)
+            related_docs.append(related_doc)
 
         # Process additional levels if depth > 1
         current_depth = 1
-        while current_depth < depth and cited_docs:
-            next_cited_docs = []
+        while current_depth < depth and related_docs:
+            next_related_docs = []
 
-            for current_doc in cited_docs:
-                # Skip if current_doc is None or doesn't have citation_string
-                if not current_doc or not getattr(current_doc, "citation_string", None):
+            for current_doc in related_docs:
+                # Skip if current_doc is None or doesn't have primary_id
+                if not current_doc or not getattr(current_doc, "primary_id", None):
                     continue
 
-                # Generate a node ID for the current document
-                current_id = (
-                    getattr(current_doc, "primary_id", None)
-                    or f"cite-{current_doc.citation_string}"
+                # Set up traversal for the next level
+                next_level_traversal = Traversal(
+                    current_doc,
+                    Opinion.__label__,
+                    definition  # Reuse the same definition
                 )
-                current_id = str(current_id)
+                
+                further_related_docs = next_level_traversal.all()
 
-                # Get citations from this document
-                try:
-                    next_level_citations = current_doc.cites.all()
-                except Exception as e:
-                    logger.error(f"Error getting citations for {current_id}: {e}")
-                    continue
-
-                for target_doc in next_level_citations:
-                    # Skip if target_doc is None or doesn't have citation_string
-                    if not target_doc or not getattr(
-                        target_doc, "citation_string", None
-                    ):
+                for further_related_doc in further_related_docs:
+                    # Skip if further_related_doc is None or doesn't have citation_string
+                    if not further_related_doc or not getattr(further_related_doc, "citation_string", None):
                         continue
 
-                    # Generate a node ID for the target document
-                    target_id = (
-                        getattr(target_doc, "primary_id", None)
-                        or f"cite-{target_doc.citation_string}"
+                    # Generate a node ID
+                    further_related_id = (
+                        getattr(further_related_doc, "primary_id", None)
+                        or f"cite-{further_related_doc.citation_string}"
                     )
-                    target_id = str(target_id)
+                    further_related_id = str(further_related_id)
 
-                    # Add target node if not already added
-                    if target_id not in nodes:
-                        try:
-                            network_node = NetworkNode.from_legal_doc(target_doc)
-                            nodes[target_id] = network_node
-                        except Exception as e:
-                            logger.error(
-                                f"Error creating network node for {target_id}: {e}"
+                    # Determine source and target IDs based on direction
+                    if direction == "outgoing":
+                        source_id, target_id = str(current_doc.primary_id), further_related_id
+                    else:
+                        source_id, target_id = further_related_id, str(current_doc.primary_id)
+
+                    # Skip if we've already processed this node
+                    if further_related_id in nodes:
+                        # But still check if we need to add a link
+                        if not any(
+                            l.source == source_id and l.target == target_id
+                            for l in links
+                        ):
+                            links.append(
+                                NetworkLink(
+                                    source=source_id,
+                                    target=target_id,
+                                    type="CITES",
+                                )
                             )
-                            continue
+                        continue
 
-                    # Get relationship properties
+                    # Add node
                     try:
-                        # Get the relationship object between current_doc and target_doc
-                        rel = current_doc.cites.relationship(target_doc)
+                        network_node = NetworkNode.from_legal_doc(further_related_doc)
+                        nodes[further_related_id] = network_node
+                    except Exception as e:
+                        logger.error(f"Error creating network node for {further_related_id}: {e}")
+                        continue
 
-                        # Extract relationship properties
-                        rel_data = {}
-                        if rel:
-                            for prop in [
-                                "treatment",
-                                "relevance",
-                                "reasoning",
-                                "citation_text",
-                                "page_number",
-                                "opinion_section",
-                                "data_source",
-                            ]:
-                                value = getattr(rel, prop, None)
-                                if value is not None:
-                                    rel_data[prop] = value
-
-                        # Create metadata dictionary
-                        metadata = {}
-                        for field in [
-                            "citation_text",
-                            "page_number",
-                            "data_source",
-                        ]:
-                            if field in rel_data:
-                                metadata[field] = rel_data[field]
-
-                        # Create the link with relationship data
-                        link = NetworkLink(
-                            source=current_id,
+                    # Add link
+                    links.append(
+                        NetworkLink(
+                            source=source_id,
                             target=target_id,
                             type="CITES",
-                            treatment=rel_data.get("treatment"),
-                            reasoning=rel_data.get("reasoning"),
-                            relevance=rel_data.get("relevance"),
-                            section=rel_data.get("section"),
-                            metadata=metadata if metadata else None,
                         )
-                    except Exception as e:
-                        logger.warning(
-                            f"Error extracting relationship data: {e}, creating basic link"
-                        )
-                        # Create a basic link if relationship data extraction fails
-                        link = NetworkLink(
-                            source=current_id, target=target_id, type="CITES"
-                        )
+                    )
 
-                    links.append(link)
+                    # Track for next level processing if not at max depth
+                    if current_depth + 1 < depth:
+                        next_related_docs.append(further_related_doc)
 
-                    # Add to next level processing
-                    next_cited_docs.append(target_doc)
-
-            # Update for next iteration
-            cited_docs = next_cited_docs
+            # Move to next level
+            related_docs = next_related_docs
             current_depth += 1
 
-        # Return the network graph
-        network = NetworkGraph(nodes=list(nodes.values()), links=links)
+        # Construct the final graph
+        graph = NetworkGraph(nodes=list(nodes.values()), links=links)
         logger.info(
-            f"Returning network with {len(network.nodes)} nodes and {len(network.links)} links"
+            f"Returning network with {len(graph.nodes)} nodes and {len(graph.links)} links"
         )
-        return network
+        return graph
 
-    except HTTPException:
-        # Re-raise HTTP exceptions
-        raise
     except Exception as e:
-        logger.error(f"Unexpected error in get_network: {e}", exc_info=True)
-        # Return a minimal network with just the source node
-        if "source_node" in locals() and source_node:
-            return NetworkGraph(nodes=[source_node], links=[])
-        else:
-            # If we couldn't even create the source node, return an empty network
-            return NetworkGraph(nodes=[], links=[])
+        logger.error(f"Error building citation network: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Error building citation network: {str(e)}"
+        )

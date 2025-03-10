@@ -166,9 +166,23 @@
 <!-- Main Content Area (Full-Width via parent's override) -->
 <div id="main-content" class="px-16 py-8">
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <!-- Left Column: Citation Network -->
+        <!-- Left Column: Citation Networks -->
         <div class="lg:col-span-2">
-            {% include "components/citation_network.html" %}
+            <div class="grid grid-cols-1 gap-8">
+                <!-- Outgoing Citation Network -->
+                <div>
+                    {% with network_type='outgoing' %}
+                    {% include "components/citation_network.html" %}
+                    {% endwith %}
+                </div>
+
+                <!-- Incoming Citation Network -->
+                <div>
+                    {% with network_type='incoming' %}
+                    {% include "components/citation_network.html" %}
+                    {% endwith %}
+                </div>
+            </div>
         </div>
 
         <!-- Right Column: Case Detail Card -->

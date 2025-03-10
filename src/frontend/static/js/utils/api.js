@@ -97,10 +97,11 @@ export function getOpinionDetails(clusterId) {
 /**
  * Get citation network for a case
  * @param {string} clusterId - ID of the case
+ * @param {string} direction - Direction of citation network ('outgoing' or 'incoming')
  * @returns {Promise<Object>} Citation network data
  */
-export function getCitationNetwork(clusterId) {
-    return apiRequest(`/api/opinion/${clusterId}/citation-network`);
+export function getCitationNetwork(clusterId, direction = 'outgoing') {
+    return apiRequest(`/api/opinion/${clusterId}/citation-network?direction=${direction}`);
 }
 
 /**

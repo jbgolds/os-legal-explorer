@@ -9,10 +9,15 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
-                Citation Network
+                {% if network_type == 'incoming' %}
+                Incoming Citation Network
+                {% else %}
+                Outgoing Citation Network
+                {% endif %}
             </h2>
         </div>
-        <div id="citation-network" class="h-[500px] bg-base-200 rounded-lg flex items-center justify-center">
+        <div id="citation-network-{% if network_type == 'incoming' %}incoming{% else %}outgoing{% endif %}"
+            class="h-[500px] bg-base-200 rounded-lg flex items-center justify-center">
             <div class="text-center">
                 <p class="text-gray-500 mb-2">Search for cases to visualize the citation network</p>
                 <button type="button" class="btn btn-sm btn-primary"
@@ -34,12 +39,17 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
-                Citation Network
+                {% if network_type == 'incoming' %}
+                Incoming Citation Network
+                {% else %}
+                Outgoing Citation Network
+                {% endif %}
             </h2>
             <div class="flex gap-2">
                 <!-- Toggle Similar Cases button (placed first, default off) -->
                 <div class="flex flex-col items-center">
-                    <button type="button" class="btn btn-sm btn-circle mb-1" id="toggleSimilarity"
+                    <button type="button" class="btn btn-sm btn-circle mb-1"
+                        id="toggleSimilarity-{% if network_type == 'incoming' %}incoming{% else %}outgoing{% endif %}"
                         title="Show Similar Cases">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
@@ -51,7 +61,9 @@
                 </div>
                 <!-- Zoom In button -->
                 <div class="flex flex-col items-center">
-                    <button type="button" class="btn btn-sm btn-circle mb-1" id="zoomIn" title="Zoom In">
+                    <button type="button" class="btn btn-sm btn-circle mb-1"
+                        id="zoomIn-{% if network_type == 'incoming' %}incoming{% else %}outgoing{% endif %}"
+                        title="Zoom In">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -61,7 +73,9 @@
                 </div>
                 <!-- Zoom Out button -->
                 <div class="flex flex-col items-center">
-                    <button type="button" class="btn btn-sm btn-circle mb-1" id="zoomOut" title="Zoom Out">
+                    <button type="button" class="btn btn-sm btn-circle mb-1"
+                        id="zoomOut-{% if network_type == 'incoming' %}incoming{% else %}outgoing{% endif %}"
+                        title="Zoom Out">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
                             <circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2" fill="none" />
@@ -74,7 +88,9 @@
                 </div>
                 <!-- Reset View button -->
                 <div class="flex flex-col items-center">
-                    <button type="button" class="btn btn-sm btn-circle mb-1" id="resetView" title="Reset View">
+                    <button type="button" class="btn btn-sm btn-circle mb-1"
+                        id="resetView-{% if network_type == 'incoming' %}incoming{% else %}outgoing{% endif %}"
+                        title="Reset View">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -84,7 +100,23 @@
                 </div>
             </div>
         </div>
-        <div id="citation-network" class="h-[500px] bg-base-200 rounded-lg">
+
+        {% if network_type == 'incoming' %}
+        <!-- Notification banner for incoming citation treatments -->
+        <div id="incoming-treatment-banner" class="hidden mb-4">
+            <div class="alert alert-info">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                    class="stroke-current shrink-0 w-6 h-6">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span id="incoming-treatment-text">This case has significant incoming citations</span>
+            </div>
+        </div>
+        {% endif %}
+
+        <div id="citation-network-{% if network_type == 'incoming' %}incoming{% else %}outgoing{% endif %}"
+            class="h-[500px] bg-base-200 rounded-lg">
             <!-- Network will be rendered here by D3.js -->
         </div>
         <div class="mt-2 textarea-md text-gray-500 flex flex-col items-center">
@@ -102,21 +134,30 @@
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         // Initialize the citation network visualization
-        const containerId = 'citation-network';
-        const apiEndpoint = `/api/opinion/{{ cluster_id }}/citation-network`;
+        const containerId = 'citation-network-{% if network_type == "incoming" %}incoming{% else %}outgoing{% endif %}';
+        const apiEndpoint = '/api/opinion/{{ cluster_id }}/citation-network?direction={% if network_type == "incoming" %}incoming{% else %}outgoing{% endif %}';
 
-        console.log("Citation network component: Initializing network for cluster ID {{ cluster_id }}");
+        console.log("Citation network component: Initializing {% if network_type == 'incoming' %}incoming{% else %}outgoing{% endif %} network for cluster ID {{ cluster_id }}");
 
-        // Initialize with default settings
-        renderCitationNetwork(containerId, apiEndpoint, {
+        // Set up network options
+        const networkOptions = {
             enableClustering: true,
             clusteringStrength: 0.2
-        });
+        };
+
+        // For incoming citation networks, customize the empty state message
+        {% if network_type == "incoming" %}
+        networkOptions.customEmptyMessage = "No Incoming Citations Found!";
+        networkOptions.hideProcessButton = true;
+        {% endif %}
+
+        // Render the citation network
+        renderCitationNetwork(containerId, apiEndpoint, networkOptions);
 
         // Handle zoom buttons using D3's zoom behavior
         const zoomStep = 1.5;
 
-        document.getElementById('zoomIn').addEventListener('click', function () {
+        document.getElementById('zoomIn-{% if network_type == "incoming" %}incoming{% else %}outgoing{% endif %}').addEventListener('click', function () {
             if (window.citationNetworkState && window.citationNetworkState[containerId]) {
                 const state = window.citationNetworkState[containerId];
                 if (state.svg && state.zoom) {
@@ -127,7 +168,7 @@
             }
         });
 
-        document.getElementById('zoomOut').addEventListener('click', function () {
+        document.getElementById('zoomOut-{% if network_type == "incoming" %}incoming{% else %}outgoing{% endif %}').addEventListener('click', function () {
             if (window.citationNetworkState && window.citationNetworkState[containerId]) {
                 const state = window.citationNetworkState[containerId];
                 if (state.svg && state.zoom) {
@@ -138,7 +179,7 @@
             }
         });
 
-        document.getElementById('resetView').addEventListener('click', function () {
+        document.getElementById('resetView-{% if network_type == "incoming" %}incoming{% else %}outgoing{% endif %}').addEventListener('click', function () {
             if (window.citationNetworkState && window.citationNetworkState[containerId]) {
                 const state = window.citationNetworkState[containerId];
                 if (state.svg && state.zoom) {
@@ -158,26 +199,25 @@
             }
         });
 
-        document.getElementById('toggleSimilarity').addEventListener('click', function () {
+        document.getElementById('toggleSimilarity-{% if network_type == "incoming" %}incoming{% else %}outgoing{% endif %}').addEventListener('click', function () {
             window.similarityEnabled = !window.similarityEnabled;
             if (window.similarityEnabled) {
                 this.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>`;
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>`;
                 this.setAttribute('title', 'Hide Similar Cases');
             } else {
                 this.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                    d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.05 10.05 0 012.401-4.084M6.18 6.18A9.978 9.978 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.05 10.05 0 01-1.312 2.492M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                    d="M3 3l18 18" />
-                </svg>`;
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.05 10.05 0 012.401-4.084M6.18 6.18A9.978 9.978 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.05 10.05 0 01-1.312 2.492M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                d="M3 3l18 18" />
+                            </svg>`;
                 this.setAttribute('title', 'Show Similar Cases');
             }
-            const containerId = 'citation-network';
             if (window.citationNetworkState && window.citationNetworkState[containerId]) {
                 window.citationNetworkState[containerId].simulation.alpha(0.3).restart();
             }
