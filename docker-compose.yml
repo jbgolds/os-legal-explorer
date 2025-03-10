@@ -44,6 +44,7 @@ services:
     ports:
       - "127.0.0.1:7474:7474"
       - "127.0.0.1:7687:7687"
+    # comment out for backups, so we can enter container and shut down neo4j and leave container running.
     restart: always
     networks:
       app_net:
