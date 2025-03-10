@@ -37,80 +37,50 @@
                 Citation Network
             </h2>
             <div class="flex gap-2">
+                <!-- Toggle Similar Cases button (placed first, default off) -->
                 <div class="flex flex-col items-center">
-                    <button type="button" class="btn btn-sm btn-circle mb-1" id="zoomIn">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                    <button type="button" class="btn btn-sm btn-circle mb-1" id="toggleSimilarity"
+                        title="Show Similar Cases">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.05 10.05 0 012.401-4.084M6.18 6.18A9.978 9.978 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.05 10.05 0 01-1.312 2.492M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3l18 18" />
+                        </svg>
+                    </button>
+                </div>
+                <!-- Zoom In button -->
+                <div class="flex flex-col items-center">
+                    <button type="button" class="btn btn-sm btn-circle mb-1" id="zoomIn" title="Zoom In">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                         </svg>
                     </button>
-                    <span class="text-xs">Zoom In</span>
                 </div>
+                <!-- Zoom Out button -->
                 <div class="flex flex-col items-center">
-                    <button type="button" class="btn btn-sm btn-circle mb-1" id="zoomOut">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                    <button type="button" class="btn btn-sm btn-circle mb-1" id="zoomOut" title="Zoom Out">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            <circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2" fill="none" />
+                            <line x1="21" y1="21" x2="16.65" y2="16.65" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" />
+                            <line x1="8" y1="11" x2="14" y2="11" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" />
                         </svg>
                     </button>
-                    <span class="text-xs">Zoom Out</span>
                 </div>
+                <!-- Reset View button -->
                 <div class="flex flex-col items-center">
-                    <button type="button" class="btn btn-sm btn-circle mb-1" id="resetView">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                    <button type="button" class="btn btn-sm btn-circle mb-1" id="resetView" title="Reset View">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
                     </button>
-                    <span class="text-xs">Reset</span>
-                </div>
-                <div class="flex flex-col items-center">
-                    <div class="dropdown dropdown-end">
-                        <button type="button" class="btn btn-sm btn-circle mb-1" tabindex="0">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                            </svg>
-                        </button>
-                        <div tabindex="0" class="dropdown-content z-[1] menu p-4 shadow bg-base-100 rounded-box w-52">
-                            <div class="form-control">
-                                <label class="label">
-                                    <span class="label-text">Depth</span>
-                                </label>
-                                <select id="depthFilter" class="select select-bordered w-full">
-                                    <option value="1">Depth: 1</option>
-                                    <option value="2">Depth: 2</option>
-                                    <option value="3">Depth: 3</option>
-                                </select>
-                            </div>
-                            <div class="form-control mt-2">
-                                <label class="label">
-                                    <span class="label-text">Treatment</span>
-                                </label>
-                                <select id="treatmentFilter" class="select select-bordered w-full">
-                                    <option value="">All Treatments</option>
-                                    <option value="POSITIVE">Positive</option>
-                                    <option value="NEGATIVE">Negative</option>
-                                    <option value="NEUTRAL">Neutral</option>
-                                    <option value="CAUTION">Caution</option>
-                                </select>
-                            </div>
-                            <div class="form-control mt-2">
-                                <label class="label cursor-pointer">
-                                    <span class="label-text">Enable Clustering</span>
-                                    <input type="checkbox" id="clusteringToggle" class="toggle toggle-primary"
-                                        checked />
-                                </label>
-                            </div>
-                        </div>
-                        <span class="text-xs">Filter</span>
-                    </div>
                 </div>
             </div>
         </div>
@@ -118,8 +88,8 @@
             <!-- Network will be rendered here by D3.js -->
         </div>
         <div class="mt-2 textarea-md text-gray-500 flex flex-col items-center">
-            <p>💡 <b>Click on a node to see the case details</b></p>
-            <p>💡 <b>Click on an arrow to see the Relevance Rating and Reasoning about the citation's usage</b></p>
+            <p>💡 <b>Click on a node to see the citation's details</b></p>
+
         </div>
     </div>
 </div>
@@ -142,47 +112,6 @@
             enableClustering: true,
             clusteringStrength: 0.2
         });
-
-        // Function to update the visualization with current filters
-        function updateVisualization() {
-            const depthFilter = document.getElementById('depthFilter');
-            const treatmentFilter = document.getElementById('treatmentFilter');
-            const clusteringToggle = document.getElementById('clusteringToggle');
-
-            const depth = depthFilter ? depthFilter.value : '1';
-            const treatment = treatmentFilter ? treatmentFilter.value : '';
-            const enableClustering = clusteringToggle ? clusteringToggle.checked : false;
-
-            // Build the endpoint URL with filters
-            let updatedEndpoint = `/api/opinion/{{ cluster_id }}/citation-network/filtered?depth=${depth}`;
-            if (treatment) {
-                updatedEndpoint += `&treatment=${treatment}`;
-            }
-
-            // Render with current options
-            renderCitationNetwork(containerId, updatedEndpoint, {
-                enableClustering: enableClustering,
-                clusteringStrength: 0.2 // Slightly stronger than default when explicitly enabled
-            });
-        }
-
-        // Handle depth filter changes
-        const depthFilter = document.getElementById('depthFilter');
-        if (depthFilter) {
-            depthFilter.addEventListener('change', updateVisualization);
-        }
-
-        // Handle treatment filter changes
-        const treatmentFilter = document.getElementById('treatmentFilter');
-        if (treatmentFilter) {
-            treatmentFilter.addEventListener('change', updateVisualization);
-        }
-
-        // Handle clustering toggle
-        const clusteringToggle = document.getElementById('clusteringToggle');
-        if (clusteringToggle) {
-            clusteringToggle.addEventListener('change', updateVisualization);
-        }
 
         // Handle zoom buttons using D3's zoom behavior
         const zoomStep = 1.5;
@@ -226,9 +155,31 @@
                         )).alpha(0.3).restart();
                     }
                 }
+            }
+        });
+
+        document.getElementById('toggleSimilarity').addEventListener('click', function () {
+            window.similarityEnabled = !window.similarityEnabled;
+            if (window.similarityEnabled) {
+                this.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>`;
+                this.setAttribute('title', 'Hide Similar Cases');
             } else {
-                // Fallback: re-render the network with current filters
-                updateVisualization();
+                this.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                    d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.05 10.05 0 012.401-4.084M6.18 6.18A9.978 9.978 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.05 10.05 0 01-1.312 2.492M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                    d="M3 3l18 18" />
+                </svg>`;
+                this.setAttribute('title', 'Show Similar Cases');
+            }
+            const containerId = 'citation-network';
+            if (window.citationNetworkState && window.citationNetworkState[containerId]) {
+                window.citationNetworkState[containerId].simulation.alpha(0.3).restart();
             }
         });
     });

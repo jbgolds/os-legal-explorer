@@ -212,6 +212,14 @@ async def get_network(cluster_id: str, depth: int = 1):
         logger.info(
             f"Source document found: {source_doc.primary_id}, should match {cluster_id}"
         )
+        if source_doc.primary_id != cluster_id:
+            logger.warning(
+                f"Source document ID {source_doc.primary_id} does not match cluster_id {cluster_id}"
+            )
+            raise HTTPException(
+                status_code=404,
+                detail=f"Source document ID {source_doc.primary_id} does not match cluster_id {cluster_id}",
+            )
 
         # Process first level of citations directly using Neomodel
         cited_docs = []
