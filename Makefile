@@ -39,3 +39,13 @@ clear-neo4j:
 # put old neo4j.dumps into neo4j_backups/ and run to restore
 restore-neo4j:
 	docker compose run --rm --entrypoint="" neo4j bash -c "neo4j-admin database load --from-path=/backups --overwrite-destination neo4j"
+
+# Create a backup of the neo4j database to the mounted backups folder
+backup-neo4j:
+	@echo "Stopping Neo4j database before backup..."
+	docker exec os-legal-explorer-neo4j-1 neo4j stop
+	@echo "Creating database backup..."
+	docker exec os-legal-explorer-neo4j-1 neo4j-admin database dump --to-path=/backups neo4j
+	@echo "Restarting Neo4j database..."
+	docker exec os-legal-explorer-neo4j-1 neo4j start
+	@echo "Backup completed"
