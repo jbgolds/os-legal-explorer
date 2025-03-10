@@ -59,20 +59,38 @@
                             </button>
                             <!-- Year Filter Dropdown Content -->
                             <div tabindex="0"
-                                class="dropdown-content z-[1] menu p-4 shadow bg-base-100 rounded-box w-52">
+                                class="dropdown-content z-[100] menu p-4 shadow bg-base-100 rounded-box w-64 mt-2">
                                 <div class="form-control">
                                     <label class="label">
-                                        <span class="label-text">From</span>
+                                        <span class="label-text font-medium">From</span>
                                     </label>
-                                    <input type="number" name="year_from"
-                                        class="input input-bordered w-full search-filter" placeholder="Start year" />
+                                    <select name="year_from" class="select select-bordered w-full search-filter">
+                                        <option value="">Any</option>
+                                        {% for year in range(2025, 1700, -1) %}
+                                        <option value="{{ year }}">{{ year }}</option>
+                                        {% endfor %}
+                                    </select>
                                 </div>
-                                <div class="form-control mt-2">
+                                <div class="form-control mt-3">
                                     <label class="label">
-                                        <span class="label-text">To</span>
+                                        <span class="label-text font-medium">To</span>
                                     </label>
-                                    <input type="number" name="year_to"
-                                        class="input input-bordered w-full search-filter" placeholder="End year" />
+                                    <select name="year_to" class="select select-bordered w-full search-filter">
+                                        <option value="">Any</option>
+                                        {% for year in range(2025, 1700, -1) %}
+                                        <option value="{{ year }}">{{ year }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="flex justify-end mt-4">
+                                    <button type="button" class="btn btn-sm reset-year-filters">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none"
+                                            viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                        </svg>
+                                        Reset
+                                    </button>
                                 </div>
                             </div>
                         </div>

@@ -14,9 +14,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const nextDecadeBtn = document.querySelector('.next-decade-btn');
     const yearsList = document.querySelector('.years-list');
     const resetYearBtn = document.querySelector('.reset-year-filters');
-    const yearFromInput = document.querySelector('input[name="year_from"]');
-    const yearToInput = document.querySelector('input[name="year_to"]');
-    const yearButton = document.querySelector('.dropdown-end label[tabindex="0"]');
+    const yearFromSelect = document.querySelector('select[name="year_from"]');
+    const yearToSelect = document.querySelector('select[name="year_to"]');
+    const yearButton = document.querySelector('.dropdown-end button[tabindex="0"]');
 
     // Fix for dropdown positioning
     const searchBox = document.querySelector('.flex.w-full.border.rounded-lg');
@@ -54,8 +54,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
             // Reset year picker selection
             if (yearPicker) {
-                if (yearFromInput) yearFromInput.value = '';
-                if (yearToInput) yearToInput.value = '';
+                if (yearFromSelect) yearFromSelect.value = '';
+                if (yearToSelect) yearToSelect.value = '';
                 updateYearLabel();
                 const currentYear = new Date().getFullYear();
                 const decadeStart = Math.floor(currentYear / 10) * 10;
@@ -77,6 +77,28 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     });
+
+    // Event listener for year reset button
+    if (resetYearBtn) {
+        resetYearBtn.addEventListener('click', function (e) {
+            e.stopPropagation(); // Prevent dropdown from closing
+
+            // Reset year selects
+            if (yearFromSelect) yearFromSelect.value = '';
+            if (yearToSelect) yearToSelect.value = '';
+
+            // Reset year button label
+            if (yearButton) {
+                const span = yearButton.querySelector('span:last-child');
+                if (span) span.textContent = 'Year';
+            }
+
+            // Trigger search if there's a query
+            if (searchForm && searchInput.value.trim().length >= 3) {
+                htmx.trigger(searchForm, 'submit');
+            }
+        });
+    }
 
     // Initialize year picker functionality
     function initializeYearPicker() {
@@ -118,22 +140,6 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         }
 
-        // Event listener for reset button
-        if (resetYearBtn) {
-            resetYearBtn.addEventListener('click', function (e) {
-                e.stopPropagation();
-                if (yearFromInput) yearFromInput.value = '';
-                if (yearToInput) yearToInput.value = '';
-                updateYearLabel();
-                populateYears(yearsList, decadeStart, currentYear);
-
-                // Trigger search if there's a query
-                if (searchForm && searchInput.value.trim().length >= 3) {
-                    htmx.trigger(searchForm, 'submit');
-                }
-            });
-        }
-
         // Initial population of years
         if (yearsList) {
             populateYears(yearsList, decadeStart, currentYear);
@@ -150,8 +156,8 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!container) return;
         container.innerHTML = '';
 
-        const selectedFromYear = yearFromInput ? parseInt(yearFromInput.value) || null : null;
-        const selectedToYear = yearToInput ? parseInt(yearToInput.value) || null : null;
+        const selectedFromYear = yearFromSelect ? parseInt(yearFromSelect.value) || null : null;
+        const selectedToYear = yearToSelect ? parseInt(yearToSelect.value) || null : null;
 
         for (let year = decadeStart; year < decadeStart + 20; year++) {
             if (year <= currentYear) {
@@ -190,22 +196,22 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Handle year item click in new UI
     function handleYearItemClick(year, container, decadeStart, currentYear) {
-        const selectedFromYear = yearFromInput ? parseInt(yearFromInput.value) || null : null;
-        const selectedToYear = yearToInput ? parseInt(yearToInput.value) || null : null;
+        const selectedFromYear = yearFromSelect ? parseInt(yearFromSelect.value) || null : null;
+        const selectedToYear = yearToSelect ? parseInt(yearToSelect.value) || null : null;
 
         if (selectedFromYear === null) {
             // First click - set from year
-            if (yearFromInput) yearFromInput.value = year;
+            if (yearFromSelect) yearFromSelect.value = year;
             updateYearLabel(year);
             populateYears(container, decadeStart, currentYear);
         } else if (selectedToYear === null) {
             // Second click - set to year
             if (year < selectedFromYear) {
-                if (yearToInput) yearToInput.value = selectedFromYear;
-                if (yearFromInput) yearFromInput.value = year;
+                if (yearToSelect) yearToSelect.value = selectedFromYear;
+                if (yearFromSelect) yearFromSelect.value = year;
                 updateYearLabel(year, selectedFromYear);
             } else {
-                if (yearToInput) yearToInput.value = year;
+                if (yearToSelect) yearToSelect.value = year;
                 updateYearLabel(selectedFromYear, year);
             }
             populateYears(container, decadeStart, currentYear);
@@ -216,8 +222,8 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         } else {
             // Reset and start new selection
-            if (yearFromInput) yearFromInput.value = year;
-            if (yearToInput) yearToInput.value = '';
+            if (yearFromSelect) yearFromSelect.value = year;
+            if (yearToSelect) yearToSelect.value = '';
             updateYearLabel(year);
             populateYears(container, decadeStart, currentYear);
         }
@@ -269,6 +275,51 @@ document.addEventListener('DOMContentLoaded', function () {
                     htmx.trigger(searchForm, 'submit');
                 }
             });
+        });
+    }
+
+    // Add event listeners for select changes
+    if (yearFromSelect) {
+        yearFromSelect.addEventListener('change', function () {
+            const fromYear = parseInt(this.value) || null;
+            const toYear = yearToSelect ? parseInt(yearToSelect.value) || null : null;
+
+            if (fromYear) {
+                updateYearLabel(fromYear, toYear);
+
+                // Trigger search if there's a query
+                if (searchForm && searchInput.value.trim().length >= 3) {
+                    htmx.trigger(searchForm, 'submit');
+                }
+            } else if (!toYear) {
+                // Both are empty, reset label
+                updateYearLabel();
+            } else {
+                // Only to year is set
+                updateYearLabel(null, toYear);
+            }
+        });
+    }
+
+    if (yearToSelect) {
+        yearToSelect.addEventListener('change', function () {
+            const fromYear = yearFromSelect ? parseInt(yearFromSelect.value) || null : null;
+            const toYear = parseInt(this.value) || null;
+
+            if (toYear && fromYear) {
+                updateYearLabel(fromYear, toYear);
+
+                // Trigger search if there's a query
+                if (searchForm && searchInput.value.trim().length >= 3) {
+                    htmx.trigger(searchForm, 'submit');
+                }
+            } else if (toYear) {
+                // Only to year is set
+                updateYearLabel(null, toYear);
+            } else if (!fromYear) {
+                // Both are empty, reset label
+                updateYearLabel();
+            }
         });
     }
 });
