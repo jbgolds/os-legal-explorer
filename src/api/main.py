@@ -118,3 +118,17 @@ async def stats_page(request: Request):
         return templates.TemplateResponse(
             "index.html", {"request": request, "error": str(e)}
         )
+
+# About page route
+@app.get("/about", response_class=HTMLResponse)
+async def about_page(request: Request):
+    """
+    Render the about page.
+    """
+    try:
+        return templates.TemplateResponse("about.html", {"request": request})
+    except Exception as e:
+        logger.error(f"Error loading about page: {e}")
+        return templates.TemplateResponse(
+            "index.html", {"request": request, "error": str(e)}
+        )

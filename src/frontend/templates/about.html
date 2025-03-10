@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}About{% endblock %}
+
+{% block content %}
+<div class="prose max-w-none">
+    <h1 class="text-3xl font-bold mb-6">About</h1>
+    <section class="mb-12">
+        <h2 class="text-2xl font-semibold mb-4">What?</h2>
+        <p>
+        <ul>
+            <li>This project is a proof of concept for a tool that extracts and visualizes the network of citations
+                between legal documents.
+            </li>
+            <ul>
+                <li>Currently, only legal opinions have a proper mapping, but <b>statutues</b>, <b>regulations</b>, and
+                    other <b>legal documents</b> are planned for the future.</li>
+            </ul>
+
+            <li>It's goal is to make legal research more accessible to the public.</li>
+            <li>A small handful of this type of tool exists today, but are behind <i>expensive</i> paywalls.
+                <ul>
+                    <li>And some even charge per search (I know most readers can believe it). Could you imaginge
+                        paying per Google search?</li>
+                </ul>
+            </li>
+        </ul>
+
+        Thanks to all of the work the folks at <a href="https://www.courtlistener.com">courtlistener.com</a> have
+        done, as this project is built on top of their data. If this proof of concept turns out to be valuable, my
+        plan is to integrate it into their site.
+        </p>
+    </section>
+    <section class="mb-12">
+        <h2 class="text-2xl font-semibold mb-4">Why?</h2>
+        <p>
+        <ul>
+            <li>
+                The United States' legal system creates a LOT of data, and to my knowledge, only <a
+                    href="https://www.courtlistener.com">courtlistener.com</a>
+                (which is a culmination of a few historical projects) has made an <i>open source</i> tool to allow for
+                easy and FREE access by the public.</li>
+            <li>By building out a dataset of both incoming and outgoing citations, I think this is the next step in
+                required tooling to allow for actual legal research to be conducted on this platform.
+            </li>
+            <li>Historically, editors and attornys at LexisNexis would annotate a case by hand, but now have offloaded
+                that to LLMs.</li>
+            <li>This tool will *hopefully* bridge the gap between these platforms and allow for the research to be done
+                by open source tools... Or at least show that it's possible.</li>
+        </ul>
+
+    </section>
+    <section class="mb-12">
+        <h2 class="text-2xl font-semibold mb-4">How?</h2>
+        <p>
+            Section WIP, and will end up on Github's README, but I want to include the general list of tooling here as
+            well:
+        <ul>
+            <li>
+                <b><a href="https://www.courtlistener.com">Courtlistener.com</a></b>
+                <ul>
+                    <li>
+                        <a href="https://www.courtlistener.com/api/bulk-data/">Bulk Data + the search API</a>
+                    </li>
+                    <li>
+                        After downloading all their bulk data, I've modified their schema to only include necessary
+                        fields. The existing schema also have a lot of django related event triggers and whatnot that
+                        are not necessary for this project.
+                    </li>
+                </ul>
+            </li>
+            <li>
+                <b>Postgres</b> -- love postgres, and this is what Courtlistener uses, so it was a natural fit.
+                <ul>
+                    <li>
+                        What's in postgres is the <i>all</i> the raw opinion data from the courts, all OCR'd and ready
+                        for use.
+                    </li>
+                    <li>
+                        The current database totals to ~157GB of data, which grows with each month's dump.
+                    </li>
+                </ul>
+            </li>
+            <li>
+                <b>Neo4j</b> for the graph database... there were many options but I went with the most popular option,
+                that also seemed to have a semi-mature OGM (object graph mapping) for python.
+            </li>
+            <li>
+                <b>FastAPI</b> for the backend
+
+            </li>
+            <li>
+                <b>D3.js</b> For the visualization
+            </li>
+            <li>
+                <b>HTMX</b> For managing the frontend components
+            </li>
+            <li>
+                <b>TailwindCSS</b> For styling
+            </li>
+            <li>
+                <b>DaisyUI</b> For the UI components
+            </li>
+            <li>
+                <b>Gemini Flash 2.0</b> for the LLM
+            </li>
+
+
+        </ul>
+
+
+    </section>
+    <section>
+        <h2 class="text-2xl font-semibold mb-4">Roadmap</h2>
+        <p class="mb-4">
+            Here's my plan for this project, a personal to-do list one could say:
+        </p>
+
+        <div class="space-y-6">
+            <div>
+                <h3 class="text-xl font-medium">Big Picture Goals:</h3>
+                <ul class="list-disc pl-6 mt-2">
+                    <li>Expand our database to import statutes, regulations, and other legal documents</li>
+                    <li>Add alerting when a case is cited in a new case</li>
+                    <li>
+                        Add in improved search functionality with important boolean search operators.
+                        <ul>
+                            <li>
+                                Currently using CourtListener's search API as they have an existing ElasticSearch
+                                cluster running, but I want to investigate other options.
+                            </li>
+                        </ul>
+                    </li>
+                    <li>
+                        Refactor the pipelines to use Redis to manage background tasks, and perhaps even separate out
+                        the frontend + related backend APIs from the extraction pipelines.
+                    </li>
+
+
+
+                </ul>
+            </div>
+
+        </div>
+        <br>
+        <p>
+            Thank YOU for reading this far! I'm excited to see where this goes. Feel free to leave any feature
+            requests/bugs as an issue on Github,
+            or
+            send me an email to get in touch.
+        </p>
+        <p>
+            - Jacob
+        </p>
+    </section>
+</div>
+{% endblock %}
