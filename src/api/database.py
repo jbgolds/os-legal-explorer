@@ -1,4 +1,3 @@
-import os
 from typing import Generator
 
 from dotenv import load_dotenv

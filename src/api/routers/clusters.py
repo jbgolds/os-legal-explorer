@@ -308,8 +308,7 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                 judges = [j.strip() for j in data["judges"].split(",") if j.strip()]
 
             # Get opinion text if available
-            opinion_text = None
-            is_html = False
+            opinion_text = None          
             if data.get("sub_opinions") and len(data["sub_opinions"]) > 0:
                 # Get the first opinion's text
                 opinion_url = data["sub_opinions"][0]
@@ -323,10 +322,10 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                         opinion_text = opinion_data.get("plain_text", "")
                         if not opinion_text:
                             opinion_text = opinion_data.get("html", "")
-                            is_html = True
+
                         if not opinion_text:
                             opinion_text = opinion_data.get("html_with_citations", "")
-                            is_html = True
+
                 elif isinstance(opinion_url, dict) and "id" in opinion_url:
                     # Handle cluster where sub_opinions contains objects instead of URLs
                     opinion_id = opinion_url["id"]

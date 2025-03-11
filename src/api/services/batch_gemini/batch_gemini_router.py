@@ -4,7 +4,7 @@ import logging
 import os
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 from fastapi import (APIRouter, BackgroundTasks, Depends, File, HTTPException,
@@ -22,7 +22,7 @@ from src.api.services.pipeline.pipeline_model import (
     CombinedResolvedCitationAnalysis, ExtractionConfig)
 from src.api.services.pipeline.pipeline_service import (
     create_combined_analyses, handle_empty_citations,
-    load_and_validate_llm_data, serialize_and_save_citations)
+    serialize_and_save_citations)
 # Import the BatchGeminiClient
 from src.llm_extraction.batch_gemini import BatchGeminiClient
 from src.llm_extraction.models import CitationAnalysis
@@ -1374,11 +1374,6 @@ async def resolve_pipeline_citations(
         cleaned_file = job_store[job_id]["cleaned_file"]
         df = pd.read_csv(cleaned_file)
         
-        # Load the LLM results and validate them
-        from src.api.services.pipeline.pipeline_service import (
-            create_combined_analyses, load_and_validate_llm_data,
-            serialize_and_save_citations)
-        from src.llm_extraction.models import CitationAnalysis
 
         # Convert DataFrame to dictionary of CitationAnalysis objects
         llm_results = {}
@@ -1727,7 +1722,6 @@ async def continue_pipeline_endpoint(
         batch_job = BatchJob(name=request.batch_job_name)
         
         # Start checking the job status
-        gemini_client = BatchGeminiClient()
         background_tasks.add_task(
             check_pipeline_job_status,
             job_id,

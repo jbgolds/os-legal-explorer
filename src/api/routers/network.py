@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
-from neomodel import db
 from pydantic import BaseModel
 
 from src.neo4j_db.models import LegalDocument, Opinion
@@ -190,7 +189,7 @@ async def get_network(cluster_id: str, depth: int = 1, direction: str = "outgoin
     if depth > 3:
         # Limit depth for performance reasons
         depth = 3
-        logger.info(f"Depth limited to 3 for performance reasons")
+        logger.info("Depth limited to 3 for performance reasons")
 
     # Validate and normalize direction
     direction = direction.lower()

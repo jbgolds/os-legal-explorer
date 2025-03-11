@@ -453,7 +453,7 @@ class GlobalRateLimiter:
                             f"concurrent={cls._initialized_params['max_concurrent']}"
                         )
 
-                logging.debug(f"Reusing existing global rate limiter instance")
+                logging.debug("Reusing existing global rate limiter instance")
 
             return cls._instance
 
@@ -813,13 +813,13 @@ class GeminiClient:
             self.rate_limiter = GlobalRateLimiter.get_instance(
                 rpm_limit=rpm_limit, max_concurrent=max_concurrent
             )
-            logging.info(f"Using global rate limiter for GeminiClient instance")
+            logging.info("Using global rate limiter for GeminiClient instance")
         else:
             # Create a new instance-specific rate limiter
             self.rate_limiter = RateLimiter(
                 rpm_limit=rpm_limit, max_concurrent=max_concurrent
             )
-            logging.info(f"Using local rate limiter for GeminiClient instance")
+            logging.info("Using local rate limiter for GeminiClient instance")
 
         # For tracking worker IDs in multi-threaded environments
         with self._worker_counter_lock:
@@ -1260,7 +1260,6 @@ class GeminiClient:
 
         results: Dict[int, Optional[CitationAnalysis]] = {}
         errors = []
-        total_processed = 0
 
         # Add debug collection
         debug_info = {"raw_responses": {}, "validation_errors": {}}

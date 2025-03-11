@@ -7,7 +7,7 @@ import pandas as pd
 from google import genai
 from google.cloud import storage
 from google.genai.types import (BatchJob, CreateBatchJobConfig,
-                                GenerateContentConfig, GenerateContentResponse)
+                                GenerateContentConfig)
 
 from src.api.services.pipeline.pipeline_model import ExtractionConfig
 from src.api.services.pipeline.pipeline_service import check_node_status
@@ -451,7 +451,7 @@ class BatchGeminiClient:
                         error_df = pd.DataFrame(error_responses)
                         # Save error responses for debugging
                         error_df.to_csv('/tmp/gemini_batch_errors.csv', index=False)
-                        logging.info(f"Saved error responses to /tmp/gemini_batch_errors.csv")
+                        logging.info("Saved error responses to /tmp/gemini_batch_errors.csv")
                     
                     # Create a DataFrame from the processed responses
                     if processed_responses:
