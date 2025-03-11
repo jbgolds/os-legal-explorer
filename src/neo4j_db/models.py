@@ -1,22 +1,15 @@
-from neomodel import (
-    StructuredNode,
-    StructuredRel,
-    StringProperty,
-    IntegerProperty,
-    DateTimeProperty,
-    DateProperty,
-    RelationshipTo,
-    JSONProperty,
-    ZeroOrMore,
-    db,
-    DateTimeFormatProperty,
-)
-from neomodel.properties import validator
-from datetime import datetime, date
-from src.llm_extraction.models import CitationType, CitationTreatment, OpinionSection
-import asyncio
-from typing import Type
 import json
+from datetime import date, datetime
+from typing import Type
+
+from neomodel import (DateProperty, DateTimeFormatProperty, DateTimeProperty,
+                      IntegerProperty, JSONProperty, RelationshipTo,
+                      StringProperty, StructuredNode, StructuredRel,
+                      ZeroOrMore)
+from neomodel.properties import validator
+
+from src.llm_extraction.models import (CitationTreatment, CitationType,
+                                       OpinionSection)
 
 
 class DateTimeEncoder(json.JSONEncoder):

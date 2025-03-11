@@ -1,28 +1,24 @@
-import time
 import json
-from typing import Any, Dict, List, Optional, Union, Tuple
-from google import genai
-from google.genai.types import GenerateContentConfig, GenerateContentResponse
-from google.genai.chats import Chat
-
-from json_repair import repair_json
-import os
-import pandas as pd
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock, Semaphore
-from tqdm import tqdm
-from datetime import datetime
-from threading import local
+import os
 import random
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from threading import Lock, Semaphore, local
+from typing import Dict, List, Optional, Tuple, Union
 
-from src.llm_extraction.models import (
-    Citation,
-    CitationAnalysis,
-    CombinedResolvedCitationAnalysis,
-)
-from src.llm_extraction.prompts import system_prompt, chunking_instructions
+import pandas as pd
+from google import genai
+from google.genai.chats import Chat
+from google.genai.types import GenerateContentConfig, GenerateContentResponse
+from json_repair import repair_json
+from tqdm import tqdm
+
+from src.llm_extraction.models import (Citation, CitationAnalysis,
+                                       CombinedResolvedCitationAnalysis)
+from src.llm_extraction.prompts import chunking_instructions, system_prompt
 
 # Configure logging
 logging.basicConfig(
@@ -1230,31 +1226,19 @@ class GeminiClient:
         """Process a DataFrame of content generation requests using thread pool."""
         # Adjust max_workers based on DataFrame size and rate limit
         if max_workers is None:
-            # Be more conservative with max_workers to avoid overwhelming the rate limiter
             suggested_workers = min(
-                max(
-                    1, int(self.rpm_limit * 0.7)
-                ),  # Use at most 70% of RPM as worker count
+                max(1, int(self.rpm_limit)),
                 self.max_concurrent,
                 len(df),
             )
             max_workers = suggested_workers
-            logging.info(
-                f"Auto-adjusted max_workers to {max_workers} (70% of RPM limit)"
-            )
+            logging.info(f"Auto-adjusted max_workers to {max_workers} (70% of RPM limit)")
 
         # Adjust batch_size to be no larger than the DataFrame
-        batch_size = min(
-            max(batch_size, max_workers),  # Ensure batch size >= max_workers
-            len(df),
-        )
+        batch_size = min(max(batch_size, max_workers), len(df))
 
         # Create a pool of clients that share the same rate limiter
-        # This ensures all workers respect the same global rate limits
-        # Use the stored API key
         api_key = self.api_key
-
-        # Use the class method to create shared clients
         shared_clients = self.create_shared_clients(
             api_key=api_key,
             num_clients=max_workers,
@@ -1263,18 +1247,15 @@ class GeminiClient:
             model=model,
         )
 
-        # Create a thread-local storage to assign clients to worker threads
+        # Create thread-local storage for client assignment
         thread_local = threading.local()
 
         # Function to get a client for the current thread
         def get_thread_client():
             if not hasattr(thread_local, "client_index"):
-                # Assign a client to this thread
                 with threading.Lock():
                     if not hasattr(thread_local, "client_index"):
-                        thread_local.client_index = random.randint(
-                            0, len(shared_clients) - 1
-                        )
+                        thread_local.client_index = random.randint(0, len(shared_clients) - 1)
             return shared_clients[thread_local.client_index]
 
         results: Dict[int, Optional[CitationAnalysis]] = {}
@@ -1282,18 +1263,12 @@ class GeminiClient:
         total_processed = 0
 
         # Add debug collection
-        debug_info = {
-            "raw_responses": {},
-            "validation_errors": {},
-        }
+        debug_info = {"raw_responses": {}, "validation_errors": {}}
 
-        def process_row(
-            row,
-        ) -> tuple[int, Optional[CitationAnalysis], Optional[str], dict]:
-            # Get the client assigned to this thread
+        def process_row(row) -> tuple[int, Optional[CitationAnalysis], Optional[str], dict]:
+            # Get the client assigned to this thread and process the row
             thread_client = get_thread_client()
             worker_id = thread_client.get_worker_id()
-
             try:
                 logging.info(
                     f"Worker {worker_id}: Starting processing cluster_id {row['cluster_id']}"
@@ -1329,45 +1304,23 @@ class GeminiClient:
         # Calculate total number of batches
         total_batches = (len(df) + batch_size - 1) // batch_size
         logging.info(f"Total number of batches: {total_batches}")
-
+        
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Process in batches
+            futures = []
             for batch_start in range(0, len(df), batch_size):
                 batch_end = min(batch_start + batch_size, len(df))
                 batch_df = df.iloc[batch_start:batch_end]
                 current_batch = batch_start // batch_size + 1
+                logging.info(f"Processing batch {current_batch}/{(len(df)+batch_size-1)//batch_size}, rows {batch_start} to {batch_end}")
 
-                logging.info(
-                    f"Processing batch {current_batch}/{total_batches}, rows {batch_start} to {batch_end}"
-                )
-
-                # Create futures for this batch only
-                futures = [
-                    executor.submit(process_row, row) for _, row in batch_df.iterrows()
-                ]
-
-                # Process futures for this batch
-                for future in tqdm(
-                    as_completed(futures),
-                    total=len(futures),
-                    desc=f"Processing batch {current_batch}/{total_batches}",
-                    position=0,
-                    leave=True,
-                ):
+                futures.extend(executor.submit(process_row, row) for _, row in batch_df.iterrows())
+                for future in tqdm(as_completed(futures), total=len(futures), desc=f"Processing batch {current_batch}/{total_batches}"):
                     try:
                         cluster_id, result, error, row_debug = future.result()
                         results[cluster_id] = result
-                        total_processed += 1
-
-                        # Store debug info
                         if row_debug:
-                            debug_info["raw_responses"][cluster_id] = row_debug.get(
-                                "raw_response"
-                            )
-                            debug_info["validation_errors"][cluster_id] = row_debug.get(
-                                "validation_errors"
-                            )
-
+                            debug_info["raw_responses"][cluster_id] = row_debug.get("raw_response")
+                            debug_info["validation_errors"][cluster_id] = row_debug.get("validation_errors")
                         if error:
                             errors.append({"cluster_id": cluster_id, "error": error})
 
@@ -1384,18 +1337,19 @@ class GeminiClient:
                             os.replace(tmp_file, output_file)
 
                     except Exception as e:
-                        worker_id = self.get_worker_id()
-                        logging.error(
-                            f"Worker {worker_id}: Failed to process future in batch {batch_start//batch_size + 1}: {str(e)}"
-                        )
-
-                # Clear the futures list after batch is done
+                        logging.error(f"Error processing future: {str(e)}")
                 futures.clear()
 
         # Save debug info
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         debug_file = f"gemini_debug_{timestamp}.json"
         debug_path = os.path.join("/tmp", debug_file)
+
+        for client in shared_clients:
+            try:
+                client.cleanup()  # You should implement the 'cleanup' method in GeminiClient
+            except Exception as e:
+                logging.error(f"Error during client cleanup: {e}")
 
         # Helper function to make objects JSON serializable
         def make_json_serializable(obj):
@@ -1420,5 +1374,15 @@ class GeminiClient:
             logging.warning(f"Encountered {len(errors)} errors during processing")
 
         return results
+
+    def cleanup(self):
+        """Clean up resources associated with this client."""
+        # For example, close any open connections or release thread-specific resources
+        if hasattr(self, "client") and self.client:
+            try:
+                self.client.close()  # Or the appropriate shutdown method
+            except Exception as e:
+                logging.error(f"Error closing client in worker {self.get_worker_id()}: {e}")
+        logging.info(f"Cleaned up resources for worker {self.get_worker_id()}")
 
 

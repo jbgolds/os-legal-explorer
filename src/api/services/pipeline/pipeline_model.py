@@ -9,13 +9,15 @@ This module refactors API models to use source-of-truth models from:
 It uses them directly where possible and extends them where API-specific needs exist.
 """
 
-from pydantic import BaseModel, Field, validator, ConfigDict
-from typing import List, Dict, Optional, Any, Union
-from datetime import datetime, date
+from datetime import date, datetime
 from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, validator
 
 # Import source-of-truth models
-from src.llm_extraction.models import CitationAnalysis, CombinedResolvedCitationAnalysis
+from src.llm_extraction.models import (CitationAnalysis,
+                                       CombinedResolvedCitationAnalysis)
 
 
 class JobStatus(str, Enum):

@@ -9,14 +9,16 @@ It provides functions for:
 4. Fuzzy matching for citations that don't match exactly
 """
 
-import re
 import logging
-from typing import List, Dict, Optional, Tuple, Any
-from sqlalchemy import and_
+import re
+from typing import Any, Dict, List, Optional, Tuple
+
 from eyecite import get_citations
 from eyecite.resolve import resolve_citations
 from reporters_db import REPORTERS, VARIATIONS_ONLY
-from src.postgres.database import get_db_session, Citation
+from sqlalchemy import and_
+
+from src.postgres.database import Citation, get_db_session
 
 logger = logging.getLogger(__name__)
 
@@ -443,7 +445,6 @@ def find_best_match(
     Returns:
         Tuple of (cluster_id, confidence_score) if found, (None, 0.0) otherwise
     """
-    from src.postgres.database import get_db_session, Citation
 
     best_match = None
     best_score = 0.0
@@ -528,7 +529,6 @@ def try_exact_match(
     Returns:
         Tuple of (match object, confidence score)
     """
-    from src.postgres.database import Citation
 
     try:
         # Check for None or 'None' values and handle them properly
@@ -573,7 +573,6 @@ def try_fuzzy_reporter_match(
     Returns:
         Tuple of (match object, confidence score)
     """
-    from src.postgres.database import Citation
 
     try:
         # Find all possible variations of the reporter
@@ -628,7 +627,6 @@ def try_volume_page_match(
     Returns:
         Tuple of (match object, confidence score)
     """
-    from src.postgres.database import Citation
 
     try:
         # Check for None or 'None' values and handle them properly
@@ -666,7 +664,6 @@ def try_simplified_reporter_match(
     Returns:
         Tuple of (match object, confidence score)
     """
-    from src.postgres.database import Citation
 
     try:
         # Extract all possible volume-page combinations

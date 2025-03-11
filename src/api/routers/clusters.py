@@ -1,21 +1,21 @@
 import logging
-from typing import Optional, List, Dict, Any, Union
-from fastapi import APIRouter, HTTPException, Query, Request, Depends
-import httpx
 import os
-from dotenv import load_dotenv
-from pydantic import BaseModel
 from datetime import datetime
-from fastapi.responses import HTMLResponse, JSONResponse
-from ..shared import templates
+from typing import List, Optional
+
+import httpx
+from dotenv import load_dotenv
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse
+from neomodel import db
+from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.sql import text
+
+from src.api.shared import templates
 from src.neo4j_db.models import Opinion
 from src.neo4j_db.neomodel_loader import NeomodelLoader
-from neo4j.exceptions import ServiceUnavailable, AuthError
-from neo4j import GraphDatabase
-from neomodel import db
-from sqlalchemy.sql import text
 from src.postgres.database import get_db_session
-from sqlalchemy.exc import SQLAlchemyError
 
 # Load environment variables
 load_dotenv()

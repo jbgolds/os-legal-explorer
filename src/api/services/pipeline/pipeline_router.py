@@ -1,27 +1,17 @@
-from fastapi import (
-    APIRouter,
-    Depends,
-    HTTPException,
-    BackgroundTasks,
-    File,
-    UploadFile,
-    Query,
-)
+import os
+from typing import List, Optional
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.security import APIKeyHeader
 from sqlalchemy.orm import Session
-from typing import List, Optional
-import pandas as pd
-import os
-from datetime import datetime
 
 from src.api.database import get_db, get_neo4j
-from src.api.services.pipeline.pipeline_model import (
-    PipelineStatus,
-    PipelineJob,
-    ExtractionConfig,
-)
 from src.api.services.pipeline import pipeline_service
-from src.api.services.pipeline.pipeline_single_cluster import process_single_cluster
+from src.api.services.pipeline.pipeline_model import (ExtractionConfig,
+                                                      PipelineJob,
+                                                      PipelineStatus)
+from src.api.services.pipeline.pipeline_single_cluster import \
+    process_single_cluster
 
 router = APIRouter(
     prefix="/api/pipeline",
@@ -145,10 +135,11 @@ async def resolve_citations(
     "/load-neo4j", response_model=PipelineJob, dependencies=[Depends(verify_api_key)]
 )
 async def load_neo4j(
-    job_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     neo4j_session=Depends(get_neo4j),
+    file_path: Optional[str] = None,
+    job_id: Optional[int] = None,
 ):
     """
     Load resolved citations into Neo4j.
@@ -161,22 +152,29 @@ async def load_neo4j(
         Job ID for tracking the Neo4j loading
     """
     # Verify the resolution job exists and is complete
-    resolution_job = pipeline_service.get_job(db, job_id)
-    if not resolution_job:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    if not file_path and not job_id:
+        raise HTTPException(status_code=400, detail="Either file_path or job_id must be provided")
+    
+    
+    if job_id:
+        resolution_job = pipeline_service.get_job(db, job_id)
+        if not resolution_job:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+        
 
-    if resolution_job["status"] != "completed":
-        raise HTTPException(
-            status_code=400,
-            detail=f"Resolution job {job_id} is not completed (status: {resolution_job['status']})",
-        )
+
+        if resolution_job["status"] != "completed":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Resolution job {job_id} is not completed (status: {resolution_job['status']})",
+            )
 
     neo4j_job_id = pipeline_service.create_job(
         db, "neo4j_load", {"resolution_job_id": job_id}
     )
 
     background_tasks.add_task(
-        pipeline_service.run_neo4j_job, db, neo4j_session, neo4j_job_id, job_id
+        pipeline_service.run_neo4j_job, db, neo4j_session, neo4j_job_id, job_id, file_path
     )
 
     return {"job_id": neo4j_job_id, "status": "started"}

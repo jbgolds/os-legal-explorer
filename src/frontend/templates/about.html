@@ -13,11 +13,12 @@
                 between legal documents.
             </li>
             <ul>
-                <li>Currently, only legal opinions have a proper mapping, but <b>statutues</b>, <b>regulations</b>, and
-                    other <b>legal documents</b> are planned for the future.</li>
+                <li>Currently, only legal opinions have a proper mapping to a backend database, which is required to
+                    build the graph. But, <b>statutues</b>, <b>regulations</b>, and
+                    other <b>legal documents</b> are the next step.</li>
             </ul>
 
-            <li>It's goal is to make legal research more accessible to the public.</li>
+            <li>This project's goal is to make legal research more accessible to the public.</li>
             <li>A small handful of this type of tool exists today, but are behind <i>expensive</i> paywalls.
                 <ul>
                     <li>And some even charge per search (I know most readers can believe it). Could you imaginge
@@ -140,15 +141,37 @@
 
         </div>
         <br>
-        <p>
-            Thank YOU for reading this far! I'm excited to see where this goes. Feel free to leave any feature
-            requests/bugs as an issue on Github,
-            or
-            send me an email to get in touch.
-        </p>
-        <p>
-            - Jacob
-        </p>
+        <h2 class="text-2xl font-semibold mb-4">Known Issues</h2>
+        <ul>
+            <li>
+                Search results once rendered stay rendered until select a result; no way to click out of.
+            </li>
+            <li>
+                Dissenting / Concurring Citations are not separated out in the citation network. Should display
+                separately.
+            </li>
+            <li>
+                Diseenting / Concurring Citation's treatment needs to be treated separately in the INCOMIN network.
+                When calculating the "INCOMING POSITIVE TREATMENT", we should only consider MAJORITY opinion's for that
+                popup, and note that a dissenting opinion support is less strong.
+            </li>
+            <li>
+                Stats page does not work.
+            </li>
+        </ul>
+
+
+    </section>
+    <section></section>
+    <p>
+        Thank YOU for reading this far! I'm excited to see where this goes. Feel free to leave any feature
+        requests/bugs as an issue on Github,
+        or
+        send me an email to get in touch.
+    </p>
+    <p>
+        - Jacob
+    </p>
     </section>
 </div>
 {% endblock %}

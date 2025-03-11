@@ -6,12 +6,12 @@ citation extraction, LLM processing, resolution, and Neo4j loading pipeline.
 """
 
 import logging
-from typing import Dict, Any, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import text
+from typing import Any, Dict
 
-from .pipeline_model import JobType, ExtractionConfig
-from . import pipeline_service
+from sqlalchemy.orm import Session
+
+from src.api.services.pipeline import pipeline_service
+from src.api.services.pipeline.pipeline_model import ExtractionConfig, JobType
 
 logger = logging.getLogger(__name__)
 

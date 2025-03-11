@@ -1,25 +1,22 @@
-import os
 import json
 import logging
-from eyecite import clean_text
-import pandas as pd
-import numpy as np
-from typing import List, Dict, Optional, Any, Union, Callable, TypeVar, Tuple
+import os
 from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
+
+import numpy as np
+import pandas as pd
+from eyecite import clean_text
+from pydantic import BaseModel, TypeAdapter
 from sqlalchemy.orm import Session
-from src.llm_extraction.models import CitationAnalysis
-from pydantic import TypeAdapter, BaseModel
-from typing import List
-from neomodel import db
-from src.neo4j_db.models import Opinion
 
 # Use the consolidated citation parser
-from .pipeline_model import JobStatus, JobType, ExtractionConfig
+from src.api.services.pipeline.pipeline_model import (ExtractionConfig,
+                                                      JobStatus)
+from src.llm_extraction.models import (CitationAnalysis,
+                                       CombinedResolvedCitationAnalysis)
 from src.llm_extraction.rate_limited_gemini import GeminiClient
-from src.llm_extraction.models import (
-    CitationAnalysis,
-    CombinedResolvedCitationAnalysis,
-)
+from src.neo4j_db.models import Opinion
 from src.neo4j_db.neomodel_loader import NeomodelLoader
 
 logger = logging.getLogger(__name__)
@@ -85,6 +82,24 @@ def save_to_tmp(
 
     return output_path
 
+def save_to_citation_extraction_folder(data: Any, filename_prefix: str, as_json: bool = True, ensure_ascii: bool = False) -> str:
+    """
+    Save data to a temporary file with timestamp.
+
+    Args:
+        data: Data to save
+    """
+    # make the folder if it doesn't exist
+    os.makedirs("/citation_extraction", exist_ok=True)
+    output_path = os.path.join("/citation_extraction", filename_prefix)
+
+    if as_json:
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=ensure_ascii)
+    else:
+        data.to_csv(output_path, index=False)
+    
+    return output_path
 
 T = TypeVar("T")
 
@@ -705,6 +720,7 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
         }
         output_path = save_to_tmp(results_dump, "llm_results", ensure_ascii=False)
 
+        save_to_citation_extraction_folder(results_dump, "llm_results", as_json=True, ensure_ascii=False)
         # Update job status to completed
         update_job_status(
             db,
@@ -831,7 +847,8 @@ def create_combined_analyses(validated_llm_results: Dict[str, List[CitationAnaly
     """
     resolved = []
     errors = {}
-
+    total_raw_citations = 0
+    total_resolved_citations = 0
     # If there are no validated results, return empty lists
     if not validated_llm_results:
         logger.info("No validated LLM results to process")
@@ -847,6 +864,7 @@ def create_combined_analyses(validated_llm_results: Dict[str, List[CitationAnaly
             for analysis in analyses:
                 if isinstance(analysis, CitationAnalysis):
                     filtered_analyses.append(analysis)
+                    total_raw_citations += analysis.count_length()
                 else:
                     logger.warning(
                         f"Unexpected analysis type for cluster {cluster_id}: {type(analysis)}"
@@ -859,6 +877,7 @@ def create_combined_analyses(validated_llm_results: Dict[str, List[CitationAnaly
                     filtered_analyses, int(cluster_id)
                 )
                 resolved.append(combined)
+                total_resolved_citations += combined.count_length()
             else:
                 logger.warning(
                     f"No valid analyses for cluster {cluster_id} after filtering"
@@ -875,7 +894,7 @@ def create_combined_analyses(validated_llm_results: Dict[str, List[CitationAnaly
 
     # Log summary information
     logger.info(
-        f"Processed {len(validated_llm_results)} clusters, created {len(resolved)} valid citations"
+        f"Processed {len(validated_llm_results)} clusters. Found {total_raw_citations} raw citations and {total_resolved_citations} resolved citations"
     )
     if errors:
         logger.warning(
@@ -1029,7 +1048,7 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
 
 
 def run_neo4j_job(
-    db: Session, neo4j_session, job_id: int, resolution_job_id: int
+    db: Session, neo4j_session, job_id: int, resolution_job_id: Optional[int], file_path: Optional[str]
 ) -> None:
     """
     Run a Neo4j loading job.
@@ -1050,18 +1069,28 @@ def run_neo4j_job(
             message="Starting Neo4j loading",
         )
 
+        if not file_path and not resolution_job_id:
+            raise ValueError("Either file_path or resolution_job_id must be provided")
+
         # Get resolution job
-        resolution_job = get_job(db, resolution_job_id)
-        if not resolution_job:
-            raise ValueError(f"Resolution job {resolution_job_id} not found")
+        if file_path:
+            with open(file_path, "r", encoding="utf-8") as f:
+                resolved_citations = json.load(f)
+                logger.info("resolved_citations: is type of ", type(resolved_citations))
+                logger.info(f"Loaded {len(resolved_citations)} citations from {file_path}")
+        else:
+            resolution_job = get_job(db, resolution_job_id)
+            if not resolution_job:
+                raise ValueError(f"Resolution job {resolution_job_id} not found")
 
-        # Check if the job has a result path
-        if not resolution_job.get("result_path"):
-            raise ValueError(f"Resolution job {resolution_job_id} has no result path")
+            # Check if the job has a result path
+            if not resolution_job.get("result_path"):
+                raise ValueError(f"Resolution job {resolution_job_id} has no result path")
 
-        # Load resolution job result
-        with open(resolution_job["result_path"], "r", encoding="utf-8") as f:
-            resolved_citations = json.load(f)
+            # Load resolution job result
+            
+            with open(resolution_job["result_path"], "r", encoding="utf-8") as f:
+                resolved_citations = json.load(f)
 
         # Check if there are any resolved citations
         if not resolved_citations:
@@ -1081,9 +1110,9 @@ def run_neo4j_job(
             CombinedResolvedCitationAnalysis(**citation)
             for citation in resolved_citations
         ]
-
+        total_citations = sum(citation.count_length() for citation in resolved_citations)
         logger.info(
-            f"Loaded {len(resolved_citations)} citations from resolution job {resolution_job_id}"
+            f"Loaded {total_citations} citations from {len(resolved_citations)} opinions from resolution job {resolution_job_id}"
         )
 
         # Update job status
@@ -1109,17 +1138,6 @@ def run_neo4j_job(
             progress=50.0,
             message="Loading citations into Neo4j",
         )
-
-        # DEBUG: Additional debugging for what we're passing to the loader
-        for i, citation in enumerate(resolved_citations):
-            if not hasattr(citation, "cluster_id"):
-                logger.error(
-                    f"Citation at index {i} has no cluster_id attribute: {type(citation)}"
-                )
-                if isinstance(citation, list):
-                    logger.error(f"It's a list of length {len(citation)}")
-                    if len(citation) > 0:
-                        logger.error(f"First element type: {type(citation[0])}")
 
         loader.load_enriched_citations(resolved_citations, data_source="gemini_api")
 
@@ -1203,9 +1221,9 @@ def run_full_pipeline(
             return
 
         # Run Neo4j job
-        run_neo4j_job(db, neo4j_session, neo4j_job_id, resolution_job_id)
+        run_neo4j_job(db, neo4j_session, neo4j_job_id, resolution_job_id, None)
 
-        logger.info(f"Completed full pipeline")
+        logger.info("Completed full pipeline")
 
     except Exception as e:
         logger.error(f"Error in full pipeline: {str(e)}")

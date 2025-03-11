@@ -44,3 +44,11 @@ restore-neo4j:
 # container must be stopped before running this, `docker compose stop neo4j`
 backup-neo4j:
 	docker compose run --rm --entrypoint="" neo4j bash -c "neo4j-admin database dump neo4j --to-path=/backups"
+
+
+ruff:
+	ruff check .
+
+isort:
+	isort .
+

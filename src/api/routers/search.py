@@ -1,13 +1,16 @@
 import logging
-from typing import Optional, List, Dict, Any, Union
-from fastapi import APIRouter, HTTPException, Query, Request, Depends
-import httpx
 import os
-from dotenv import load_dotenv
-from pydantic import BaseModel
-from datetime import datetime
-from fastapi.templating import Jinja2Templates
 import traceback
+from datetime import datetime
+from typing import List, Optional, Union
+
+import httpx
+from dotenv import load_dotenv
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
+
+from src.api.main import templates
 
 # Load environment variables
 load_dotenv()
@@ -25,8 +28,6 @@ router = APIRouter(
 
 # Get templates from main app
 def get_templates() -> Jinja2Templates:
-    from ..main import templates
-
     return templates
 
 

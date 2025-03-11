@@ -1,11 +1,12 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
-from datetime import datetime
 import logging
-from src.neo4j_db.models import Opinion, LegalDocument, CITATION_TYPE_TO_NODE_TYPE
-from src.llm_extraction.models import CitationType
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, HTTPException
 from neomodel import db
+from pydantic import BaseModel
+
+from src.neo4j_db.models import LegalDocument, Opinion
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -198,7 +199,7 @@ async def get_network(cluster_id: str, depth: int = 1, direction: str = "outgoin
         direction = "outgoing"
 
     # Convert to Neo4j direction constant
-    from neomodel import OUTGOING, INCOMING
+    from neomodel import INCOMING, OUTGOING
     neo4j_direction = INCOMING if direction == "incoming" else OUTGOING
 
     try:

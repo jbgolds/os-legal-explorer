@@ -8,32 +8,22 @@ and enriched citation metadata.
 """
 
 import logging
-import traceback
-from datetime import datetime, date
-from typing import (
-    List,
-    Optional,
-    Any,
-)
-import time
 import os
+import time
+import traceback
+from datetime import date, datetime
+from typing import Any, List, Optional
+
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
+from neomodel import config, db, install_all_labels
+from tqdm import tqdm
 
-
-from neomodel import config, install_all_labels, db
-from .models import (
-    Opinion,
-    LegalDocument,
-    CITATION_TYPE_TO_NODE_TYPE,
-)
-from src.llm_extraction.models import (
-    CitationType,
-    OpinionSection,
-    CombinedResolvedCitationAnalysis,
-    CitationResolved,
-)
-from src.neo4j_db.models import CitesRel, LegalDocument, Opinion
+from src.llm_extraction.models import (CitationResolved, CitationType,
+                                       CombinedResolvedCitationAnalysis,
+                                       OpinionSection)
+from src.neo4j_db.models import (CITATION_TYPE_TO_NODE_TYPE, CitesRel,
+                                 LegalDocument, Opinion)
 
 # Mapping from citation types to primary tables
 CITATION_TYPE_TO_PRIMARY_TABLE = {
@@ -69,6 +59,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Filter to mute CartesianProduct notifications
+class CartesianProductFilter(logging.Filter):
+    def filter(self, record):
+        if "CartesianProduct" in record.getMessage():
+            return False
+        return True
+
+logging.getLogger("neo4j.notifications").addFilter(CartesianProductFilter())
 
 # Neo4j driver instance
 _neo4j_driver = None
@@ -350,7 +348,7 @@ class NeomodelLoader:
 
     def load_enriched_citations(
         self, citations_data: List[CombinedResolvedCitationAnalysis], data_source: str
-    ):
+    ) -> None:
         """
         Load enriched citation data with resolution and analysis information.
 
@@ -358,25 +356,11 @@ class NeomodelLoader:
             citations_data: List of citation analysis objects with majority, concurring, and dissenting citations
             data_source: Source of the citation data
         """
-        start_time = time.time()
         error_count = 0
         processed_count = 0
 
-        for i, citation in enumerate(citations_data):
+        for citation in tqdm(citations_data, desc="Loading opinion citations", unit="opinion"):
             try:
-                if i % 100 == 0 and i > 0:
-                    elapsed = time.time() - start_time
-                    rate = i / elapsed if elapsed > 0 else 0
-                    logger.info(
-                        f"Processed {i}/{len(citations_data)} citations ({rate:.2f}/s)"
-                    )
-
-                # Skip if no cluster ID
-                if not citation.cluster_id:
-                    logger.warning(f"No cluster ID for citation: {citation}")
-                    continue
-
-                # Process the citation
                 with db.transaction:
                     try:
                         # Convert string date to datetime.date object
@@ -543,19 +527,12 @@ class NeomodelLoader:
                         error_count += 1
 
             except Exception as e:
-                logger.error(
-                    f"Error processing citation set {i+1}: {str(e)}\n{traceback.format_exc()}"
-                )
+                logger.error(f"Error processing citation set: {str(e)}\n{traceback.format_exc()}")
                 error_count += 1
 
-        # Log final stats
-        elapsed = time.time() - start_time
-        rate = len(citations_data) / elapsed if elapsed > 0 else 0
-        logger.info(
-            f"Loaded {processed_count} citations with {error_count} errors in {elapsed:.2f}s ({rate:.2f}/s)"
-        )
+        logger.info(f"Loaded {processed_count} citations with {error_count} errors")
 
-        return processed_count
+        return
 
     def get_case_from_neo4j(self, cluster_id: str) -> Optional[Opinion]:
         """

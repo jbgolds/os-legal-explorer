@@ -1,20 +1,19 @@
-import uuid
-from src.llm_extraction.rate_limited_gemini import GeminiClient, TextChunker
-import os
-from google.genai.types import GenerateContentConfig, CreateBatchJobConfig, BatchJob, GenerateContentResponse
-from google import genai
-from src.api.services.pipeline.pipeline_service import check_node_status
-
-from google.cloud import storage
-import fsspec
-import logging
-import pandas as pd
 import json
+import logging
+import os
 
-from src.llm_extraction.models import CitationAnalysis
+import fsspec
+import pandas as pd
+from google import genai
+from google.cloud import storage
+from google.genai.types import (BatchJob, CreateBatchJobConfig,
+                                GenerateContentConfig, GenerateContentResponse)
+
 from src.api.services.pipeline.pipeline_model import ExtractionConfig
-
-from src.llm_extraction.prompts import system_prompt, chunking_instructions
+from src.api.services.pipeline.pipeline_service import check_node_status
+from src.llm_extraction.models import CitationAnalysis
+from src.llm_extraction.prompts import chunking_instructions, system_prompt
+from src.llm_extraction.rate_limited_gemini import GeminiClient, TextChunker
 
 # Configure logging
 logging.basicConfig(
@@ -246,7 +245,8 @@ class BatchGeminiClient:
         Returns:
             Cleaned DataFrame
         """
-        from src.api.services.pipeline.pipeline_service import clean_extracted_opinions
+        from src.api.services.pipeline.pipeline_service import \
+            clean_extracted_opinions
         
         logging.info(f"Cleaning {len(df)} opinions")
         cleaned_df = clean_extracted_opinions(df)

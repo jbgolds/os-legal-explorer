@@ -5,17 +5,15 @@ This module provides the core database functionality for the application,
 including connection management, session creation, and utility functions.
 """
 
-import os
 import logging
-from typing import Generator, Optional
+import os
 from contextlib import contextmanager
-from datetime import datetime
+from typing import Generator
 
-from sqlalchemy import create_engine, Engine, Column, Integer, String, and_, text
-from sqlalchemy.orm import sessionmaker, Session, declarative_base
-from sqlalchemy.pool import QueuePool
-from sqlalchemy.exc import SQLAlchemyError
 from dotenv import load_dotenv
+from sqlalchemy import Column, Engine, Integer, String, create_engine
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
+from sqlalchemy.pool import QueuePool
 
 # Configure logger
 logger = logging.getLogger(__name__)

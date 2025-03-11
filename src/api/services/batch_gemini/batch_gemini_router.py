@@ -1,27 +1,30 @@
-import os
-import uuid
-import logging
 import asyncio
 import json
+import logging
+import os
 import time
-from typing import Dict, Any, Optional, List
+import uuid
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends, File, UploadFile, Query
-from fastapi.security import APIKeyHeader
 import pandas as pd
+from fastapi import (APIRouter, BackgroundTasks, Depends, File, HTTPException,
+                     Query, UploadFile)
+from fastapi.responses import JSONResponse
+from fastapi.security import APIKeyHeader
+from google.genai.types import BatchJob
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from fastapi.responses import JSONResponse
-
-# Import the BatchGeminiClient
-from src.llm_extraction.batch_gemini import BatchGeminiClient
-from google.genai.types import BatchJob
 
 # Import pipeline service components for data processing
 from src.api.database import get_db, get_neo4j
 from src.api.services.pipeline import pipeline_service
-from src.api.services.pipeline.pipeline_service import load_and_validate_llm_data, create_combined_analyses, serialize_and_save_citations, handle_empty_citations
-from src.api.services.pipeline.pipeline_model import ExtractionConfig, CombinedResolvedCitationAnalysis
+from src.api.services.pipeline.pipeline_model import (
+    CombinedResolvedCitationAnalysis, ExtractionConfig)
+from src.api.services.pipeline.pipeline_service import (
+    create_combined_analyses, handle_empty_citations,
+    load_and_validate_llm_data, serialize_and_save_citations)
+# Import the BatchGeminiClient
+from src.llm_extraction.batch_gemini import BatchGeminiClient
 from src.llm_extraction.models import CitationAnalysis
 from src.neo4j_db.neomodel_loader import NeomodelLoader
 
@@ -1372,9 +1375,11 @@ async def resolve_pipeline_citations(
         df = pd.read_csv(cleaned_file)
         
         # Load the LLM results and validate them
-        from src.api.services.pipeline.pipeline_service import load_and_validate_llm_data, create_combined_analyses, serialize_and_save_citations
+        from src.api.services.pipeline.pipeline_service import (
+            create_combined_analyses, load_and_validate_llm_data,
+            serialize_and_save_citations)
         from src.llm_extraction.models import CitationAnalysis
-        
+
         # Convert DataFrame to dictionary of CitationAnalysis objects
         llm_results = {}
         for _, row in df.iterrows():

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
+import csv
+import logging
+from typing import Iterator
+
 import psycopg2
 import psycopg2.extras
-import csv
-from typing import Iterator
-import logging
-from datetime import datetime
 
 # Set up logging
 logging.basicConfig(

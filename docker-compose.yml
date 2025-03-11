@@ -19,6 +19,7 @@ services:
     volumes:
       - .:/app
       - ./google-credentials/gen-lang-client-0880888016-41345dc4d59a.json:/app/google-credentials/credentials.json
+      - ./tmp:/tmp
     depends_on:
       - neo4j # Simple dependency without health check
     restart: always

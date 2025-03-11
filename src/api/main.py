@@ -1,21 +1,23 @@
-import os
 import logging
+import os
+
+import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
 from fastapi.responses import HTMLResponse
-from dotenv import load_dotenv
-
 # Uncomment these imports for template and static file support
 from fastapi.staticfiles import StaticFiles
 
+from src.api.database import verify_connections
+from src.api.routers import (clusters_router, feedback_router, network_router,
+                             search_router, stats_router)
+from src.api.routers.clusters import check_cluster_status, get_cluster_details
+from src.api.services.batch_gemini.batch_gemini_router import \
+    router as batch_gemini_router
 # Import and include routers
-from .services.pipeline import pipeline_router
-from .services.batch_gemini.batch_gemini_router import router as batch_gemini_router
-from .routers import search_router, clusters_router, feedback_router, network_router, stats_router
-from .routers.clusters import get_cluster_details, check_cluster_status
-from .shared import templates
-import logging
+from src.api.services.pipeline import pipeline_router
+from src.api.shared import templates
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +63,6 @@ async def home(request: Request):
 # Health check endpoint
 @app.get("/health")
 async def health_check():
-    from .database import verify_connections
 
     db_status = verify_connections()
     return {

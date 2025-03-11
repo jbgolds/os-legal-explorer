@@ -1,6 +1,7 @@
-from fastapi.templating import Jinja2Templates
-from datetime import date
 import subprocess
+from datetime import date
+
+from fastapi.templating import Jinja2Templates
 
 # Configure templates
 templates = Jinja2Templates(directory="src/frontend/templates")

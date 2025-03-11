@@ -1,11 +1,12 @@
 import os
 from typing import Generator
-from sqlalchemy.orm import Session
-from dotenv import load_dotenv
 
+from dotenv import load_dotenv
+from sqlalchemy.orm import Session
+
+from src.neo4j_db.neomodel_loader import get_neo4j_driver
 # Import database connections from updated modules
 from src.postgres.database import get_engine, get_session_factory
-from src.neo4j_db.neomodel_loader import get_neo4j_driver
 
 # Load environment variables
 load_dotenv()

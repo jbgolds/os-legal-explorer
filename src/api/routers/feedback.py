@@ -1,10 +1,11 @@
-import logging
 import json
+import logging
 import os
-from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Body
-from pydantic import BaseModel, EmailStr
 from datetime import datetime
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, EmailStr
 
 # Configure logging
 logger = logging.getLogger(__name__)

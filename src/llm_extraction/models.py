@@ -1,13 +1,11 @@
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+import logging
 from enum import StrEnum
 from typing import List, Optional
-import logging
-from src.citation.parser import (
-    find_cluster_id,
-    clean_citation_text,
-    find_cluster_id_fuzzy,
-)
 
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from src.citation.parser import (clean_citation_text, find_cluster_id,
+                                 find_cluster_id_fuzzy)
 
 logger = logging.getLogger(__name__)
 
@@ -77,10 +75,7 @@ class Citation(BaseModel):
     class Config:
         use_enum_values = True
 
-    # Add method to count citation length
-    def count_citation_length(self) -> int:
-        """Count the length of all string fields in this citation."""
-        return len(self.citation_text) + len(self.reasoning)
+
 
     @field_validator("type", mode="before")
     @classmethod
@@ -151,18 +146,11 @@ class CitationAnalysis(BaseModel):
 
     # function to count length of all strings in this model
     def count_length(self) -> int:
-        sum = 0
-        for field in self.model_fields:
-            if field.annotation == list or field.annotation == List:
-                for item in getattr(self, field.name):
-                    if isinstance(item, Citation):
-                        sum += item.count_citation_length()
-                    # for strings for `notes`
-                    elif isinstance(item, str):
-                        sum += len(item)
-            else:
-                sum += len(getattr(self, field.name))
-        return sum
+        total_length = 0
+        # Get all field names from the model
+        for field in [self.majority_opinion_citations, self.concurring_opinion_citations, self.dissenting_citations]:
+            total_length += len(field) 
+        return total_length
 
     @classmethod
     def combine_analyses(
@@ -271,6 +259,12 @@ class CombinedResolvedCitationAnalysis(BaseModel):
                 for citation in citation_analysis.dissenting_citations
             ],
         )
+    def count_length(self) -> int:
+        total_length = 0
+        # Get all field names from the model
+        for field in [self.majority_opinion_citations, self.concurring_opinion_citations, self.dissenting_citations]:
+            total_length += len(field) 
+        return total_length
 
 
 def _resolve_opinion_citation(citation: Citation) -> CitationResolved:
