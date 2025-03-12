@@ -1,16 +1,19 @@
+import logging
 import json
 from datetime import date, datetime
-from typing import Type
+from typing import Optional, Type
 
 from neomodel import (DateProperty, DateTimeFormatProperty, DateTimeProperty,
                       IntegerProperty, JSONProperty, RelationshipTo,
                       StringProperty, StructuredNode, StructuredRel,
                       ZeroOrMore)
+from neomodel.sync_.core import Database
 from neomodel.properties import validator
 
 from src.llm_extraction.models import (CitationTreatment, CitationType,
                                        OpinionSection)
 
+logger = logging.getLogger(__name__)
 
 class DateTimeEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles datetime objects."""
@@ -63,6 +66,41 @@ class CitesRel(StructuredRel):
     # Audit trail - using CustomJSONProperty instead of JSONProperty
     other_metadata_versions = CustomJSONProperty(default=list)
 
+    def update_history(self, new_props: dict):
+        """Update the history of the relationship with a new version."""
+        current_props = self.__properties__.copy()
+
+        # Remove other_metadata_versions from the properties to avoid circular references
+        if "other_metadata_versions" in current_props:
+            current_props.pop("other_metadata_versions")
+
+        # we deal with version ourselves, not set by client.
+        if "version" in new_props:
+            new_props.pop("version")
+
+        # Append the current properties to other_metadata_versions
+        logger.debug("Current other_metadata_versions: %s", self.other_metadata_versions)
+        cur_version = self.other_metadata_versions or []
+        current_props["cites"] = self.end_node().element_id
+        cur_version.append(current_props)
+
+
+        self.other_metadata_versions = cur_version
+        if self.version is None:
+            self.version = 1
+        elif isinstance(self.version, int):
+            self.version = self.version + 1
+        else:
+            raise ValueError(f"Version must be an integer, got {type(self.version)}")
+        
+        for key, value in new_props.items():
+            if key in self.defined_properties().keys():
+                setattr(self, key, value)
+
+        self.save()
+
+
+
 
 class LegalDocument(StructuredNode):
     """
@@ -113,32 +151,6 @@ class LegalDocument(StructuredNode):
         """Update timestamp before saving"""
         self.updated_at = datetime.now()
 
-    @classmethod
-    def get_or_create(cls, citation_string, **kwargs):
-        """Get or create a document, always ensuring citation_string is set"""
-        # Convert numeric timestamps to datetime objects
-        if "updated_at" in kwargs and isinstance(kwargs["updated_at"], (int, float)):
-            kwargs["updated_at"] = datetime.fromtimestamp(kwargs["updated_at"])
-
-        if "created_at" in kwargs and isinstance(kwargs["created_at"], (int, float)):
-            kwargs["created_at"] = datetime.fromtimestamp(kwargs["created_at"])
-
-        # Initialize doc to None
-        doc = None
-
-        # first try and find via primary_id, then check citation_string
-        if "primary_id" in kwargs:
-            doc = cls.nodes.first_or_none(primary_id=kwargs["primary_id"])
-
-        if not doc:
-            doc = cls.nodes.first_or_none(citation_string=citation_string)
-
-        if not doc:
-            # Create a new document
-            kwargs["citation_string"] = citation_string
-            doc = cls(**kwargs)
-            doc.save()
-        return doc
 
 
 class Opinion(LegalDocument):
@@ -195,37 +207,38 @@ class Opinion(LegalDocument):
 
         primary_id = str(cluster_id) if cluster_id else None
         if primary_id:
-            opinion = cls.nodes.first_or_none(primary_id=primary_id)
+            opinion: Optional[Opinion] = cls.nodes.first_or_none(primary_id=primary_id)
         elif citation_string:
-            opinion = cls.nodes.first_or_none(citation_string=citation_string)
+            opinion: Optional[Opinion] = cls.nodes.first_or_none(citation_string=citation_string)
+        
 
-        # Create if it doesn't exist
         if not opinion:
-            # Set required fields
-            kwargs.update(
-                {
-                    "primary_id": primary_id,
-                    "primary_table": "opinion_cluster",
-                }
-            )
-            if citation_string:
-                kwargs["citation_string"] = citation_string
+            opinion = cls()
 
-            # Create new opinion
-            opinion = cls(**kwargs)
+    
+        if not opinion.ai_summary and kwargs.get("ai_summary"):
+            opinion.ai_summary = kwargs["ai_summary"]
+        if not opinion.date_filed and kwargs.get("date_filed"):
+            opinion.date_filed = kwargs["date_filed"]
+
+        if (not opinion.citation_string or "cluster-" in opinion.citation_string) and citation_string:
+            opinion.citation_string = citation_string
+
+
+            
+        # Set required fields
+        for key, value in kwargs.items():
+            if key in cls.defined_properties().keys():
+                setattr(opinion, key, value)
+
+        
+            opinion.save()
             opinion.save()
 
+        opinion.save()
+
         return opinion
-        # if len(opinion) > 1:
-        #     raise ValueError(
-        #         f"Multiple opinions found for cluster_id {cluster_id} and citation_string {citation_string}"
-        #     )
-        # elif len(opinion) == 1:
-        #     return opinion[0]
-        # else:
-        #     raise ValueError(
-        #         f"No opinion found for cluster_id {cluster_id} and citation_string {citation_string}"
-        #     )
+        
 
 
 class StatutesCodesRegulation(LegalDocument):
@@ -237,6 +250,7 @@ class StatutesCodesRegulation(LegalDocument):
         """Ensure opinion type is always correct"""
         super().pre_save()
         # Ensure primary_table is correctly set
+        # TODO change this to mapping, instead of hardcoding
         self.primary_table = "statutes"
 
 
@@ -316,7 +330,7 @@ class ExternalSubmission(LegalDocument):
     """
     Node representing external submissions.
     """
-
+    primary_table = "submissions"
     def pre_save(self):
         """Ensure opinion type is always correct"""
         super().pre_save()
@@ -328,7 +342,7 @@ class ElectronicResource(LegalDocument):
     """
     Node representing electronic resources.
     """
-
+    primary_table = "electronic_resources"
     def pre_save(self):
         """Ensure opinion type is always correct"""
         super().pre_save()

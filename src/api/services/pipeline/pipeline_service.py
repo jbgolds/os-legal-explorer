@@ -1071,13 +1071,12 @@ def run_neo4j_job(
 
         if not file_path and not resolution_job_id:
             raise ValueError("Either file_path or resolution_job_id must be provided")
-
+        resolved_citations = None
         # Get resolution job
         if file_path:
             with open(file_path, "r", encoding="utf-8") as f:
                 resolved_citations = json.load(f)
-                logger.info("resolved_citations: is type of ", type(resolved_citations))
-                logger.info(f"Loaded {len(resolved_citations)} citations from {file_path}")
+                logger.info(f"Loaded {len(resolved_citations)} opinions from {file_path}")
         else:
             resolution_job = get_job(db, resolution_job_id)
             if not resolution_job:

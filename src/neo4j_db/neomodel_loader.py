@@ -172,8 +172,6 @@ def check_schema_exists():
         return False
 
 
-def get_primary_id(node: LegalDocument) -> Any:
-    return node.primary_id
 
 
 class NeomodelLoader:
@@ -222,7 +220,42 @@ class NeomodelLoader:
                 logger.error(f"Error installing labels: {str(e)}")
         else:
             logger.info("Schema already exists, skipping label installation")
-
+    def find_existing_relationship(self, citing_node: LegalDocument, cited_node: LegalDocument, citation_text: str, page_number: Optional[int] = None) -> Optional[CitesRel]:
+        """
+        Find an existing relationship between two nodes with matching citation_text and page_number.
+        """
+        params = {
+        "start_id": citing_node.element_id,
+            "end_id": cited_node.element_id,
+            "citation_text": citation_text
+        }
+    
+    # Build query based on whether page_number is provided
+        if page_number is not None:
+            query = (
+                "MATCH (a)-[r:CITES]->(b) "
+                "WHERE elementId(a) = $start_id AND elementId(b) = $end_id "
+                "AND r.citation_text = $citation_text "
+                "AND r.page_number = $page_number "
+                "RETURN r"
+            )
+            params["page_number"] = page_number
+        else:
+            query = (
+                "MATCH (a)-[r:CITES]->(b) "
+                "WHERE elementId(a) = $start_id AND elementId(b) = $end_id "
+                "AND r.citation_text = $citation_text "
+                "AND NOT exists(r.page_number) "
+                "RETURN r"
+            )
+        
+        results, _ = db.cypher_query(query, params, resolve_objects=True)
+        if results and results[0]:
+            if len(results) > 1:
+                logger.warning(f"Found multiple relationships with citation_text {citation_text} and page_number {page_number}")
+            return results[0][0]
+        return None
+        
     def create_citation(
         self,
         citing_node: LegalDocument,
@@ -232,7 +265,7 @@ class NeomodelLoader:
         opinion_section: Optional[str] = None,
     ) -> None:
         """
-        Create a citation relationship between two nodes with metadata.
+        create a citation relationship between two nodes with metadata.
 
         Args:
             citing_node: The node that is citing
@@ -260,49 +293,28 @@ class NeomodelLoader:
             # Add opinion section if provided
             if opinion_section:
                 properties["opinion_section"] = opinion_section
+            
+            # Get citation_text from the citation object or properties
+            citation_text = getattr(citation, "citation_text", None) or properties.get("citation_text")
+            page_number = getattr(citation, "page_number", None) or properties.get("page_number")
 
-            # see if the relationship already exists and update metadata with previous version,
-            # and set the version to the next number
-            # and update the fields
+            # Check if we have a relationship with this citation text and page number already
+            existing_rel = None
 
-            if existing_rel := citing_node.cites.relationship(cited_node):  # type: ignore
+            # Build query based on whether page_number is available
+            existing_rel = self.find_existing_relationship(
+                citing_node, 
+                cited_node, 
+                citation_text or "", 
+                int(page_number) if page_number else None
+            )
+
+            if existing_rel:
                 logger.debug(
-                    f"Relationship already exists between {citing_node} and {cited_node}"
+                    f"Relationship already exists between {citing_node} and {cited_node} with citation_text '{citation_text}'"
                 )
 
-                # Use the __properties__ property which returns a dictionary of the
-                # actual property values, not the property definitions
-                current_properties = existing_rel.__properties__.copy()
-
-                # Remove other_metadata_versions from the properties to avoid circular references
-                if "other_metadata_versions" in current_properties:
-                    current_properties.pop("other_metadata_versions")
-
-                # Convert timestamp to datetime object before storing in version history
-                for time_obj in ["created_at", "updated_at"]:
-                    if time_obj in current_properties:
-                        if isinstance(current_properties[time_obj], (int, float)):
-                            current_properties[time_obj] = datetime.fromtimestamp(
-                                current_properties[time_obj]
-                            )
-                        # Format datetime as string for JSON serialization
-                        current_properties[time_obj] = current_properties[
-                            time_obj
-                        ].strftime("%Y-%m-%d %H:%M:%S")
-
-                # Append the current properties to other_metadata_versions
-                current_versions = existing_rel.other_metadata_versions or []
-                current_versions.append(current_properties)
-                existing_rel.other_metadata_versions = current_versions
-
-                # Increment the version number
-                existing_rel.version = existing_rel.version + 1
-
-                # Update properties on the existing relationship
-                for key, value in properties.items():
-                    setattr(existing_rel, key, value)
-
-                existing_rel.save()
+                existing_rel.update_history(properties)
                 return
 
             # Create relationship by passing a dictionary of properties, per neomodel docs
@@ -317,13 +329,6 @@ class NeomodelLoader:
             # Save the relationship
             try:
                 rel.save()
-                # Log with more specific information
-                citing_id = get_primary_id(citing_node)
-                cited_id = get_primary_id(cited_node)
-                logger.debug(
-                    f"Created citation: {type(citing_node).__name__}[{citing_id}] -> "
-                    f"{type(cited_node).__name__}[{cited_id}]"
-                )
             except Exception as save_error:
                 logger.error(f"Error saving citation relationship: {save_error}")
                 logger.error(traceback.format_exc())
@@ -337,10 +342,11 @@ class NeomodelLoader:
             logger.error(traceback.format_exc())
             # Attempt to log more specific information for debugging
             try:
-                citing_id = get_primary_id(citing_node) if citing_node else "None"
-                cited_id = get_primary_id(cited_node) if cited_node else "None"
+                citing_id = citing_node.primary_id if citing_node else "None"
+                cited_id = cited_node.primary_id if cited_node else "None"
+                citation_text_snippet = citation_text[0:10] if citation_text else "None"
                 logger.error(
-                    f"Error creating citation from {citing_id} to {cited_id}: {e}"
+                    f"Error creating citation from {citing_id} to {cited_id} with citation_text {citation_text_snippet} and page_number {page_number}: {e}, \n {traceback.format_exc()}"
                 )
             except Exception:
                 pass
@@ -422,22 +428,9 @@ class NeomodelLoader:
 
                                         # Use citation_text instead of creating an ID-based citation string
                                         cited_opinion = Opinion.get_or_create_from_cluster_id(
-                                            cited_id,
-                                            citation_string=resolved_citation.citation_text,
+                                            cluster_id=cited_id,
+                                            citation_string=resolved_citation.citation_text, 
                                         )
-
-                                        # Update cited_opinion with additional data from resolved_citation
-                                        for (
-                                            dict_key,
-                                            value,
-                                        ) in resolved_citation.model_dump().items():
-                                            dict_key = str(dict_key)
-                                            if (
-                                                hasattr(cited_opinion, dict_key)
-                                                and value is not None
-                                            ):
-                                                setattr(cited_opinion, dict_key, value)
-                                        cited_opinion.save()
 
                                         # Create the citation relationship directly
                                         self.create_citation(
@@ -460,8 +453,9 @@ class NeomodelLoader:
                                             if hasattr(resolved_citation, "primary_id")
                                             else "None"
                                         )
+                                        citation_text_snippet = resolved_citation.citation_text[0:10] if resolved_citation.citation_text else "None"
                                         logger.error(
-                                            f"Error creating citation from {citing_id} to {cited_id}: {e}"
+                                            f"Error creating citation from {citing_id} to {cited_id} with citation_text {citation_text_snippet} and page_number {page_number}: {e} \n", traceback.format_exc()
                                         )
                                         error_count += 1
                                 # For other document types, log but don't process yet
@@ -470,26 +464,28 @@ class NeomodelLoader:
                                         node_type = CITATION_TYPE_TO_NODE_TYPE[
                                             resolved_citation.type
                                         ]
+                                        table_name = CITATION_TYPE_TO_PRIMARY_TABLE[
+                                            resolved_citation.type
+                                        ]
 
                                         # Use citation_text as the citation_string
-                                        cited_node = node_type.get_or_create(
-                                            citation_string=resolved_citation.citation_text,
-                                        )
-                                        # update cited_node with data
-                                        for (
-                                            dict_key,
-                                            value,
-                                        ) in resolved_citation.model_dump().items():
-                                            dict_key = str(dict_key)
-                                            # Use setattr instead of direct attribute assignment
-                                            # to dynamically set the attribute based on the key name
-                                            if (
-                                                hasattr(cited_node, dict_key)
-                                                and value is not None
-                                            ):
-                                                setattr(cited_node, dict_key, value)
 
-                                        cited_node.save()
+                                        # Using built in get_or_create method
+
+                                        cited_node = node_type.nodes.first_or_none(citation_string=resolved_citation.citation_text)
+                                        if not cited_node:
+                                            cited_node = node_type(
+                                                citation_string=resolved_citation.citation_text,
+                                                primary_table=table_name,
+                                            )
+                                            cited_node.save()
+
+                                        # )
+                                        #     {"citation_string" : resolved_citation.citation_text,
+                                        #      "primary_table" : table_name},
+                                        #     # wont have any resolved primary id for these...
+                                        # )[0]
+
                                         self.create_citation(
                                             citing_node=citing_opinion,
                                             cited_node=cited_node,
@@ -511,7 +507,7 @@ class NeomodelLoader:
                                             else "None"
                                         )
                                         logger.error(
-                                            f"Error creating citation from {citing_id} to {cited_id}: {e}"
+                                            f"Error creating citation from {citing_id} to {cited_id}: {e}, \n {traceback.format_exc()}"
                                         )
                                         error_count += 1
 

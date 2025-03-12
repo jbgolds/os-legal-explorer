@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from src.api.main import templates
+from src.api.shared import templates
 
 # Load environment variables
 load_dotenv()
@@ -99,7 +99,7 @@ COURTLISTENER_API_KEY = os.getenv(
 @router.get("/search")
 async def search_cases(
     request: Request,
-    templates: Jinja2Templates = Depends(get_templates),
+    templates: Jinja2Templates = Depends(),
     q: Optional[str] = None,
     type: str = "o",
     jurisdiction: Optional[str] = None,
