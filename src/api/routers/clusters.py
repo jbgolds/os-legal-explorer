@@ -397,7 +397,7 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                 if not opinion:
                     opinion = Opinion(
                         primary_id=str(cluster_id),
-                        primary_table="search_opinioncluster",
+                        primary_table="opinion_cluster",
                         case_name=data.get("caseName", "Unknown Case"),
                         court_name=court_name,
                         date_filed=(

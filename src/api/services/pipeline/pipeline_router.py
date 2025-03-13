@@ -49,9 +49,9 @@ async def extract_opinions(
     Returns:
         Job ID for tracking the extraction process
     """
-    job_id = pipeline_service.create_job(db, "extract", config.model_dump())
+    job_id = pipeline_service.create_job("extract", config.model_dump())
 
-    background_tasks.add_task(pipeline_service.run_extraction_job, db, job_id, config)
+    background_tasks.add_task(pipeline_service.run_extraction_job, job_id, config)
 
     return {"job_id": job_id, "status": "started"}
 
@@ -73,7 +73,7 @@ async def process_opinions_with_llm(
         Job ID for tracking the LLM processing
     """
     # Verify the extraction job exists and is complete
-    extraction_job = pipeline_service.get_job(db, job_id)
+    extraction_job = pipeline_service.get_job(job_id)
     if not extraction_job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
@@ -84,10 +84,10 @@ async def process_opinions_with_llm(
         )
 
     llm_job_id = pipeline_service.create_job(
-        db, "llm_process", {"extraction_job_id": job_id}
+        "llm_process", {"extraction_job_id": job_id}
     )
 
-    background_tasks.add_task(pipeline_service.run_llm_job, db, llm_job_id, job_id)
+    background_tasks.add_task(pipeline_service.run_llm_job, llm_job_id, job_id)
 
     return {"job_id": llm_job_id, "status": "started"}
 
@@ -111,7 +111,7 @@ async def resolve_citations(
         Job ID for tracking the citation resolution
     """
     # Verify the LLM job exists and is complete
-    llm_job = pipeline_service.get_job(db, job_id)
+    llm_job = pipeline_service.get_job(job_id)
     if not llm_job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
@@ -122,11 +122,11 @@ async def resolve_citations(
         )
 
     resolution_job_id = pipeline_service.create_job(
-        db, "citation_resolution", {"llm_job_id": job_id}
+        "citation_resolution", {"llm_job_id": job_id}
     )
 
     background_tasks.add_task(
-        pipeline_service.run_resolution_job, db, resolution_job_id, job_id
+        pipeline_service.run_resolution_job, resolution_job_id, job_id
     )
 
     return {"job_id": resolution_job_id, "status": "started"}
@@ -158,7 +158,7 @@ async def load_neo4j(
     
     
     if job_id:
-        resolution_job = pipeline_service.get_job(db, job_id)
+        resolution_job = pipeline_service.get_job( job_id)      
         if not resolution_job:
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
         
@@ -171,11 +171,11 @@ async def load_neo4j(
             )
 
     neo4j_job_id = pipeline_service.create_job(
-        db, "neo4j_load", {"resolution_job_id": job_id}
+        "neo4j_load", {"resolution_job_id": job_id}
     )
 
     background_tasks.add_task(
-        pipeline_service.run_neo4j_job, db, neo4j_job_id, job_id, file_path
+        pipeline_service.run_neo4j_job,     neo4j_job_id, job_id, file_path
     )
 
     return {"job_id": neo4j_job_id, "status": "started"}
@@ -197,7 +197,7 @@ async def get_job_status(job_id: int, db: Session = Depends(get_db)):
     Returns:
         Job status information
     """
-    job = pipeline_service.get_job(db, job_id)
+    job = pipeline_service.get_job( job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
@@ -227,7 +227,7 @@ async def get_jobs(
         List of job status information
     """
     return pipeline_service.get_jobs(
-        db, job_type=job_type, status=status, limit=limit, offset=offset
+        job_type=job_type, status=status, limit=limit, offset=offset
     )
 
 
@@ -253,21 +253,20 @@ async def run_full_pipeline(
         List of job IDs for each step in the pipeline
     """
     # Create jobs for each step
-    extraction_job_id = pipeline_service.create_job(db, "extract", config.model_dump())
+    extraction_job_id = pipeline_service.create_job( "extract", config.model_dump())
     llm_job_id = pipeline_service.create_job(
-        db, "llm_process", {"extraction_job_id": extraction_job_id}
+         "llm_process", {"extraction_job_id": extraction_job_id} 
     )
     resolution_job_id = pipeline_service.create_job(
-        db, "citation_resolution", {"llm_job_id": llm_job_id}
+         "citation_resolution", {"llm_job_id": llm_job_id}
     )
     neo4j_job_id = pipeline_service.create_job(
-        db, "neo4j_load", {"resolution_job_id": resolution_job_id}
+         "neo4j_load", {"resolution_job_id": resolution_job_id}
     )
 
     # Run the full pipeline in the background
     result = await run_in_threadpool(
         pipeline_service.run_full_pipeline,
-        db,
         extraction_job_id,
         llm_job_id,
         resolution_job_id,
@@ -309,7 +308,6 @@ async def process_single_cluster_endpoint(
     # Create a custom extraction config for this cluster
     result = await run_in_threadpool(
         process_single_cluster,
-        db,
         cluster_id,
     )
     # Create jobs for each step

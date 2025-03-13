@@ -345,6 +345,8 @@ async def get_network(cluster_id: str, direction: str = "outgoing"):
         return graph
 
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
         logger.error(f"Error building citation network: {e}")
         raise HTTPException(
             status_code=500, detail=f"Error building citation network: {str(e)}"

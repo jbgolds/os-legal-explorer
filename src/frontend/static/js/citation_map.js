@@ -66,6 +66,12 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
     // Fetch data from API
     fetch(apiEndpoint)
         .then(response => {
+            if (response.status === 404) {
+                const match = window.location.pathname.match(/^\/opinion\/([^\/]+)/);
+                const clusterId = (match && match[1]) ? match[1] : 'unknown';
+                console.warn(`API returned 404, falling back to dummy data for cluster ${clusterId}`);
+                return { nodes: [{ id: clusterId, citation_string: `Cluster ${clusterId}`, type: 'opinion_cluster' }], links: [] };
+            }
             if (!response.ok) {
                 console.error(`API error: ${response.status} - ${response.statusText}`);
                 throw new Error(`API error: ${response.status} - ${response.statusText}`);

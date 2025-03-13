@@ -21,6 +21,7 @@ from typing import Any, List, Optional
 from dotenv import load_dotenv
 from neomodel import config, adb, db, install_all_labels
 from tqdm import tqdm
+import asyncio
 
 from src.llm_extraction.models import (CitationResolved, CitationType,
                                        CombinedResolvedCitationAnalysis,
@@ -158,7 +159,6 @@ class NeomodelLoader:
         else:
             logger.info("Schema already exists, skipping label installation")
 
-    @adb.read_transaction
     async def find_existing_relationship(self, citing_node: LegalDocument, cited_node: LegalDocument, citation_text: str, page_number: Optional[int] = None) -> Optional[CitesRel]:
         """
         Find an existing relationship between two nodes with matching citation_text and page_number.
@@ -195,7 +195,6 @@ class NeomodelLoader:
             return results[0][0]
         return None
 
-    @adb.transaction
     async def create_citation(
         self,
         citing_node: LegalDocument,
@@ -215,6 +214,7 @@ class NeomodelLoader:
             opinion_section: Section of the opinion where the citation appears (majority, concurring, dissenting)
         """
         try:
+
             # Ensure data_source is set
             if not data_source:
                 data_source = "unknown"
@@ -292,7 +292,6 @@ class NeomodelLoader:
                 pass
             raise
     
-    @adb.transaction
     async def load_enriched_citations(
         self, citations_data: List[CombinedResolvedCitationAnalysis], data_source: str
     ) -> None:
@@ -305,31 +304,26 @@ class NeomodelLoader:
         """
         error_count = 0
         processed_count = 0
-
         for citation in tqdm(citations_data, desc="Loading opinion citations", unit="opinion"):
-                # Use neomodel's transaction context manager              
             try:
                 # Convert string date to datetime.date object
                 date_filed = None
                 if citation.date:
                     try:
-                        date_filed = datetime.strptime(
-                            citation.date, "%Y-%m-%d"
-                        ).date()
+                        date_filed = datetime.strptime(citation.date, "%Y-%m-%d").date()
                     except ValueError:
                         logger.warning(
                             f"Invalid date format for citation {citation.cluster_id}: {citation.date}"
                         )
-                        date_filed = date(
-                            1500, 1, 1
-                        )  # year 1500 so we know it's wrong
+                        date_filed = date(1500, 1, 1)
 
                 # Create or update the citing opinion with AI summary
                 citing_opinion = await Opinion.get_or_create_from_cluster_id(
                     citation.cluster_id,
-                    citation_string=f"cluster-{citation.cluster_id}",  # TODO TEMP, WE NEED TO RESOLVE THIS
+                    citation_string=f"cluster-{citation.cluster_id}",
                     ai_summary=citation.brief_summary,
                     date_filed=date_filed,
+                    primary_table="opinion_cluster"
                 )
 
                 # Process each citation type (majority, concurring, dissenting)
@@ -353,26 +347,21 @@ class NeomodelLoader:
                         continue
 
                     for resolved_citation in citation_list:
-                        # Check if citation has a primary_id for judicial opinions
                         if (
                             resolved_citation.type
                             == CitationType.judicial_opinion
                         ):
                             try:
-                                # Process the citation using the already created citing_opinion
                                 cited_id = (
                                     int(resolved_citation.primary_id)
                                     if resolved_citation.primary_id
                                     else None
                                 )
-
-                                # Use citation_text instead of creating an ID-based citation string
                                 cited_opinion = await Opinion.get_or_create_from_cluster_id(
                                     cluster_id=cited_id,
-                                    citation_string=resolved_citation.citation_text, 
+                                    citation_string=resolved_citation.citation_text,
+                                    primary_table="opinion_cluster"
                                 )
-
-                                # Create the citation relationship directly
                                 await self.create_citation(
                                     citing_node=citing_opinion,
                                     cited_node=cited_opinion,
@@ -382,7 +371,6 @@ class NeomodelLoader:
                                 )
                                 processed_count += 1
                             except Exception as e:
-                                # Make sure we're only using variables that are definitely defined
                                 citing_id = (
                                     citation.cluster_id
                                     if hasattr(citation, "cluster_id")
@@ -398,7 +386,6 @@ class NeomodelLoader:
                                     f"Error creating citation from {citing_id} to {cited_id} with citation_text {citation_text_snippet}: {e} \n {traceback.format_exc()}"
                                 )
                                 error_count += 1
-                        # For other document types, log but don't process yet
                         else:
                             try:
                                 node_type = CITATION_TYPE_TO_NODE_TYPE[
@@ -407,11 +394,6 @@ class NeomodelLoader:
                                 table_name = CITATION_TYPE_TO_PRIMARY_TABLE[
                                     resolved_citation.type
                                 ]
-
-                                # Use citation_text as the citation_string
-
-                                # Using built in get_or_create method
-
                                 cited_node = await node_type.nodes.first_or_none(citation_string=resolved_citation.citation_text)
                                 if not cited_node:
                                     cited_node = node_type(
@@ -429,7 +411,6 @@ class NeomodelLoader:
                                 )
                                 processed_count += 1
                             except Exception as e:
-                                # Make sure we're only using variables that are definitely defined
                                 citing_id = (
                                     citation.cluster_id
                                     if hasattr(citation, "cluster_id")
@@ -447,7 +428,6 @@ class NeomodelLoader:
                                 error_count += 1
 
             except Exception as e:
-                # Make sure we're only using variables that are definitely defined
                 cluster_id = (
                     citation.cluster_id
                     if hasattr(citation, "cluster_id")
@@ -457,7 +437,9 @@ class NeomodelLoader:
                 traceback.print_exc()
                 error_count += 1
 
-           
+            finally:
+                # Add a small delay between operations to prevent overwhelming the database
+                await asyncio.sleep(0.05)
 
         logger.info(f"Loaded {processed_count} citations with {error_count} errors")
 

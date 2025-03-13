@@ -34,7 +34,7 @@ class CustomJSONProperty(JSONProperty):
     """Custom JSONProperty that can handle datetime objects."""
 
     @validator
-    async def deflate(self, value, obj=None):
+    def deflate(self, value, obj=None):
         """Convert value to JSON string with datetime support."""
         if value is None:
             return None
@@ -89,7 +89,7 @@ class CitesRel(AsyncStructuredRel):
         cur_version = self.other_metadata_versions or []
         # Get the end node element_id synchronously
         en = await self.end_node()
-        current_props["cites"] = en.id
+        current_props["cites"] = en.element_id
         # Convert to list if it's not already
         if not isinstance(cur_version, list):
             cur_version = [cur_version] if cur_version else []
@@ -159,12 +159,11 @@ class LegalDocument(AsyncStructuredNode):
         "citation_unique": {"fields": ("type", "citation_string"), "unique": True},
     }
 
-    async def pre_save(self):
+    def pre_save(self):
         """Update timestamp before saving"""
         self.updated_at = datetime.now()
 
-
-
+ 
 class Opinion(LegalDocument):
     """
     Node representing judicial opinions.
@@ -189,14 +188,13 @@ class Opinion(LegalDocument):
     docket_db_id = IntegerProperty(default=None)
     court_db_id = IntegerProperty(default=None)
 
-    async def pre_save(self):
+    def pre_save(self):
         """Ensure opinion type is always correct"""
-        await super().pre_save()
+        super().pre_save()
         # Ensure primary_table is correctly set
         self.primary_table = "opinion_cluster"
 
     @classmethod
-    @adb.transaction
     async def get_or_create_from_cluster_id(cls, cluster_id, citation_string, **kwargs):
         """Get an Opinion by cluster_id or create it if it doesn't exist
 
@@ -220,9 +218,9 @@ class Opinion(LegalDocument):
 
         primary_id = str(cluster_id) if cluster_id else None
         if primary_id:
-            opinion: Optional[Opinion] = cls.nodes.first_or_none(primary_id=primary_id)
+            opinion: Optional[Opinion] = await cls.nodes.first_or_none(primary_id=primary_id)
         elif citation_string:
-            opinion: Optional[Opinion] = cls.nodes.first_or_none(citation_string=citation_string)
+            opinion: Optional[Opinion] = await cls.nodes.first_or_none(citation_string=citation_string)
         
 
         if not opinion:
@@ -259,9 +257,9 @@ class StatutesCodesRegulation(LegalDocument):
     Node representing statutes, codes, and regulations.
     """
 
-    async def pre_save(self):
+    def pre_save(self):
         """Ensure opinion type is always correct"""
-        await super().pre_save()
+        super().pre_save()
         # Ensure primary_table is correctly set
         # TODO change this to mapping, instead of hardcoding
         self.primary_table = "statutes"
@@ -272,9 +270,9 @@ class CongressionalReport(LegalDocument):
     Node representing congressional reports.
     """
 
-    async def pre_save(self):
+    def pre_save(self):
         """Ensure opinion type is always correct"""
-        await super().pre_save()
+        super().pre_save()
         # Ensure primary_table is correctly set
         self.primary_table = "congressional_reports"
 
@@ -284,9 +282,9 @@ class LawReview(LegalDocument):
     Node representing law reviews.
     """
 
-    async def pre_save(self):
+    def pre_save(self):
         """Ensure opinion type is always correct"""
-        await super().pre_save()
+        super().pre_save()
         # Ensure primary_table is correctly set
         self.primary_table = "law_reviews"
 
@@ -296,9 +294,9 @@ class LegalDictionary(LegalDocument):
     Node representing legal dictionaries.
     """
 
-    async def pre_save(self):
+    def pre_save(self):
         """Ensure opinion type is always correct"""
-        await super().pre_save()
+        super().pre_save()
         # Ensure primary_table is correctly set
         self.primary_table = "legal_dictionaries"
 
@@ -306,11 +304,11 @@ class LegalDictionary(LegalDocument):
 class OtherLegalDocument(LegalDocument):
     """
     Node representing other legal documents.
-    """
+    """ 
 
-    async def pre_save(self):
+    def pre_save(self):
         """Ensure opinion type is always correct"""
-        await super().pre_save()
+        super().pre_save()
         # Ensure primary_table is correctly set
         self.primary_table = "other_legal_documents"
 
@@ -320,9 +318,9 @@ class ConstitutionalDocument(LegalDocument):
     Node representing constitutional documents.
     """
 
-    async def pre_save(self):
+    def pre_save(self):
         """Ensure opinion type is always correct"""
-        await super().pre_save()
+        super().pre_save()
         # Ensure primary_table is correctly set
         self.primary_table = "constitutional_documents"
 
@@ -332,9 +330,9 @@ class AdministrativeAgencyRuling(LegalDocument):
     Node representing administrative agency rulings.
     """
 
-    async def pre_save(self):
+    def pre_save(self):
         """Ensure opinion type is always correct"""
-        await super().pre_save()
+        super().pre_save()
         # Ensure primary_table is correctly set
         self.primary_table = "admin_rulings"
 
@@ -344,9 +342,9 @@ class ExternalSubmission(LegalDocument):
     Node representing external submissions.
     """
     primary_table = "submissions"
-    async def pre_save(self):
+    def pre_save(self):
         """Ensure opinion type is always correct"""
-        await super().pre_save()
+        super().pre_save()
         # Ensure primary_table is correctly set
         self.primary_table = "submissions"
 
@@ -356,9 +354,9 @@ class ElectronicResource(LegalDocument):
     Node representing electronic resources.
     """ 
     primary_table = "electronic_resources"
-    async def pre_save(self):
+    def pre_save(self):
         """Ensure opinion type is always correct"""
-        await super().pre_save()
+        super().pre_save()
         # Ensure primary_table is correctly set
         self.primary_table = "electronic_resources"
 

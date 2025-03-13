@@ -524,9 +524,9 @@ def load_neo4j_background(job_id: str, db: Session, neo4j_session):
             try:
                 # Convert the dictionary to a CombinedResolvedCitationAnalysis object
                 analysis = CombinedResolvedCitationAnalysis(**analysis_dict)
-                
+                raise Exception("Not implemented")
                 # Load the analysis into Neo4j
-                loader.load_enriched_citations([analysis], data_source="gemini_api")
+                # await loader.load_enriched_citations([analysis], data_source="gemini_api")
             except Exception as e:
                 logger.warning(f"[JOB:{job_id}] Error loading analysis into Neo4j: {str(e)}")
                 # Continue with the next analysis
@@ -1471,7 +1471,7 @@ async def load_pipeline_neo4j(
                 analysis = CombinedResolvedCitationAnalysis(**analysis_data)
                 
                 # Load the analysis into Neo4j
-                loader.load_enriched_citations([analysis], data_source="gemini_api")
+                await loader.load_enriched_citations([analysis], data_source="gemini_api")
             except Exception as e:
                 logger.warning(f"[JOB:{job_id}] Error loading analysis into Neo4j: {str(e)}")
                 # Continue with the next analysis

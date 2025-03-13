@@ -12,6 +12,7 @@ from pydantic import BaseModel, TypeAdapter
 from sqlalchemy.orm import Session
 
 # Use the consolidated citation parser
+from src.api.database import get_db
 from src.api.services.pipeline.pipeline_model import (ExtractionConfig,
                                                       JobStatus)
 from src.llm_extraction.models import (CitationAnalysis,
@@ -19,6 +20,8 @@ from src.llm_extraction.models import (CitationAnalysis,
 from src.llm_extraction.rate_limited_gemini import GeminiClient
 from src.neo4j_db.models import Opinion
 from src.neo4j_db.neomodel_loader import neomodel_loader
+from src.neo4j_db.neomodel_loader import NeomodelLoader
+from src.postgres.database import get_db_session
 
 logger = logging.getLogger(__name__)
 
@@ -106,13 +109,12 @@ T = TypeVar("T")
 
 
 def job_step(
-    db: Session, job_id: int, step_name: str, progress: float, fn: Callable[[], T]
+   job_id: int, step_name: str, progress: float, fn: Callable[[], T]
 ) -> T:
     """
     Execute a job step with automatic status updates.
 
     Args:
-        db: Database session
         job_id: Job ID
         step_name: Name of the step
         progress: Progress value (0-100)
@@ -123,7 +125,6 @@ def job_step(
     """
     # Update status before executing
     update_job_status(
-        db,
         job_id,
         JobStatus.PROCESSING,
         progress=progress,
@@ -137,12 +138,11 @@ def job_step(
     return result
 
 
-def create_job(db: Session, job_type: str, config: Dict[str, Any]) -> int:
+def create_job(job_type: str, config: Dict[str, Any]) -> int:
     """
     Create a new pipeline job.
 
     Args:
-        db: Database session
         job_type: Type of job
         config: Job configuration
 
@@ -162,12 +162,11 @@ def create_job(db: Session, job_type: str, config: Dict[str, Any]) -> int:
     return job_id
 
 
-def get_job(db: Session, job_id: int) -> Optional[Dict[str, Any]]:
+def get_job(job_id: int) -> Optional[Dict[str, Any]]:
     """
     Get job status.
 
-    Args:
-        db: Database session
+    Args:  
         job_id: Job ID
 
     Returns:
@@ -194,7 +193,6 @@ def get_job(db: Session, job_id: int) -> Optional[Dict[str, Any]]:
 
 
 def get_jobs(
-    db: Session,
     job_type: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = 20,
@@ -204,7 +202,6 @@ def get_jobs(
     Get a list of jobs with optional filtering.
 
     Args:
-        db: Database session
         job_type: Filter by job type
         status: Filter by job status
         limit: Maximum number of jobs to return
@@ -249,7 +246,6 @@ def get_jobs(
 
 
 def update_job_status(
-    db: Session,
     job_id: int,
     status: str,
     progress: Optional[float] = None,
@@ -420,7 +416,7 @@ def clean_extracted_opinions(df: pd.DataFrame) -> pd.DataFrame:
     return new_df
 
 
-def run_extraction_job(db: Session, job_id: int, config: ExtractionConfig) -> None:
+def run_extraction_job(job_id: int, config: ExtractionConfig) -> None:
     """
     Run an opinion extraction job.
 
@@ -430,9 +426,9 @@ def run_extraction_job(db: Session, job_id: int, config: ExtractionConfig) -> No
         config: Extraction configuration
     """
     try:
+        db = get_db_session()
         # Update job status
         update_job_status(
-            db,
             job_id,
             JobStatus.STARTED,
             progress=0.0,
@@ -502,17 +498,14 @@ def run_extraction_job(db: Session, job_id: int, config: ExtractionConfig) -> No
         logger.info(f"Query: {query} with params: {params}")
         # Execute query
         update_job_status(
-            db,
             job_id,
             JobStatus.PROCESSING,
             progress=10.0,
             message="Executing database query",
         )
-
-        # Execute the actual database query
-        if db.bind is None:
-            raise ValueError("db.bind is None, cannot execute SQL query")
-        df = pd.read_sql(query, db.bind, params=params)
+        with get_db_session() as db_session:
+            # Execute the actual database query
+            df = pd.read_sql(query, db_session.bind, params=params)
 
         # Save raw CSV
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -525,7 +518,6 @@ def run_extraction_job(db: Session, job_id: int, config: ExtractionConfig) -> No
 
         # Update job status with raw extraction complete
         update_job_status(
-            db,
             job_id,
             JobStatus.COMPLETED,
             progress=100.0,
@@ -543,7 +535,7 @@ def run_extraction_job(db: Session, job_id: int, config: ExtractionConfig) -> No
         logger.error(
             f"Error in extraction job {job_id}: {str(e)}\n{traceback.format_exc()}"
         )
-        update_job_status(db, job_id, JobStatus.FAILED, error=str(e))
+        update_job_status(job_id, JobStatus.FAILED, error=str(e))
 
 
 class NodeStatus(BaseModel):
@@ -603,19 +595,17 @@ async def check_node_status(cluster_id: str) -> NodeStatus:
         )
 
 
-def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
+def run_llm_job(job_id: int, extraction_job_id: int) -> None:
     """
     Run an LLM processing job.
 
     Args:
-        db: Database session
         job_id: Job ID
         extraction_job_id: ID of the extraction job to process
     """
     try:
         # Update job status
         update_job_status(
-            db,
             job_id,
             JobStatus.STARTED,
             progress=0.0,
@@ -623,7 +613,7 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
         )
 
         # Get extraction job
-        extraction_job = get_job(db, extraction_job_id)
+        extraction_job = get_job(extraction_job_id)
         if extraction_job is None:
             logger.error(
                 f"Extraction job {extraction_job_id} not found, aborting pipeline"
@@ -639,7 +629,7 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
         df = pd.read_csv(extraction_job["result_path"])
         logger.info(f"Columns in raw DataFrame: {list(df.columns)}")
         cleaned_df = job_step(
-            db, job_id, "data cleaning", 20.0, lambda: clean_extracted_opinions(df)
+            job_id, "data cleaning", 20.0, lambda: clean_extracted_opinions(df)
         )
         logger.info(f"Columns in cleaned DataFrame: {list(cleaned_df.columns)}")
 
@@ -681,7 +671,6 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
             )
 
             update_job_status(
-                db,
                 job_id,
                 JobStatus.COMPLETED,
                 progress=100.0,
@@ -693,7 +682,6 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
 
         # Process with LLM
         gemini_client = job_step(
-            db,
             job_id,
             "LLM client initialization",
             30.0,
@@ -705,12 +693,11 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
         # Ensure batch_size is at least 1 to avoid division by zero
         batch_size = max(1, len(cleaned_df) // 10)  # Use 10 batches or at least 1
         results = job_step(
-            db,
             job_id,
             f"LLM processing of {len(cleaned_df)} opinions",
             40.0,
             lambda: gemini_client.process_dataframe(
-                cleaned_df, text_column="text", max_workers=25, batch_size=1
+                cleaned_df, text_column="text", max_workers=33, batch_size=1
             ),
         )
 
@@ -724,7 +711,6 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
         save_to_citation_extraction_folder(results_dump, "llm_results", as_json=True, ensure_ascii=False)
         # Update job status to completed
         update_job_status(
-            db,
             job_id,
             JobStatus.COMPLETED,
             progress=100.0,
@@ -738,7 +724,7 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
         import traceback
 
         logger.error(f"Error in LLM job {job_id}: {str(e)}\n{traceback.format_exc()}")
-        update_job_status(db, job_id, JobStatus.FAILED, error=str(e))
+        update_job_status(job_id, JobStatus.FAILED, error=str(e))
 
 
 def validate_llm_job(llm_job: Optional[Dict[str, Any]], llm_job_id: int) -> bool:
@@ -951,19 +937,17 @@ def handle_empty_citations() -> str:
     return output_path
 
 
-def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
+def run_resolution_job(job_id: int, llm_job_id: int) -> None:
     """
     Run a citation resolution job.
 
     Args:
-        db: Database session
         job_id: Job ID
         llm_job_id: ID of the LLM job to process
     """
     try:
         # Update job status
         update_job_status(
-            db,
             job_id,
             JobStatus.STARTED,
             progress=0.0,
@@ -971,10 +955,9 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
         )
 
         # Get and validate LLM job
-        llm_job = get_job(db, llm_job_id)
+        llm_job = get_job(llm_job_id)
         if not validate_llm_job(llm_job, llm_job_id):
             update_job_status(
-                db,
                 job_id,
                 JobStatus.FAILED,
                 error=f"LLM job {llm_job_id} is invalid or not completed"
@@ -987,20 +970,20 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
             assert llm_job is not None, "LLM job should not be None at this point"
             
             validated_llm_results = job_step(
-                db, job_id, "data validation", 20.0, 
+                job_id, "data validation", 20.0, 
                 lambda: load_and_validate_llm_data(llm_job)
             )
         except Exception as e:
             logger.error(f"Failed to load and validate LLM data: {str(e)}")
             update_job_status(
-                db, job_id, JobStatus.FAILED, 
+                job_id, JobStatus.FAILED, 
                 error=f"Failed to load and validate LLM data: {str(e)}"
             )
             return
 
         # Process all validated results and create combined analyses
         resolved_citations, errors = job_step(
-            db, job_id, "combining analyses", 50.0,
+            job_id, "combining analyses", 50.0,
             lambda: create_combined_analyses(validated_llm_results)
         )
 
@@ -1015,7 +998,6 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
         if not resolved_citations:
             output_path = handle_empty_citations()
             update_job_status(
-                db,
                 job_id,
                 JobStatus.COMPLETED,
                 progress=100.0,
@@ -1029,7 +1011,6 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
 
         # Update job status to complete
         update_job_status(
-            db,
             job_id,
             JobStatus.COMPLETED,
             progress=100.0,
@@ -1045,11 +1026,11 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
         logger.error(
             f"Error in resolution job {job_id}: {str(e)}\n{traceback.format_exc()}"
         )
-        update_job_status(db, job_id, JobStatus.FAILED, error=str(e))
+        update_job_status(job_id, JobStatus.FAILED, error=str(e))
 
 
 def run_neo4j_job(
-    db: Session, job_id: int, resolution_job_id: Optional[int], file_path: Optional[str]
+    job_id: int, resolution_job_id: Optional[int], file_path: Optional[str]
 ) -> None:
     """
     Run a Neo4j loading job.
@@ -1062,7 +1043,6 @@ def run_neo4j_job(
     try:
         # Update job status
         update_job_status(
-            db,
             job_id,
             JobStatus.STARTED,
             progress=0.0,
@@ -1078,7 +1058,7 @@ def run_neo4j_job(
                 resolved_citations = json.load(f)
                 logger.info(f"Loaded {len(resolved_citations)} opinions from {file_path}")
         else:
-            resolution_job = get_job(db, resolution_job_id) # type: ignore
+            resolution_job = get_job(resolution_job_id) # type: ignore
             if not resolution_job:
                 raise ValueError(f"Resolution job {resolution_job_id} not found")
 
@@ -1095,7 +1075,6 @@ def run_neo4j_job(
         if not resolved_citations:
             logger.info(f"No citations to load from resolution job {resolution_job_id}")
             update_job_status(
-                db,
                 job_id,
                 JobStatus.COMPLETED,
                 progress=100.0,
@@ -1116,28 +1095,29 @@ def run_neo4j_job(
 
         # Update job status
         update_job_status(
-            db,
             job_id,
             JobStatus.PROCESSING,
             progress=30.0,
             message="Initializing Neo4j loader",
         )
 
-        loader = neomodel_loader
+        loader = NeomodelLoader(url=os.environ["DB_NEO4J_URL"], username=os.environ["DB_NEO4J_USER"], password=os.environ["DB_NEO4J_PASSWORD"])
 
         # Load citations into Neo4j
         update_job_status(
-            db,
             job_id,
             JobStatus.PROCESSING,
             progress=50.0,
             message="Loading citations into Neo4j",
         )
+        # new_loop = asyncio.new_event_loop()
+        #asyncio.set_event_loop(new_loop)
         asyncio.run(loader.load_enriched_citations(resolved_citations, data_source="gemini_api"))
+        #new_loop.close()
+        
 
         # Update job status
         update_job_status(
-            db,
             job_id,
             JobStatus.COMPLETED,
             progress=100.0,
@@ -1150,11 +1130,10 @@ def run_neo4j_job(
         import traceback
 
         logger.error(f"Error in Neo4j job {job_id}: {str(e)}\n{traceback.format_exc()}")
-        update_job_status(db, job_id, JobStatus.FAILED, error=str(e))
+        update_job_status(job_id, JobStatus.FAILED, error=str(e))
 
 
 def run_full_pipeline(
-    db: Session,
     extraction_job_id: int,
     llm_job_id: int,
     resolution_job_id: int,
@@ -1174,10 +1153,10 @@ def run_full_pipeline(
     """
     try:
         # Run extraction job
-        run_extraction_job(db, extraction_job_id, config)
+        run_extraction_job( extraction_job_id, config)
 
         # Check if extraction job succeeded
-        extraction_job = get_job(db, extraction_job_id)
+        extraction_job = get_job(extraction_job_id)
         if extraction_job is None:
             logger.error(
                 f"Extraction job {extraction_job_id} not found, aborting pipeline"
@@ -1190,10 +1169,10 @@ def run_full_pipeline(
             return
 
         # Run LLM job
-        run_llm_job(db, llm_job_id, extraction_job_id)
+        run_llm_job(llm_job_id, extraction_job_id)
 
         # Check if LLM job succeeded
-        llm_job = get_job(db, llm_job_id)
+        llm_job = get_job(llm_job_id)
         if llm_job is None:
             logger.error(f"LLM job {llm_job_id} not found, aborting pipeline")
             return
@@ -1202,10 +1181,10 @@ def run_full_pipeline(
             return
 
         # Run resolution job
-        run_resolution_job(db, resolution_job_id, llm_job_id)
+        run_resolution_job(resolution_job_id, llm_job_id)
 
         # Check if resolution job succeeded
-        resolution_job = get_job(db, resolution_job_id)
+        resolution_job = get_job(resolution_job_id)
         if resolution_job is None or resolution_job["status"] != JobStatus.COMPLETED:
             logger.error(
                 f"Resolution job {resolution_job_id} failed, aborting pipeline"
@@ -1213,7 +1192,7 @@ def run_full_pipeline(
             return
 
         # Run Neo4j job
-        run_neo4j_job(db, neo4j_job_id, resolution_job_id, None)
+        run_neo4j_job( neo4j_job_id, resolution_job_id, None)
 
         logger.info("Completed full pipeline")
 

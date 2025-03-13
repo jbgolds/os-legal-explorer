@@ -8,7 +8,6 @@ citation extraction, LLM processing, resolution, and Neo4j loading pipeline.
 import logging
 from typing import Any, Dict
 
-from sqlalchemy.orm import Session
 
 from src.api.services.pipeline import pipeline_service
 from src.api.services.pipeline.pipeline_model import ExtractionConfig, JobType
@@ -17,14 +16,12 @@ logger = logging.getLogger(__name__)
 
 
 def process_single_cluster(
-    db: Session, cluster_id: int
+    cluster_id: int
 ) -> Dict[str, Any]:
     """
     Process a single cluster through the pipeline.
 
     Args:
-        db: Database session
-        neo4j_session: Neo4j session
         cluster_id: Cluster ID to process
 
     Returns:
@@ -47,21 +44,20 @@ def process_single_cluster(
 
         # Create jobs for each step
         extraction_job_id = pipeline_service.create_job(
-            db, JobType.EXTRACT, config.model_dump()
+            JobType.EXTRACT, config.model_dump()
         )
         llm_job_id = pipeline_service.create_job(
-            db, JobType.LLM_PROCESS, {"extraction_job_id": extraction_job_id}
+            JobType.LLM_PROCESS, {"extraction_job_id": extraction_job_id}
         )
-        resolution_job_id = pipeline_service.create_job(
-            db, JobType.CITATION_RESOLUTION, {"llm_job_id": llm_job_id}
+        resolution_job_id = pipeline_service.create_job(    
+            JobType.CITATION_RESOLUTION, {"llm_job_id": llm_job_id}
         )
         neo4j_job_id = pipeline_service.create_job(
-            db, JobType.NEO4J_LOAD, {"resolution_job_id": resolution_job_id}
+            JobType.NEO4J_LOAD, {"resolution_job_id": resolution_job_id}
         )
 
         # Run the pipeline
         pipeline_service.run_full_pipeline(
-            db,
             extraction_job_id,
             llm_job_id,
             resolution_job_id,

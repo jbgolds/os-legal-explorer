@@ -1168,16 +1168,6 @@ class GeminiClient:
                         f"Worker {worker_id}: Failed to process chunk {i}/{len(chunks)} after {max_retries} attempts"
                     )
 
-                # Add delay between chunks to avoid rate limit issues
-                if i < len(chunks):
-                    delay = TextChunker.CHUNK_PROCESSING_DELAY * (
-                        0.5 + random.random()
-                    )  # Add jitter
-                    logging.info(
-                        f"Worker {worker_id}: Waiting {delay:.2f}s before processing next chunk"
-                    )
-                    time.sleep(delay)
-
             if not responses:
                 logging.warning(
                     f"Worker {worker_id}: No valid responses were collected during processing (all {len(chunks)} chunks failed)"

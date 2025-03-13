@@ -1,11 +1,13 @@
 import logging
+import traceback
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from src.api.database import get_db, get_neo4j
+from src.api.database import get_db
+from neomodel import adb
 
 router = APIRouter(
     prefix="/api/stats",
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 @router.get("")
 async def get_stats(
     db: Session = Depends(get_db),
-    neo4j_session = Depends(get_neo4j)
+    #neo4j_session = Depends(get_neo4j)
 ):
     """
     Get statistics about citations and opinions.
@@ -29,7 +31,7 @@ async def get_stats(
     """
     try:
         # Get Neo4j stats
-        neo4j_stats = await get_neo4j_stats(neo4j_session)
+        neo4j_stats = await get_neo4j_stats()
         
         # Get PostgreSQL stats
         postgres_stats = await get_postgres_stats(db)
@@ -46,7 +48,7 @@ async def get_stats(
         logger.error(f"Error getting stats: {e}")
         raise HTTPException(status_code=500, detail=f"Error getting stats: {str(e)}")
 
-async def get_neo4j_stats(neo4j_session) -> Dict[str, Any]:
+async def get_neo4j_stats() -> Dict[str, Any]:
     """
     Get statistics from Neo4j database.
     
@@ -61,29 +63,29 @@ async def get_neo4j_stats(neo4j_session) -> Dict[str, Any]:
         opinion_label = ":`LegalDocument`:`Opinion`"
         
         # Count total citations
-        citation_result = neo4j_session.run("""
+        citation_result = await adb.cypher_query("""
             MATCH ()-[r:CITES]->() 
             RETURN COUNT(r) as citation_count
         """)
-        citation_count = citation_result.single()["citation_count"]
+        citation_count = citation_result[0][0] if citation_result and citation_result[0] else 0
         
         # Count total opinions
-        opinion_result = neo4j_session.run(f"""
+        opinion_result = await adb.cypher_query(f"""
             MATCH (o{opinion_label}) 
             RETURN COUNT(o) as opinion_count
         """)
-        opinion_count = opinion_result.single()["opinion_count"]
+        opinion_count = opinion_result[0][0] if opinion_result and opinion_result[0] else 0
         
         # Count opinions with AI summaries
-        ai_summary_result = neo4j_session.run(f"""
+        ai_summary_result = await adb.cypher_query(f"""
             MATCH (o{opinion_label})
             WHERE o.ai_summary IS NOT NULL AND o.ai_summary <> ''
             RETURN COUNT(o) as ai_summary_count
         """)
-        ai_summary_count = ai_summary_result.single()["ai_summary_count"]
-        
+        ai_summary_count = ai_summary_result[0][0] if ai_summary_result and ai_summary_result[0] else 0
+        logger.info(f"ai_summary_count: {ai_summary_count}")
         # Count citations by document type
-        citation_types_result = neo4j_session.run("""
+        citation_types_result = await adb.cypher_query("""
             MATCH (source)-[r:CITES]->(target)
             WITH labels(target) AS target_labels
             WITH 
@@ -103,9 +105,14 @@ async def get_neo4j_stats(neo4j_session) -> Dict[str, Any]:
             ORDER BY count DESC
         """)
         
+        result_rows, result_cols = citation_types_result
         citation_types = {}
-        for record in citation_types_result:
-            citation_types[record["citation_type"]] = record["count"]
+        
+        if "citation_type" in result_cols and "count" in result_cols:
+            type_index = result_cols.index("citation_type")
+            count_index = result_cols.index("count")
+            for row in result_rows:
+                citation_types[row[type_index]] = row[count_index]
         
         return {
             "citation_count": citation_count,
@@ -114,7 +121,7 @@ async def get_neo4j_stats(neo4j_session) -> Dict[str, Any]:
             "citation_types": citation_types
         }
     except Exception as e:
-        logger.error(f"Error getting Neo4j stats: {e}")
+        logger.error(f"Error getting Neo4j stats: {e}, {traceback.format_exc()}")
         return {
             "error": str(e),
             "citation_count": 0,
@@ -265,8 +272,8 @@ def calculate_coverage(neo4j_stats: Dict[str, Any], postgres_stats: Dict[str, An
         if postgres_opinion_count == 0:
             return 0.0
             
-        return (neo4j_opinion_count / postgres_opinion_count) * 100
+        return (neo4j_opinion_count[0] / postgres_opinion_count) * 100
     except Exception as e:
-        logger.error(f"Error calculating coverage: {e}")
+        logger.error(f"Error calculating coverage: {e}, {neo4j_stats}, {postgres_stats}")
         return 0.0
 

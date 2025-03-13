@@ -35,15 +35,12 @@ def get_db() -> Generator[Session, None, None]:
 # Dependency to get Neo4j session
 async def get_neo4j():
     """Get Neo4j session."""
-    try:
+    #try:
         # Create a new session for each request
-        session = adb.driver.session(
-            # Always use neo4j database for Community Edition
-            database="neo4j"
-        )
+    async with adb.session() as session:
         yield session
-    finally:
-        await session.close()
+    # finally:
+    #     await session.close()
 
 
 # Verify database connections
