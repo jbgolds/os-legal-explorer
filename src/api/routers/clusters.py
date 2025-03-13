@@ -7,7 +7,7 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from neomodel import db, adb
+from neomodel import adb, db
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import text

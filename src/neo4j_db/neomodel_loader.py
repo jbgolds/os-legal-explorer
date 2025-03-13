@@ -11,17 +11,16 @@ and enriched citation metadata.
 TODO: 
 - Add support for bulk loading from csv/faster.
 """
+import asyncio
 import logging
 import os
-import time
 import traceback
 from datetime import date, datetime
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from dotenv import load_dotenv
-from neomodel import config, adb, db, install_all_labels
+from neomodel import adb, config, db, install_all_labels
 from tqdm import tqdm
-import asyncio
 
 from src.llm_extraction.models import (CitationResolved, CitationType,
                                        CombinedResolvedCitationAnalysis,

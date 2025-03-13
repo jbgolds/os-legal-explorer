@@ -8,7 +8,6 @@ citation extraction, LLM processing, resolution, and Neo4j loading pipeline.
 import logging
 from typing import Any, Dict
 
-
 from src.api.services.pipeline import pipeline_service
 from src.api.services.pipeline.pipeline_model import ExtractionConfig, JobType
 

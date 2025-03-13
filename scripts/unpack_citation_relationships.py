@@ -19,21 +19,19 @@ RETURN collect(r) AS existing_relationships
 """
 
 import argparse
-import json
 import logging
-import os
 import sys
 import traceback
 from datetime import datetime
-from typing import Dict, NamedTuple, Optional, Tuple, Any, TypedDict, Union, List
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 
 from dotenv import load_dotenv
-from neomodel import config, db
+from neomodel import db
 from tqdm import tqdm
-from src.neo4j_db.neomodel_loader import NeomodelLoader, neomodel_loader
 
 # Import models from the project
-from src.neo4j_db.models import CitesRel, LegalDocument, Opinion
+from src.neo4j_db.models import CitesRel, LegalDocument
+from src.neo4j_db.neomodel_loader import neomodel_loader
 
 load_dotenv()
 
@@ -395,7 +393,7 @@ def process_relationships(date_filter: str, params: Dict, batch_size: int, dry_r
             pbar.set_description(f"Processed: {processed}, Created: {created}, Errors: {errors}")
     
     # Summary
-    logger.info(f"Processing complete:")
+    logger.info("Processing complete:")
     logger.info(f"  - Processed: {processed} relationships")
     logger.info(f"  - Created: {created} new relationships")
     logger.info(f"  - Errors: {errors}")

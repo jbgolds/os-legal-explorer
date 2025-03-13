@@ -5,15 +5,15 @@ Bugs:
 
 
 """
-import logging
 import json
+import logging
 from datetime import date, datetime
 from typing import Optional, Type
 
-from neomodel import (DateProperty, DateTimeFormatProperty, DateTimeProperty,
-                      IntegerProperty, JSONProperty, RelationshipTo,
-                      StringProperty, AsyncStructuredNode, AsyncStructuredRel, AsyncRelationshipTo, AsyncZeroOrMore
-                      , adb)
+from neomodel import (AsyncRelationshipTo, AsyncStructuredNode,
+                      AsyncStructuredRel, AsyncZeroOrMore, DateProperty,
+                      DateTimeFormatProperty, DateTimeProperty,
+                      IntegerProperty, JSONProperty, StringProperty)
 from neomodel.properties import validator
 
 from src.llm_extraction.models import (CitationTreatment, CitationType,

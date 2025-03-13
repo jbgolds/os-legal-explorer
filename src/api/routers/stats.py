@@ -1,13 +1,13 @@
 import logging
 import traceback
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
+from neomodel import adb
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from src.api.database import get_db
-from neomodel import adb
 
 router = APIRouter(
     prefix="/api/stats",

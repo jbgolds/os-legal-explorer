@@ -1,7 +1,6 @@
 import logging
 import os
 
-
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,11 +9,11 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.database import verify_connections
-from src.api.routers import (clusters_router, network_router,
-                             search_router, stats_router)
+from src.api.routers import (clusters_router, network_router, search_router,
+                             stats_router)
 from src.api.routers.clusters import check_cluster_status, get_cluster_details
-from src.api.services.batch_gemini.batch_gemini_router import \
-    router as batch_gemini_router
+# from src.api.services.batch_gemini.batch_gemini_router import \
+#     router as batch_gemini_router
 # Import and include routers
 from src.api.services.pipeline import pipeline_router
 from src.api.shared import templates
@@ -76,7 +75,7 @@ app.include_router(pipeline_router)
 app.include_router(search_router)
 app.include_router(clusters_router)
 app.include_router(network_router)
-app.include_router(batch_gemini_router)
+# app.include_router(batch_gemini_router)
 app.include_router(stats_router)
 
 

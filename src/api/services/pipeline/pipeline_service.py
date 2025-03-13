@@ -9,17 +9,14 @@ import numpy as np
 import pandas as pd
 from eyecite import clean_text
 from pydantic import BaseModel, TypeAdapter
-from sqlalchemy.orm import Session
 
 # Use the consolidated citation parser
-from src.api.database import get_db
 from src.api.services.pipeline.pipeline_model import (ExtractionConfig,
                                                       JobStatus)
 from src.llm_extraction.models import (CitationAnalysis,
                                        CombinedResolvedCitationAnalysis)
 from src.llm_extraction.rate_limited_gemini import GeminiClient
 from src.neo4j_db.models import Opinion
-from src.neo4j_db.neomodel_loader import neomodel_loader
 from src.neo4j_db.neomodel_loader import NeomodelLoader
 from src.postgres.database import get_db_session
 

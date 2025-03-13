@@ -1,13 +1,13 @@
 import logging
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
+from neomodel import INCOMING, OUTGOING, AsyncTraversal
 from pydantic import BaseModel
 
 from src.neo4j_db.models import LegalDocument, Opinion
-import re
-from neomodel import Traversal, INCOMING, OUTGOING, AsyncTraversal
 
 # Set up logging
 logger = logging.getLogger(__name__)

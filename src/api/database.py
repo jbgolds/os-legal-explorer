@@ -1,10 +1,9 @@
 from typing import Generator
 
 from dotenv import load_dotenv
+from neomodel import adb
 from sqlalchemy.orm import Session
 
-from src.neo4j_db.neomodel_loader import neomodel_loader
-from neomodel import adb
 # Import database connections from updated modules
 from src.postgres.database import get_engine, get_session_factory
 

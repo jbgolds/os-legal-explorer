@@ -4,15 +4,15 @@ from typing import List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.security import APIKeyHeader
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
-from src.api.database import get_db, get_neo4j
+from src.api.database import get_db
 from src.api.services.pipeline import pipeline_service
 from src.api.services.pipeline.pipeline_model import (ExtractionConfig,
                                                       PipelineJob,
                                                       PipelineStatus)
 from src.api.services.pipeline.pipeline_single_cluster import \
     process_single_cluster
-from starlette.concurrency import run_in_threadpool
 
 router = APIRouter(
     prefix="/api/pipeline",
