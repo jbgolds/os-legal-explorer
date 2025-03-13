@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.database import verify_connections
-from src.api.routers import (clusters_router, feedback_router, network_router,
+from src.api.routers import (clusters_router, network_router,
                              search_router, stats_router)
 from src.api.routers.clusters import check_cluster_status, get_cluster_details
 from src.api.services.batch_gemini.batch_gemini_router import \
@@ -75,7 +75,6 @@ async def health_check():
 app.include_router(pipeline_router)
 app.include_router(search_router)
 app.include_router(clusters_router)
-app.include_router(feedback_router)
 app.include_router(network_router)
 app.include_router(batch_gemini_router)
 app.include_router(stats_router)

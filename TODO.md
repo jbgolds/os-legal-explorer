@@ -1,5 +1,0 @@
-- [ ] implement meilie search, or however you spell it WITH BOOLEAN LEXIS LIKE SEARCH CAPABILITIES. NEEDS TO BE AS GOOD.
-- [ ] feedback form thing, with tracking the git version and the current page they're on.
-- [ ] render the html with citations!
-- [x] FOCUS: PIPELINE FOR LIVE PIPELINE OF CASE IF DOESN"T EXIST!
-- [ ] FIX PROMPT SO IT DOES NOT COUNT NEGATIVE IF IN DISSENTING. (MAYBE?)

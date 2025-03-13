@@ -14,7 +14,8 @@ from dotenv import load_dotenv
 from sqlalchemy import Column, Engine, Integer, String, create_engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.pool import QueuePool
-
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_scoped_session
+from sqlalchemy.orm import sessionmaker
 # Configure logger
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ engine = create_engine(
 )
 
 # Create session factory
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine,)
 
 # Create base class for declarative models
 Base = declarative_base()

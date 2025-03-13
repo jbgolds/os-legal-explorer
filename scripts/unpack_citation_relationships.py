@@ -30,15 +30,13 @@ from typing import Dict, NamedTuple, Optional, Tuple, Any, TypedDict, Union, Lis
 from dotenv import load_dotenv
 from neomodel import config, db
 from tqdm import tqdm
-from src.neo4j_db.neomodel_loader import NeomodelLoader
+from src.neo4j_db.neomodel_loader import NeomodelLoader, neomodel_loader
 
 # Import models from the project
 from src.neo4j_db.models import CitesRel, LegalDocument, Opinion
 
 load_dotenv()
 
-# Initialize neomodel connection
-neomodel_loader = NeomodelLoader()
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -299,7 +297,7 @@ def validate_metadata_versions(rel: CitesRel) -> bool:
         logger.warning(f"Error validating other_metadata_versions for relationship {rel.element_id}: {str(e)}")
         return False
 
-def process_relationships(neomodel_loader: NeomodelLoader, date_filter: str, params: Dict, batch_size: int, dry_run: bool):
+def process_relationships(date_filter: str, params: Dict, batch_size: int, dry_run: bool):
     """
     Process relationships with metadata versions.
     """
@@ -424,7 +422,6 @@ def main():
     # Process relationships
     try:
         process_relationships(
-            neomodel_loader, 
             date_filter, 
             params, 
             args.batch_size, 

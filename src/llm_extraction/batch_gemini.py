@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -276,16 +277,14 @@ class BatchGeminiClient:
         cleaned_csv_path = os.path.join("/tmp", f"cleaned_{jsonl_file_name.replace('.jsonl', '.csv')}")
         cleaned_df.to_csv(cleaned_csv_path, index=False)
         logging.info(f"Saved cleaned opinions to {cleaned_csv_path}")
-        
-        # Import check_node_status from pipeline_service
-        
+    
         # Initialize already_processed_df with the same columns as cleaned_df
         already_processed_df = pd.DataFrame(columns=cleaned_df.columns)
         
         # Check if each opinion already exists in Neo4j with ai_summary
         for index, row in cleaned_df.iterrows():
             cluster_id = row["cluster_id"]
-            node_status = check_node_status(str(cluster_id))
+            node_status = asyncio.run(check_node_status(str(cluster_id)))
             if node_status.exists and node_status.has_ai_summary:
                 logging.info(
                     f"Cluster {cluster_id} already exists in Neo4j with ai_summary. Skipping LLM processing to save API requests."

@@ -26,7 +26,7 @@ from src.api.services.pipeline.pipeline_service import (
 # Import the BatchGeminiClient
 from src.llm_extraction.batch_gemini import BatchGeminiClient
 from src.llm_extraction.models import CitationAnalysis
-from src.neo4j_db.neomodel_loader import NeomodelLoader
+from src.neo4j_db.neomodel_loader import neomodel_loader
 
 # Configure logging with more detailed format
 logging.basicConfig(
@@ -516,8 +516,7 @@ def load_neo4j_background(job_id: str, db: Session, neo4j_session):
             resolved_data = json.load(f)
         
         # Create a NeomodelLoader instance
-        logger.debug(f"[JOB:{job_id}] Creating NeomodelLoader")
-        loader = NeomodelLoader(neo4j_session)
+        loader = neomodel_loader
         
         # Load the resolved data into Neo4j
         logger.info(f"[JOB:{job_id}] Loading {len(resolved_data)} analyses into Neo4j")
@@ -1459,7 +1458,7 @@ async def load_pipeline_neo4j(
         resolved_file = job_store[job_id]["resolved_file"]
         
         # Create Neo4j loader
-        loader = NeomodelLoader(neo4j_session)
+        loader = neomodel_loader
         
         # Load the resolved citations
         with open(resolved_file, 'r') as f:

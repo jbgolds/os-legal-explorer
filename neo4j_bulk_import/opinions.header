@@ -1,2 +1,0 @@
-Opinion:LABEL,cluster_id:ID,soc_date_filed:DATE,case_name:STRING,soc_scdb_votes_majority:INT,soc_scdb_votes_minority:INT,docket_case_name:STRING,docket_number:STRING,court_name:STRING,_search_docket_id:INT,_search_opinion_id:INT,_search_opinion_type:STRING,_court_id:STRING
-:IGNORE_FIRST_LINE

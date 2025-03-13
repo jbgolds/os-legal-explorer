@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def process_single_cluster(
-    db: Session, neo4j_session, cluster_id: int
+    db: Session, cluster_id: int
 ) -> Dict[str, Any]:
     """
     Process a single cluster through the pipeline.
@@ -62,7 +62,6 @@ def process_single_cluster(
         # Run the pipeline
         pipeline_service.run_full_pipeline(
             db,
-            neo4j_session,
             extraction_job_id,
             llm_job_id,
             resolution_job_id,

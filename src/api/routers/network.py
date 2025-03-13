@@ -6,6 +6,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from src.neo4j_db.models import LegalDocument, Opinion
+import re
+from neomodel import Traversal, INCOMING, OUTGOING, AsyncTraversal
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -96,7 +98,7 @@ class NetworkNode(BaseModel):
             # If we couldn't parse the date, try to extract year directly from string
             if len(date_str) >= 4:
                 # Try to find a 4-digit year in the string
-                import re
+                
 
                 year_match = re.search(r"\b(19|20)\d{2}\b", date_str)
                 if year_match:
@@ -169,13 +171,12 @@ class NetworkGraph(BaseModel):
 
 
 @router.get("/{cluster_id}/citation-network", response_model=NetworkGraph)
-async def get_network(cluster_id: str, depth: int = 1, direction: str = "outgoing"):
+async def get_network(cluster_id: str, direction: str = "outgoing"):
     """
     Get a citation network centered on a specific document.
 
     Parameters:
     - cluster_id: The primary ID of the document to analyze
-    - depth: How many layers of citations to include (default: 1)
     - direction: "outgoing" for documents cited by this document (default),
                 "incoming" for documents that cite this document
 
@@ -183,13 +184,8 @@ async def get_network(cluster_id: str, depth: int = 1, direction: str = "outgoin
     - Network graph with nodes and links
     """
     logger.info(
-        f"Citation network requested for cluster_id: {cluster_id}, depth: {depth}, direction: {direction}"
+        f"Citation network requested for cluster_id: {cluster_id}, direction: {direction}"
     )
-
-    if depth > 3:
-        # Limit depth for performance reasons
-        depth = 3
-        logger.info("Depth limited to 3 for performance reasons")
 
     # Validate and normalize direction
     direction = direction.lower()
@@ -198,12 +194,12 @@ async def get_network(cluster_id: str, depth: int = 1, direction: str = "outgoin
         direction = "outgoing"
 
     # Convert to Neo4j direction constant
-    from neomodel import INCOMING, OUTGOING
+    
     neo4j_direction = INCOMING if direction == "incoming" else OUTGOING
 
     try:
-        # Find the source document
-        source_doc = Opinion.nodes.first_or_none(primary_id=cluster_id)
+        # Find the source document - await the coroutine
+        source_doc = await Opinion.nodes.first_or_none(primary_id=cluster_id)
 
         if not source_doc:
             # Try to find in other document types if needed
@@ -233,26 +229,23 @@ async def get_network(cluster_id: str, depth: int = 1, direction: str = "outgoin
                 detail=f"Source document ID {source_doc.primary_id} does not match cluster_id {cluster_id}",
             )
 
-        # Process first level of citations using traversal
-        related_docs = []
-
         # Define traversal parameters
-        from neomodel import Traversal
         definition = dict(
-            node_class=Opinion,  # Use Opinion as the target node class
+            node_class=LegalDocument,  # Use LegalDocument as the target node class
             direction=neo4j_direction,
             relation_type="CITES",  # Use the CITES relationship type
             model=None  # No specific relationship model class
         )
 
         # Create and execute traversal
-        citation_traversal = Traversal(
+        citation_traversal = AsyncTraversal(
             source_doc, 
-            Opinion.__label__,
+            LegalDocument.__label__,
             definition
         )
         
-        direct_citations = citation_traversal.all()
+        # Get direct citations - now using await with AsyncTraversal
+        direct_citations = await citation_traversal.all()
         logger.info(f"Found {len(direct_citations)} {direction} citations")
 
         # Process each citation based on direction
@@ -283,11 +276,11 @@ async def get_network(cluster_id: str, depth: int = 1, direction: str = "outgoin
                 # The relationship direction affects how we get the relationship and create links
                 if direction == "outgoing":
                     # Source document cites the related document
-                    rel = source_doc.cites.relationship(related_doc)
+                    rel = await source_doc.cites.relationship(related_doc)
                     source_id, target_id = str(source_doc.primary_id), related_id
                 else:
                     # Related document cites the source document
-                    rel = related_doc.cites.relationship(source_doc)
+                    rel = await related_doc.cites.relationship(source_doc)
                     source_id, target_id = related_id, str(source_doc.primary_id)
 
                 # Extract relationship properties
@@ -343,87 +336,6 @@ async def get_network(cluster_id: str, depth: int = 1, direction: str = "outgoin
                     )
 
             links.append(link)
-
-            # Track for next level processing if depth > 1
-            related_docs.append(related_doc)
-
-        # Process additional levels if depth > 1
-        current_depth = 1
-        while current_depth < depth and related_docs:
-            next_related_docs = []
-
-            for current_doc in related_docs:
-                # Skip if current_doc is None or doesn't have primary_id
-                if not current_doc or not getattr(current_doc, "primary_id", None):
-                    continue
-
-                # Set up traversal for the next level
-                next_level_traversal = Traversal(
-                    current_doc,
-                    Opinion.__label__,
-                    definition  # Reuse the same definition
-                )
-                
-                further_related_docs = next_level_traversal.all()
-
-                for further_related_doc in further_related_docs:
-                    # Skip if further_related_doc is None or doesn't have citation_string
-                    if not further_related_doc or not getattr(further_related_doc, "citation_string", None):
-                        continue
-
-                    # Generate a node ID
-                    further_related_id = (
-                        getattr(further_related_doc, "primary_id", None)
-                        or f"cite-{further_related_doc.citation_string}"
-                    )
-                    further_related_id = str(further_related_id)
-
-                    # Determine source and target IDs based on direction
-                    if direction == "outgoing":
-                        source_id, target_id = str(current_doc.primary_id), further_related_id
-                    else:
-                        source_id, target_id = further_related_id, str(current_doc.primary_id)
-
-                    # Skip if we've already processed this node
-                    if further_related_id in nodes:
-                        # But still check if we need to add a link
-                        if not any(
-                            l.source == source_id and l.target == target_id
-                            for l in links
-                        ):
-                            links.append(
-                                NetworkLink(
-                                    source=source_id,
-                                    target=target_id,
-                                    type="CITES",
-                                )
-                            )
-                        continue
-
-                    # Add node
-                    try:
-                        network_node = NetworkNode.from_legal_doc(further_related_doc)
-                        nodes[further_related_id] = network_node
-                    except Exception as e:
-                        logger.error(f"Error creating network node for {further_related_id}: {e}")
-                        continue
-
-                    # Add link
-                    links.append(
-                        NetworkLink(
-                            source=source_id,
-                            target=target_id,
-                            type="CITES",
-                        )
-                    )
-
-                    # Track for next level processing if not at max depth
-                    if current_depth + 1 < depth:
-                        next_related_docs.append(further_related_doc)
-
-            # Move to next level
-            related_docs = next_related_docs
-            current_depth += 1
 
         # Construct the final graph
         graph = NetworkGraph(nodes=list(nodes.values()), links=links)

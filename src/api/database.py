@@ -3,7 +3,8 @@ from typing import Generator
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 
-from src.neo4j_db.neomodel_loader import get_neo4j_driver
+from src.neo4j_db.neomodel_loader import neomodel_loader
+from neomodel import adb
 # Import database connections from updated modules
 from src.postgres.database import get_engine, get_session_factory
 
@@ -13,7 +14,7 @@ load_dotenv()
 # Get existing database connections
 engine = get_engine()
 SessionLocal = get_session_factory(engine)
-neo4j_driver = get_neo4j_driver()
+
 
 
 # Dependency to get DB session
@@ -32,17 +33,17 @@ def get_db() -> Generator[Session, None, None]:
 
 
 # Dependency to get Neo4j session
-def get_neo4j():
+async def get_neo4j():
     """Get Neo4j session."""
     try:
         # Create a new session for each request
-        session = neo4j_driver.session(
+        session = adb.driver.session(
             # Always use neo4j database for Community Edition
             database="neo4j"
         )
         yield session
     finally:
-        session.close()
+        await session.close()
 
 
 # Verify database connections
@@ -66,7 +67,7 @@ def verify_connections() -> dict:
 
     # Check Neo4j
     try:
-        with neo4j_driver.session() as session:
+        with adb.session() as session:
             session.run("RETURN 1")
             status["neo4j"] = True
     except Exception as e:
@@ -74,8 +75,3 @@ def verify_connections() -> dict:
 
     return status
 
-
-# Close connections on application shutdown
-def close_connections():
-    """Close all database connections."""
-    neo4j_driver.close()

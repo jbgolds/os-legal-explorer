@@ -7,7 +7,7 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from neomodel import db
+from neomodel import db, adb
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import text
@@ -60,6 +60,7 @@ class ClusterDetail(BaseModel):
     judges: Optional[List[str]] = None
     opinion_text: Optional[str] = None
     citations: Optional[List[Citation]] = None
+    ai_summary: Optional[str] = None
 
 
 class ClusterStatus(BaseModel):
@@ -185,7 +186,7 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                 # Now that we have the basic data, check Neo4j for citation relationships
                 try:
                     # Check if the opinion exists in Neo4j
-                    opinion = Opinion.nodes.first_or_none(primary_id=cluster_id)
+                    opinion = await Opinion.nodes.first_or_none(primary_id=cluster_id)
 
                     # If it doesn't exist, we might want to create it for future use
                     if not opinion and name != "Unknown Cluster":
@@ -198,7 +199,7 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                             docket_number=docket_number,
                             citation_string=citation,
                         )
-                        opinion.save()
+                        await opinion.save()
                         logger.info(
                             f"Created new opinion node in Neo4j for cluster {cluster_id}"
                         )
@@ -207,12 +208,12 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                     if opinion:
                         try:
                             # Use the neomodel relationship traversal instead of raw Cypher
-                            cited_opinions = opinion.cites.all()
+                            cited_opinions = await opinion.cites.all()
 
                             # Transform results into Citation objects
                             for cited in cited_opinions:
                                 # Get the relationship properties
-                                rel_props = opinion.cites.relationship(cited)
+                                rel_props = await opinion.cites.relationship(cited)
                                 treatment = (
                                     rel_props.treatment
                                     if hasattr(rel_props, "treatment")
@@ -251,6 +252,7 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                     judges=judges,
                     opinion_text=opinion_text,
                     citations=citations,
+                    ai_summary=getattr(opinion, "ai_summary", None) if opinion else None,
                 )
 
                 return cluster_detail
@@ -386,11 +388,12 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                 judges=judges,
                 opinion_text=opinion_text,
                 citations=[],  # We'll skip fetching citations for now to simplify the implementation
+                ai_summary=getattr(opinion, "ai_summary", None) if opinion else None,
             )
 
             # Try to create a Neo4j node for this cluster for future use
             try:
-                opinion = Opinion.nodes.first_or_none(primary_id=cluster_id)
+                opinion = await Opinion.nodes.first_or_none(primary_id=cluster_id)
                 if not opinion:
                     opinion = Opinion(
                         primary_id=str(cluster_id),
@@ -405,7 +408,7 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                         docket_number=docket_number,
                         citation_string=citation,
                     )
-                    opinion.save()
+                    await opinion.save()
                     logger.info(
                         f"Created new opinion node in Neo4j for cluster {cluster_id} from CourtListener API"
                     )
@@ -433,7 +436,7 @@ async def check_cluster_status(cluster_id: str) -> ClusterStatus:
     """
     try:
         # Try to find the opinion by primary_id (cluster_id)
-        opinion = Opinion.nodes.first_or_none(primary_id=cluster_id)
+        opinion = await Opinion.nodes.first_or_none(primary_id=cluster_id)
 
         if not opinion:
             return ClusterStatus(
@@ -450,7 +453,7 @@ async def check_cluster_status(cluster_id: str) -> ClusterStatus:
             MATCH (n:Opinion {primary_id: $primary_id})-[r:CITES]->()
             RETURN count(r) as citation_count
             """
-            results, _ = db.cypher_query(query, {"primary_id": cluster_id})
+            results, _ = await adb.cypher_query(query, {"primary_id": cluster_id})
             citation_count = results[0][0] if results and results[0] else 0
 
         return ClusterStatus(

@@ -104,35 +104,10 @@ export function getCitationNetwork(clusterId, direction = 'outgoing') {
     return apiRequest(`/api/opinion/${clusterId}/citation-network?direction=${direction}`);
 }
 
-/**
- * Submit feedback about a missing citation
- * @param {Object} feedback - Feedback data
- * @returns {Promise} - Promise that resolves to confirmation
- */
-export async function submitMissingCitationFeedback(feedback) {
-    return apiRequest('/api/feedback/citation/missing', {
-        method: 'POST',
-        body: JSON.stringify(feedback),
-    });
-}
-
-/**
- * Submit general feedback
- * @param {Object} feedback - Feedback data
- * @returns {Promise} - Promise that resolves to confirmation
- */
-export async function submitGeneralFeedback(feedback) {
-    return apiRequest('/api/feedback/general', {
-        method: 'POST',
-        body: JSON.stringify(feedback),
-    });
-}
 
 // Export the API functions
 export default {
     searchCases,
     getOpinionDetails,
     getCitationNetwork,
-    submitMissingCitationFeedback,
-    submitGeneralFeedback,
 }; 

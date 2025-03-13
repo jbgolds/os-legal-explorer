@@ -1344,12 +1344,6 @@ class GeminiClient:
         debug_file = f"gemini_debug_{timestamp}.json"
         debug_path = os.path.join("/tmp", debug_file)
 
-        for client in shared_clients:
-            try:
-                client.cleanup()  # You should implement the 'cleanup' method in GeminiClient
-            except Exception as e:
-                logging.error(f"Error during client cleanup: {e}")
-
         # Helper function to make objects JSON serializable
         def make_json_serializable(obj):
             if isinstance(obj, (CitationAnalysis, CombinedResolvedCitationAnalysis)):
@@ -1373,15 +1367,5 @@ class GeminiClient:
             logging.warning(f"Encountered {len(errors)} errors during processing")
 
         return results
-
-    def cleanup(self):
-        """Clean up resources associated with this client."""
-        # For example, close any open connections or release thread-specific resources
-        if hasattr(self, "client") and self.client:
-            try:
-                self.client.close()  # Or the appropriate shutdown method
-            except Exception as e:
-                logging.error(f"Error closing client in worker {self.get_worker_id()}: {e}")
-        logging.info(f"Cleaned up resources for worker {self.get_worker_id()}")
 
 

@@ -54,6 +54,15 @@
             {% endif %}
         </div>
 
+        {% if case.ai_summary %}
+        <div class="divider my-2">AI Summary</div>
+        <div class="mb-4">
+            <div class="bg-base-200 p-4 rounded-lg">
+                <p class="text-sm">{{ case.ai_summary }}</p>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="divider my-2">Opinion Text</div>
 
         <!-- Opinion Text -->

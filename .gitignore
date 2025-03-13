@@ -18,5 +18,4 @@ wheels/
 
 repomix-output.txt
 
-node_modules/
-court-citation-map/
+.DS_Store

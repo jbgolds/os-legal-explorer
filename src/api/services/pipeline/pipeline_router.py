@@ -12,6 +12,7 @@ from src.api.services.pipeline.pipeline_model import (ExtractionConfig,
                                                       PipelineStatus)
 from src.api.services.pipeline.pipeline_single_cluster import \
     process_single_cluster
+from starlette.concurrency import run_in_threadpool
 
 router = APIRouter(
     prefix="/api/pipeline",
@@ -137,7 +138,7 @@ async def resolve_citations(
 async def load_neo4j(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    neo4j_session=Depends(get_neo4j),
+    # neo4j_session=Depends(get_neo4j),
     file_path: Optional[str] = None,
     job_id: Optional[int] = None,
 ):
@@ -174,7 +175,7 @@ async def load_neo4j(
     )
 
     background_tasks.add_task(
-        pipeline_service.run_neo4j_job, db, neo4j_session, neo4j_job_id, job_id, file_path
+        pipeline_service.run_neo4j_job, db, neo4j_job_id, job_id, file_path
     )
 
     return {"job_id": neo4j_job_id, "status": "started"}
@@ -239,7 +240,7 @@ async def run_full_pipeline(
     config: ExtractionConfig,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    neo4j_session=Depends(get_neo4j),
+    # neo4j_session=Depends(get_neo4j),
 ):
     """
     Run the full pipeline from extraction to Neo4j loading.
@@ -264,10 +265,9 @@ async def run_full_pipeline(
     )
 
     # Run the full pipeline in the background
-    background_tasks.add_task(
+    result = await run_in_threadpool(
         pipeline_service.run_full_pipeline,
         db,
-        neo4j_session,
         extraction_job_id,
         llm_job_id,
         resolution_job_id,
@@ -291,7 +291,6 @@ async def process_single_cluster_endpoint(
     cluster_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    neo4j_session=Depends(get_neo4j),
 ):
     """
     Process a single cluster through the full pipeline.
@@ -308,8 +307,11 @@ async def process_single_cluster_endpoint(
         List of job IDs for each step in the pipeline
     """
     # Create a custom extraction config for this cluster
-
-    process_single_cluster(db, neo4j_session, cluster_id)
+    result = await run_in_threadpool(
+        process_single_cluster,
+        db,
+        cluster_id,
+    )
     # Create jobs for each step
 
     # return HTTP status code accepted

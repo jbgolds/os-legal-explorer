@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -17,7 +18,7 @@ from src.llm_extraction.models import (CitationAnalysis,
                                        CombinedResolvedCitationAnalysis)
 from src.llm_extraction.rate_limited_gemini import GeminiClient
 from src.neo4j_db.models import Opinion
-from src.neo4j_db.neomodel_loader import NeomodelLoader
+from src.neo4j_db.neomodel_loader import neomodel_loader
 
 logger = logging.getLogger(__name__)
 
@@ -554,7 +555,7 @@ class NodeStatus(BaseModel):
     has_ai_summary: bool = False
 
 
-def check_node_status(cluster_id: str) -> NodeStatus:
+async def check_node_status(cluster_id: str) -> NodeStatus:
     """
     Check if a node exists in Neo4j, has outgoing citations, and has ai_summary.
 
@@ -570,7 +571,7 @@ def check_node_status(cluster_id: str) -> NodeStatus:
     """
     try:
         # Try to find the opinion by primary_id (cluster_id)
-        opinion = Opinion.nodes.first_or_none(primary_id=cluster_id)
+        opinion = await Opinion.nodes.first_or_none(primary_id=cluster_id)
 
         if not opinion:
             return NodeStatus(
@@ -582,7 +583,7 @@ def check_node_status(cluster_id: str) -> NodeStatus:
 
         # Count outgoing citations using neomodel relationship
         # Get all outgoing CITES relationships
-        citation_count = len(opinion.cites.all())
+        citation_count = len(await opinion.cites.all())
 
         # Check if ai_summary is filled out
         has_ai_summary = bool(opinion.ai_summary)
@@ -648,7 +649,7 @@ def run_llm_job(db: Session, job_id: int, extraction_job_id: int) -> None:
         # now go through the cleaned df and check if the cluster_id is already in Neo4j with ai_summary
         for index, row in cleaned_df.iterrows():
             cluster_id = row["cluster_id"]
-            node_status = check_node_status(str(cluster_id))
+            node_status = asyncio.run(check_node_status(str(cluster_id)))
             if node_status.exists and node_status.has_ai_summary:
                 logger.info(
                     f"Cluster {cluster_id} already exists in Neo4j with ai_summary. Skipping LLM processing to save API requests."
@@ -1048,14 +1049,13 @@ def run_resolution_job(db: Session, job_id: int, llm_job_id: int) -> None:
 
 
 def run_neo4j_job(
-    db: Session, neo4j_session, job_id: int, resolution_job_id: Optional[int], file_path: Optional[str]
+    db: Session, job_id: int, resolution_job_id: Optional[int], file_path: Optional[str]
 ) -> None:
     """
     Run a Neo4j loading job.
 
     Args:
         db: Database session
-        neo4j_session: Neo4j session
         job_id: Job ID
         resolution_job_id: ID of the resolution job to process
     """
@@ -1078,7 +1078,7 @@ def run_neo4j_job(
                 resolved_citations = json.load(f)
                 logger.info(f"Loaded {len(resolved_citations)} opinions from {file_path}")
         else:
-            resolution_job = get_job(db, resolution_job_id)
+            resolution_job = get_job(db, resolution_job_id) # type: ignore
             if not resolution_job:
                 raise ValueError(f"Resolution job {resolution_job_id} not found")
 
@@ -1123,11 +1123,7 @@ def run_neo4j_job(
             message="Initializing Neo4j loader",
         )
 
-        loader = NeomodelLoader(
-            url=os.environ["DB_NEO4J_URL"],
-            username=os.environ["DB_NEO4J_USER"],
-            password=os.environ["DB_NEO4J_PASSWORD"],
-        )
+        loader = neomodel_loader
 
         # Load citations into Neo4j
         update_job_status(
@@ -1137,8 +1133,7 @@ def run_neo4j_job(
             progress=50.0,
             message="Loading citations into Neo4j",
         )
-
-        loader.load_enriched_citations(resolved_citations, data_source="gemini_api")
+        asyncio.run(loader.load_enriched_citations(resolved_citations, data_source="gemini_api"))
 
         # Update job status
         update_job_status(
@@ -1160,7 +1155,6 @@ def run_neo4j_job(
 
 def run_full_pipeline(
     db: Session,
-    neo4j_session,
     extraction_job_id: int,
     llm_job_id: int,
     resolution_job_id: int,
@@ -1172,7 +1166,6 @@ def run_full_pipeline(
 
     Args:
         db: Database session
-        neo4j_session: Neo4j session
         extraction_job_id: ID of the extraction job
         llm_job_id: ID of the LLM job
         resolution_job_id: ID of the resolution job
@@ -1220,7 +1213,7 @@ def run_full_pipeline(
             return
 
         # Run Neo4j job
-        run_neo4j_job(db, neo4j_session, neo4j_job_id, resolution_job_id, None)
+        run_neo4j_job(db, neo4j_job_id, resolution_job_id, None)
 
         logger.info("Completed full pipeline")
 
