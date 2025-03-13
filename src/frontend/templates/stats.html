@@ -1,107 +1,188 @@
-function populateTopCitedList(topCitedOpinions) {
-const listElement = document.getElementById('top-cited-list');
-listElement.innerHTML = '';
+{% extends "base.html" %}
 
-topCitedOpinions.forEach(opinion => {
-const listItem = document.createElement('li');
-listItem.className = 'top-cited-item';
+{% block content %}
+<div class="stats-container">
+    <h1 class="text-3xl font-bold mb-6">Database Statistics</h1>
 
-const nameElement = document.createElement('div');
-nameElement.className = 'top-cited-name';
+    <!-- Loading indicator -->
+    <div id="loading-indicator" class="flex flex-col items-center justify-center py-12">
+        <div class="animate-spin rounded-full h-16 w-16 border-b-2 border-primary mb-4"></div>
+        <p class="text-lg">Loading statistics...</p>
+    </div>
 
-// Create a link to the opinion
-const linkElement = document.createElement('a');
-linkElement.href = `/opinion/${opinion.cluster_id}/`;
-linkElement.textContent = opinion.case_name || 'Unknown Case';
-nameElement.appendChild(linkElement);
+    <div id="stats-content" class="hidden">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <!-- Neo4j Database Card -->
+            <div class="card bg-base-200 shadow-xl">
+                <div class="card-body">
+                    <h2 class="card-title text-2xl mb-4">Neo4j Database</h2>
+                    <div class="stats stats-vertical shadow bg-base-100">
+                        <div class="stat">
+                            <div class="stat-title">Total Opinions</div>
+                            <div class="stat-value text-primary" id="neo4j-opinion-count">Loading...</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-title">Total Citations</div>
+                            <div class="stat-value text-primary" id="neo4j-citation-count">Loading...</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-title">Opinions with AI Summaries</div>
+                            <div class="stat-value text-primary" id="neo4j-ai-summary-count">Loading...</div>
+                            <div class="stat-desc" id="ai-summary-percentage">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-const countElement = document.createElement('div');
-countElement.className = 'top-cited-count';
-countElement.textContent = `${formatNumber(opinion.citation_count)} citations`;
+            <!-- PostgreSQL Database Card -->
+            <div class="card bg-base-200 shadow-xl">
+                <div class="card-body">
+                    <h2 class="card-title text-2xl mb-4">PostgreSQL Database <br> (CourtListener as of 2025-03-01)</h2>
+                    <div class="stats stats-vertical shadow bg-base-100">
+                        <div class="stat">
+                            <div class="stat-title">Total Opinion Related Documents</div>
+                            <div class="stat-desc">For example, separate dissenting opinions are included in this count
+                            </div>
+                            <div class="stat-value text-primary" id="postgres-opinion-count">Loading...</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-title">Coverage</div>
+                            <div class="stat-value text-primary" id="coverage-percentage">Loading...</div>
+                            <div class="stat-desc">Percentage of opinions in Neo4j vs PostgreSQL</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-listItem.appendChild(nameElement);
-listItem.appendChild(countElement);
+        <!-- Citation Types Card -->
+        <div class="card bg-base-200 shadow-xl mb-8">
+            <div class="card-body">
+                <h2 class="card-title text-2xl mb-4">Citation Types</h2>
+                <p class="mb-4">Distribution of citations by document type</p>
+                <div id="citation-types-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <!-- Citation types will be inserted here dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
 
-listElement.appendChild(listItem);
-});
-}
+{% block scripts %}
+<script>
+    // Helper function to format numbers with commas
+    function formatNumber(num) {
+        return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
 
-function createCitationsByYearChart(citationsByYear) {
-const years = Object.keys(citationsByYear).sort();
-const counts = years.map(year => citationsByYear[year]);
+    // Helper function to get human-readable citation type labels
+    function getCitationTypeLabel(type) {
+        const typeLabels = {
+            'judicial_opinion': 'Judicial Opinions',
+            'statutes_codes_regulations': 'Statutes, Codes & Regulations',
+            'constitution': 'Constitutional Documents',
+            'administrative_agency_ruling': 'Administrative Agency Rulings',
+            'congressional_report': 'Congressional Reports',
+            'external_submission': 'External Submissions',
+            'electronic_resource': 'Electronic Resources',
+            'law_review': 'Law Reviews',
+            'legal_dictionary': 'Legal Dictionaries',
+            'other': 'Other Documents'
+        };
+        return typeLabels[type] || type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    }
 
-const ctx = document.getElementById('citations-by-year-chart').getContext('2d');
-const chart = new Chart(ctx, {
-type: 'line',
-data: {
-labels: years,
-datasets: [{
-label: 'Citations',
-data: counts,
-borderColor: 'rgba(75, 192, 192, 1)',
-backgroundColor: 'rgba(75, 192, 192, 0.2)',
-tension: 0.1,
-fill: true
-}]
-},
-options: {
-responsive: true,
-maintainAspectRatio: false,
-scales: {
-y: {
-beginAtZero: true,
-title: {
-display: true,
-text: 'Number of Citations'
-}
-},
-x: {
-title: {
-display: true,
-text: 'Year'
-}
-}
-}
-}
-});
-}
+    // Fetch stats data from the API
+    async function fetchStats() {
+        try {
+            console.log("Fetching stats data...");
+            const response = await fetch('/api/stats');
+            if (!response.ok) {
+                throw new Error(`API request failed with status ${response.status}`);
+            }
 
-function createOpinionsByYearChart(opinionsByYear) {
-const years = Object.keys(opinionsByYear).sort();
-const counts = years.map(year => opinionsByYear[year]);
+            const data = await response.json();
+            console.log("Stats data received:", data);
 
-const ctx = document.getElementById('opinions-by-year-chart').getContext('2d');
-new Chart(ctx, {
-type: 'line',
-data: {
-labels: years,
-datasets: [{
-label: 'Opinions',
-data: counts,
-borderColor: 'rgba(153, 102, 255, 1)',
-backgroundColor: 'rgba(153, 102, 255, 0.2)',
-tension: 0.1,
-fill: true
-}]
-},
-options: {
-responsive: true,
-maintainAspectRatio: false,
-scales: {
-y: {
-beginAtZero: true,
-title: {
-display: true,
-text: 'Number of Opinions'
-}
-},
-x: {
-title: {
-display: true,
-text: 'Year'
-}
-}
-}
-}
-});
-}
+            // Hide loading indicator and show content
+            document.getElementById('loading-indicator').classList.add('hidden');
+            document.getElementById('stats-content').classList.remove('hidden');
+
+            // Check if the expected data structure exists
+            if (!data.neo4j || !data.postgres || !data.comparison) {
+                throw new Error("Invalid data structure received from API");
+            }
+
+            // Update the UI with the stats data
+            document.getElementById('neo4j-opinion-count').textContent = formatNumber(data.neo4j.opinion_count || 0);
+            document.getElementById('neo4j-citation-count').textContent = formatNumber(data.neo4j.citation_count || 0);
+            document.getElementById('postgres-opinion-count').textContent = formatNumber(data.postgres.total_opinions || 0);
+
+            // Update AI summary count
+            document.getElementById('neo4j-ai-summary-count').textContent = formatNumber(data.neo4j.ai_summary_count || 0);
+
+            // Calculate and display AI summary percentage
+            const aiSummaryPercentage = data.neo4j.opinion_count > 0
+                ? ((data.neo4j.ai_summary_count / data.neo4j.opinion_count) * 100).toFixed(2)
+                : 0;
+            document.getElementById('ai-summary-percentage').textContent =
+                `${aiSummaryPercentage}% of opinions have AI summaries`;
+
+            // Handle potential missing or invalid coverage percentage
+            const coverage = data.comparison.coverage_percentage;
+            document.getElementById('coverage-percentage').textContent =
+                (coverage !== undefined && !isNaN(coverage)) ?
+                    `${coverage.toFixed(2)}%` :
+                    "N/A";
+
+            // Populate citation types
+            const citationTypesContainer = document.getElementById('citation-types-container');
+            citationTypesContainer.innerHTML = ''; // Clear existing content
+
+            if (data.neo4j.citation_types && Object.keys(data.neo4j.citation_types).length > 0) {
+                // Sort citation types by count (descending)
+                const sortedTypes = Object.entries(data.neo4j.citation_types)
+                    .sort((a, b) => b[1] - a[1]);
+
+                // Create a card for each citation type
+                sortedTypes.forEach(([type, count]) => {
+                    const typeLabel = getCitationTypeLabel(type);
+                    const percentage = ((count / data.neo4j.citation_count) * 100).toFixed(1);
+
+                    const typeCard = document.createElement('div');
+                    typeCard.className = 'stat bg-base-100 shadow rounded-box p-4';
+                    typeCard.innerHTML = `
+                        <div class="stat-title">${typeLabel}</div>
+                        <div class="stat-value text-secondary">${formatNumber(count)}</div>
+                        <div class="stat-desc">${percentage}% of all citations</div>
+                    `;
+
+                    citationTypesContainer.appendChild(typeCard);
+                });
+            } else {
+                citationTypesContainer.innerHTML = '<p class="col-span-full text-center py-4">No citation type data available</p>';
+            }
+
+        } catch (error) {
+            console.error('Error fetching stats:', error);
+            // Hide loading indicator
+            document.getElementById('loading-indicator').classList.add('hidden');
+
+            document.querySelector('.stats-container').innerHTML = `
+            <div class="alert alert-error">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <span>Error loading statistics: ${error.message}</span>
+            </div>
+            <div class="mt-4">
+                <p>Please check the browser console and server logs for more details.</p>
+                <button class="btn btn-primary mt-2" onclick="location.reload()">Try Again</button>
+            </div>
+        `;
+        }
+    }
+
+    // Load stats when the page loads
+    document.addEventListener('DOMContentLoaded', fetchStats);
+</script>
+{% endblock %}

@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
@@ -57,15 +57,8 @@ async def get_neo4j_stats(neo4j_session) -> Dict[str, Any]:
         dict: Statistics from Neo4j
     """
     try:
-        # First, let's check what labels and properties are available
-        schema_result = neo4j_session.run("""
-            CALL db.schema.nodeTypeProperties()
-            YIELD nodeType, propertyName
-            RETURN nodeType, collect(propertyName) as properties
-        """)
-        
-        schema = {record["nodeType"]: record["properties"] for record in schema_result}
-        logger.info(f"Neo4j schema: {schema}")
+        # We know the correct labels and properties from the logs
+        opinion_label = ":`LegalDocument`:`Opinion`"
         
         # Count total citations
         citation_result = neo4j_session.run("""
@@ -75,158 +68,50 @@ async def get_neo4j_stats(neo4j_session) -> Dict[str, Any]:
         citation_count = citation_result.single()["citation_count"]
         
         # Count total opinions
-        opinion_result = neo4j_session.run("""
-            MATCH (o:Opinion) 
+        opinion_result = neo4j_session.run(f"""
+            MATCH (o{opinion_label}) 
             RETURN COUNT(o) as opinion_count
         """)
         opinion_count = opinion_result.single()["opinion_count"]
         
-        # Get citation distribution by year if the property exists
-        citations_by_year = {}
-        if "Opinion" in schema or ":`LegalDocument`:`Opinion`" in schema:
-            # Find the correct node label
-            opinion_label = "Opinion"
-            for label in schema:
-                if "Opinion" in label:
-                    opinion_label = label
-                    break
-            
-            # Check if date_filed property exists
-            date_property = None
-            if opinion_label in schema:
-                available_props = schema[opinion_label]
-                if "date_filed" in available_props:
-                    date_property = "date_filed"
-                elif "created_at" in available_props:
-                    date_property = "created_at"
-                elif "updated_at" in available_props:
-                    date_property = "updated_at"
-            
-            if date_property:
-                # Try to extract year from the date property
-                # First, check the format of the date property by getting a sample
-                sample_query = f"""
-                    MATCH (o:{opinion_label.replace(':`', '').replace('`:', '').replace('`', '')})
-                    WHERE o.{date_property} IS NOT NULL
-                    RETURN o.{date_property} as date_value
-                    LIMIT 1
-                """
-                
-                try:
-                    sample_result = neo4j_session.run(sample_query)
-                    sample_record = sample_result.single()
-                    
-                    if sample_record:
-                        date_value = sample_record["date_value"]
-                        logger.info(f"Sample date value: {date_value} (type: {type(date_value).__name__})")
-                        
-                        # Based on the date format, construct the appropriate query
-                        year_query = ""
-                        if isinstance(date_value, str):
-                            if "-" in date_value:  # ISO format like "2020-01-01"
-                                year_query = f"""
-                                    MATCH (o:{opinion_label.replace(':`', '').replace('`:', '').replace('`', '')})
-                                    WHERE o.{date_property} IS NOT NULL
-                                    WITH o, SUBSTRING(o.{date_property}, 0, 4) as year
-                                    WHERE year =~ '[0-9]{{4}}'
-                                    RETURN year, COUNT(o) as count
-                                    ORDER BY year
-                                """
-                            elif "/" in date_value:  # Format like "01/01/2020"
-                                year_query = f"""
-                                    MATCH (o:{opinion_label.replace(':`', '').replace('`:', '').replace('`', '')})
-                                    WHERE o.{date_property} IS NOT NULL
-                                    WITH o, SUBSTRING(o.{date_property}, 6, 4) as year
-                                    WHERE year =~ '[0-9]{{4}}'
-                                    RETURN year, COUNT(o) as count
-                                    ORDER BY year
-                                """
-                        else:
-                            # For non-string dates, try a generic approach
-                            year_query = f"""
-                                MATCH (o:{opinion_label.replace(':`', '').replace('`:', '').replace('`', '')})
-                                WHERE o.{date_property} IS NOT NULL
-                                WITH o, toString(o.{date_property}) as date_str
-                                WITH o, 
-                                     CASE 
-                                         WHEN date_str CONTAINS '-' THEN SUBSTRING(date_str, 0, 4)
-                                         WHEN date_str CONTAINS '/' THEN SUBSTRING(date_str, 6, 4)
-                                         ELSE '0000'
-                                     END as year
-                                WHERE year =~ '[0-9]{{4}}'
-                                RETURN year, COUNT(o) as count
-                                ORDER BY year
-                            """
-                        
-                        if year_query:
-                            logger.info(f"Using year query: {year_query}")
-                            year_result = neo4j_session.run(year_query)
-                            citations_by_year = {record["year"]: record["count"] for record in year_result}
-                except Exception as e:
-                    logger.error(f"Error getting sample date: {e}")
+        # Count opinions with AI summaries
+        ai_summary_result = neo4j_session.run(f"""
+            MATCH (o{opinion_label})
+            WHERE o.ai_summary IS NOT NULL AND o.ai_summary <> ''
+            RETURN COUNT(o) as ai_summary_count
+        """)
+        ai_summary_count = ai_summary_result.single()["ai_summary_count"]
         
-        # Sort the citations by year
-        if citations_by_year:
-            citations_by_year = dict(sorted(citations_by_year.items()))
+        # Count citations by document type
+        citation_types_result = neo4j_session.run("""
+            MATCH (source)-[r:CITES]->(target)
+            WITH labels(target) AS target_labels
+            WITH 
+                CASE 
+                    WHEN 'LawReview' IN target_labels THEN 'law_review'
+                    WHEN 'Opinion' IN target_labels THEN 'judicial_opinion'
+                    WHEN 'StatutesCodesRegulation' IN target_labels THEN 'statutes_codes_regulations'
+                    WHEN 'ConstitutionalDocument' IN target_labels THEN 'constitution'
+                    WHEN 'AdministrativeAgencyRuling' IN target_labels THEN 'administrative_agency_ruling'
+                    WHEN 'CongressionalReport' IN target_labels THEN 'congressional_report'
+                    WHEN 'ExternalSubmission' IN target_labels THEN 'external_submission'
+                    WHEN 'ElectronicResource' IN target_labels THEN 'electronic_resource'
+                    WHEN 'LegalDictionary' IN target_labels THEN 'legal_dictionary'
+                    ELSE 'other'
+                END AS citation_type
+            RETURN citation_type, COUNT(*) as count
+            ORDER BY count DESC
+        """)
         
-        # Get top 10 most cited opinions
-        top_cited = []
-        if "Opinion" in schema or any("Opinion" in label for label in schema):
-            # Find the correct node label
-            opinion_label = "Opinion"
-            for label in schema:
-                if "Opinion" in label:
-                    opinion_label = label
-                    break
-            
-            # Check what properties are available for Opinion nodes
-            available_props = schema.get(opinion_label, [])
-            id_property = "id"
-            name_property = "case_name"
-            
-            # Try to find appropriate properties for id and name
-            if "primary_id" in available_props:
-                id_property = "primary_id"
-            elif "cluster_id" in available_props:
-                id_property = "cluster_id"
-            elif "id" in available_props:
-                id_property = "id"
-                
-            if "case_name" in available_props:
-                name_property = "case_name"
-            elif "name" in available_props:
-                name_property = "name"
-            elif "title" in available_props:
-                name_property = "title"
-            
-            # Use the identified properties in the query
-            top_cited_query = f"""
-                MATCH (o:{opinion_label.replace(':`', '').replace('`:', '').replace('`', '')})<-[r:CITES]-()
-                RETURN o.{id_property} as cluster_id, o.{name_property} as case_name, COUNT(r) as citation_count
-                ORDER BY citation_count DESC
-                LIMIT 10
-            """
-            
-            logger.info(f"Using top cited query: {top_cited_query}")
-            
-            try:
-                top_cited_result = neo4j_session.run(top_cited_query)
-                top_cited = [
-                    {
-                        "cluster_id": record["cluster_id"],
-                        "case_name": record["case_name"] or "Unknown Case",
-                        "citation_count": record["citation_count"]
-                    }
-                    for record in top_cited_result
-                ]
-            except Exception as e:
-                logger.error(f"Error getting top cited opinions: {e}")
+        citation_types = {}
+        for record in citation_types_result:
+            citation_types[record["citation_type"]] = record["count"]
         
         return {
             "citation_count": citation_count,
             "opinion_count": opinion_count,
-            "citations_by_year": citations_by_year,
-            "top_cited_opinions": top_cited
+            "ai_summary_count": ai_summary_count,
+            "citation_types": citation_types
         }
     except Exception as e:
         logger.error(f"Error getting Neo4j stats: {e}")
@@ -234,8 +119,8 @@ async def get_neo4j_stats(neo4j_session) -> Dict[str, Any]:
             "error": str(e),
             "citation_count": 0,
             "opinion_count": 0,
-            "citations_by_year": {},
-            "top_cited_opinions": []
+            "ai_summary_count": 0,
+            "citation_types": {}
         }
 
 async def get_postgres_stats(db: Session) -> Dict[str, Any]:
@@ -258,12 +143,10 @@ async def get_postgres_stats(db: Session) -> Dict[str, Any]:
             """)
         )
         available_tables = [row[0] for row in tables_result]
-        logger.info(f"PostgreSQL available tables: {available_tables}")
         
         # Default values
         total_opinions = 0
         opinions_by_jurisdiction = {}
-        opinions_by_year = {}
         
         # Find the opinions table - it might be named differently
         opinion_table = None
@@ -277,38 +160,6 @@ async def get_postgres_stats(db: Session) -> Dict[str, Any]:
             total_opinions = db.execute(
                 text(f"SELECT COUNT(*) FROM {opinion_table}")
             ).scalar()
-            
-            # Check if the table has a date_filed column
-            columns_result = db.execute(
-                text(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = '{opinion_table}'
-                """)
-            )
-            available_columns = [row[0] for row in columns_result]
-            logger.info(f"Columns in {opinion_table}: {available_columns}")
-            
-            # Get opinions by year if date_filed exists
-            date_column = None
-            for column in available_columns:
-                if 'date' in column.lower() or 'filed' in column.lower():
-                    date_column = column
-                    break
-            
-            if date_column:
-                year_result = db.execute(
-                    text(f"""
-                        SELECT EXTRACT(YEAR FROM {date_column}) as year, COUNT(*) as count
-                        FROM {opinion_table}
-                        WHERE {date_column} IS NOT NULL
-                        GROUP BY year
-                        ORDER BY year
-                    """)
-                )
-                opinions_by_year = {
-                    int(row[0]): row[1] for row in year_result
-                }
             
             # Try to find jurisdiction information
             court_table = None
@@ -386,16 +237,14 @@ async def get_postgres_stats(db: Session) -> Dict[str, Any]:
         
         return {
             "total_opinions": total_opinions,
-            "opinions_by_jurisdiction": opinions_by_jurisdiction,
-            "opinions_by_year": opinions_by_year
+            "opinions_by_jurisdiction": opinions_by_jurisdiction
         }
     except Exception as e:
         logger.error(f"Error getting PostgreSQL stats: {e}")
         return {
             "error": str(e),
             "total_opinions": 0,
-            "opinions_by_jurisdiction": {},
-            "opinions_by_year": {}
+            "opinions_by_jurisdiction": {}
         }
 
 def calculate_coverage(neo4j_stats: Dict[str, Any], postgres_stats: Dict[str, Any]) -> float:
@@ -419,4 +268,5 @@ def calculate_coverage(neo4j_stats: Dict[str, Any], postgres_stats: Dict[str, An
         return (neo4j_opinion_count / postgres_opinion_count) * 100
     except Exception as e:
         logger.error(f"Error calculating coverage: {e}")
-        return 0.0 
+        return 0.0
+
