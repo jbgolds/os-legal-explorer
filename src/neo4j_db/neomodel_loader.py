@@ -224,10 +224,14 @@ class NeomodelLoader:
 
             # Add properties from citation object that exist in CitesRel
             citation_dict = citation.model_dump()
-            rel_properties = list(CitesRel.defined_properties().keys())
-            for prop in rel_properties:
+
+            for prop in list(CitesRel.defined_properties().keys()):
                 if prop in citation_dict and citation_dict[prop] is not None:
-                    properties[prop] = citation_dict[prop]
+                    if asyncio.iscoroutine(citation_dict[prop]):
+                        properties[prop] = await citation_dict[prop]
+                        logger.info(f"Waiting for {prop} to be resolved")
+                    else:
+                        properties[prop] = citation_dict[prop]
 
             # Add opinion section if provided
             if opinion_section:
@@ -244,8 +248,8 @@ class NeomodelLoader:
             existing_rel = await self.find_existing_relationship(
                 citing_node, 
                 cited_node, 
-                citation_text or "", 
-                int(page_number) if page_number else None
+                citation.citation_text or "", 
+                int(citation.page_number) if citation.page_number else None
             )
 
             if existing_rel:
@@ -255,7 +259,7 @@ class NeomodelLoader:
 
                 await existing_rel.update_history(properties)
                 return
-
+            
             # Create relationship by passing a dictionary of properties, per neomodel docs
             rel = await citing_node.cites.connect(cited_node, properties)  # type: ignore
 
@@ -303,7 +307,7 @@ class NeomodelLoader:
         """
         error_count = 0
         processed_count = 0
-        for citation in tqdm(citations_data, desc="Loading opinion citations", unit="opinion"):
+        for citation in tqdm(citations_data, desc="Loading opinion citations", unit="opinion", miniters=60):
             try:
                 # Convert string date to datetime.date object
                 date_filed = None

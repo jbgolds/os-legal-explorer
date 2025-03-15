@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 def process_single_cluster(
     cluster_id: int
-) -> Dict[str, Any]:
+) -> None:
     """
     Process a single cluster through the pipeline.
 
@@ -64,13 +64,7 @@ def process_single_cluster(
             config,
         )
 
-        return {
-            "extraction_job_id": extraction_job_id,
-            "llm_job_id": llm_job_id,
-            "resolution_job_id": resolution_job_id,
-            "neo4j_job_id": neo4j_job_id,
-            "cluster_id": cluster_id,
-        }
+        return
 
     except Exception as e:
         logger.error(f"Error processing cluster {cluster_id}: {e}")

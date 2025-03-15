@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from datetime import datetime
+from time import time
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 import numpy as np
@@ -559,6 +560,8 @@ async def check_node_status(cluster_id: str) -> NodeStatus:
         - has_ai_summary: Whether the node has an ai_summary field filled out
     """
     try:
+        
+        #loader = NeomodelLoader(url=os.environ["DB_NEO4J_URL"], username=os.environ["DB_NEO4J_USER"], password=os.environ["DB_NEO4J_PASSWORD"])
         # Try to find the opinion by primary_id (cluster_id)
         opinion = await Opinion.nodes.first_or_none(primary_id=cluster_id)
 
@@ -633,17 +636,25 @@ def run_llm_job(job_id: int, extraction_job_id: int) -> None:
         # Initialize already_processed_df with the same columns as cleaned_df
         already_processed_df = pd.DataFrame(columns=cleaned_df.columns)
 
-        # now go through the cleaned df and check if the cluster_id is already in Neo4j with ai_summary
-        for index, row in cleaned_df.iterrows():
-            cluster_id = row["cluster_id"]
-            node_status = asyncio.run(check_node_status(str(cluster_id)))
-            if node_status.exists and node_status.has_ai_summary:
-                logger.info(
-                    f"Cluster {cluster_id} already exists in Neo4j with ai_summary. Skipping LLM processing to save API requests."
-                )
-                already_processed_df = pd.concat(
-                    [already_processed_df, pd.DataFrame([row])], ignore_index=True
-                )
+        # Create a single event loop for all async operations
+        loop = asyncio.new_event_loop()
+        
+        try:
+            # now go through the cleaned df and check if the cluster_id is already in Neo4j with ai_summary
+            for index, row in cleaned_df.iterrows():
+                cluster_id = row["cluster_id"]
+                # Use the same event loop for all async operations
+                node_status = loop.run_until_complete(check_node_status(str(cluster_id)))
+                if node_status.exists and node_status.has_ai_summary:
+                    logger.info(
+                        f"Cluster {cluster_id} already exists in Neo4j with ai_summary. Skipping LLM processing to save API requests."
+                    )
+                    already_processed_df = pd.concat(
+                        [already_processed_df, pd.DataFrame([row])], ignore_index=True
+                    )
+        finally:
+            # Close the event loop when done
+            loop.close()
 
         # drop the already processed rows from the cleaned df
         cleaned_df = cleaned_df[
@@ -1097,20 +1108,21 @@ def run_neo4j_job(
             progress=30.0,
             message="Initializing Neo4j loader",
         )
-
-        loader = NeomodelLoader(url=os.environ["DB_NEO4J_URL"], username=os.environ["DB_NEO4J_USER"], password=os.environ["DB_NEO4J_PASSWORD"])
-
-        # Load citations into Neo4j
-        update_job_status(
-            job_id,
-            JobStatus.PROCESSING,
-            progress=50.0,
-            message="Loading citations into Neo4j",
-        )
-        # new_loop = asyncio.new_event_loop()
-        #asyncio.set_event_loop(new_loop)
-        asyncio.run(loader.load_enriched_citations(resolved_citations, data_source="gemini_api"))
-        #new_loop.close()
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)  # Set the new event loop as the current default
+            loader = NeomodelLoader(url=os.environ["DB_NEO4J_URL"], username=os.environ["DB_NEO4J_USER"], password=os.environ["DB_NEO4J_PASSWORD"])
+            time.sleep(3)
+            # Load citations into Neo4j
+            update_job_status(
+                job_id,
+                JobStatus.PROCESSING,
+                progress=50.0,
+                message="Loading citations into Neo4j",
+            )
+            loop.run_until_complete(loader.load_enriched_citations(resolved_citations, data_source="gemini_api"))
+        finally:
+            loop.close()
         
 
         # Update job status

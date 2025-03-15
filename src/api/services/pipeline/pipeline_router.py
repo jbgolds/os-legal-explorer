@@ -11,8 +11,7 @@ from src.api.services.pipeline import pipeline_service
 from src.api.services.pipeline.pipeline_model import (ExtractionConfig,
                                                       PipelineJob,
                                                       PipelineStatus)
-from src.api.services.pipeline.pipeline_single_cluster import \
-    process_single_cluster
+from src.api.services.pipeline.pipeline_single_cluster import process_single_cluster
 
 router = APIRouter(
     prefix="/api/pipeline",
@@ -138,7 +137,6 @@ async def resolve_citations(
 async def load_neo4j(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    # neo4j_session=Depends(get_neo4j),
     file_path: Optional[str] = None,
     job_id: Optional[int] = None,
 ):
@@ -148,6 +146,7 @@ async def load_neo4j(
 
     Args:
         job_id: ID of the citation resolution job
+        file_path: Optional path to a file containing resolved citations
 
     Returns:
         Job ID for tracking the Neo4j loading
@@ -156,14 +155,11 @@ async def load_neo4j(
     if not file_path and not job_id:
         raise HTTPException(status_code=400, detail="Either file_path or job_id must be provided")
     
-    
     if job_id:
-        resolution_job = pipeline_service.get_job( job_id)      
+        resolution_job = pipeline_service.get_job(job_id)      
         if not resolution_job:
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
         
-
-
         if resolution_job["status"] != "completed":
             raise HTTPException(
                 status_code=400,
@@ -174,12 +170,15 @@ async def load_neo4j(
         "neo4j_load", {"resolution_job_id": job_id}
     )
 
+    # Schedule the Neo4j job directly as a background task
     background_tasks.add_task(
-        pipeline_service.run_neo4j_job,     neo4j_job_id, job_id, file_path
+        pipeline_service.run_neo4j_job,
+        neo4j_job_id, 
+        job_id, 
+        file_path,
     )
 
     return {"job_id": neo4j_job_id, "status": "started"}
-
 
 
 @router.get(
@@ -197,7 +196,7 @@ async def get_job_status(job_id: int, db: Session = Depends(get_db)):
     Returns:
         Job status information
     """
-    job = pipeline_service.get_job( job_id)
+    job = pipeline_service.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
@@ -236,11 +235,10 @@ async def get_jobs(
     response_model=List[PipelineJob],
     dependencies=[Depends(verify_api_key)],
 )
-async def run_full_pipeline(
+async def run_full_pipeline_endpoint(
     config: ExtractionConfig,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    # neo4j_session=Depends(get_neo4j),
 ):
     """
     Run the full pipeline from extraction to Neo4j loading.
@@ -253,20 +251,20 @@ async def run_full_pipeline(
         List of job IDs for each step in the pipeline
     """
     # Create jobs for each step
-    extraction_job_id = pipeline_service.create_job( "extract", config.model_dump())
+    extraction_job_id = pipeline_service.create_job("extract", config.model_dump())
     llm_job_id = pipeline_service.create_job(
-         "llm_process", {"extraction_job_id": extraction_job_id} 
+        "llm_process", {"extraction_job_id": extraction_job_id} 
     )
     resolution_job_id = pipeline_service.create_job(
-         "citation_resolution", {"llm_job_id": llm_job_id}
+        "citation_resolution", {"llm_job_id": llm_job_id}
     )
     neo4j_job_id = pipeline_service.create_job(
-         "neo4j_load", {"resolution_job_id": resolution_job_id}
+        "neo4j_load", {"resolution_job_id": resolution_job_id}
     )
 
-    # Run the full pipeline in the background
-    result = await run_in_threadpool(
-        pipeline_service.run_full_pipeline,
+    # Schedule the full pipeline using background tasks
+    await run_in_threadpool(
+    pipeline_service.run_full_pipeline,
         extraction_job_id,
         llm_job_id,
         resolution_job_id,
@@ -303,14 +301,14 @@ async def process_single_cluster_endpoint(
         cluster_id: ID of the cluster to process
 
     Returns:
-        List of job IDs for each step in the pipeline
+        Dictionary with a message indicating the process has started
     """
-    # Create a custom extraction config for this cluster
-    result = await run_in_threadpool(
+    # Process the single cluster with background tasks
+    await run_in_threadpool(
         process_single_cluster,
         cluster_id,
+       #  background_tasks,
     )
-    # Create jobs for each step
-
-    # return HTTP status code accepted
+    
+    # Return HTTP status code accepted
     return {"message": "Cluster processing started"}
