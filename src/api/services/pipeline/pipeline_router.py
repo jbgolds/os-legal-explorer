@@ -182,54 +182,6 @@ async def load_neo4j(
     return {"job_id": neo4j_job_id, "status": "started"}
 
 
-@router.get(
-    "/job/{job_id}",
-    response_model=PipelineStatus,
-    dependencies=[Depends(verify_api_key)],
-)
-async def get_job_status(job_id: int, db: Session = Depends(get_db)):
-    """
-    Get the status of a pipeline job.
-
-    Args:
-        job_id: Job ID
-
-    Returns:
-        Job status information
-    """
-    job = pipeline_service.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-
-    return job
-
-
-@router.get(
-    "/jobs", response_model=List[PipelineStatus], dependencies=[Depends(verify_api_key)]
-)
-async def get_jobs(
-    job_type: Optional[str] = None,
-    status: Optional[str] = None,
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db),
-):
-    """
-    Get a list of pipeline jobs with optional filtering.
-
-    Args:
-        job_type: Filter by job type
-        status: Filter by job status
-        limit: Maximum number of jobs to return
-        offset: Number of jobs to skip
-
-    Returns:
-        List of job status information
-    """
-    return pipeline_service.get_jobs(
-        job_type=job_type, status=status, limit=limit, offset=offset
-    )
-
 
 @router.post(
     "/run-full-pipeline",

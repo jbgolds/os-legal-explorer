@@ -467,29 +467,3 @@ async def check_cluster_status(cluster_id: str) -> ClusterStatus:
         logger.error(f"Error checking cluster status: {e}")
         # Return "not found" status on any error
         return ClusterStatus(exists=False, has_citations=False, has_ai_summary=False)
-
-
-# Opinion page route - serves the same index.html but with pre-loaded cluster data
-@router.get("/{cluster_id}/", response_class=HTMLResponse)
-async def opinion(request: Request, cluster_id: str):
-    try:
-        # Use the existing cluster status endpoint logic
-        cluster_status = await check_cluster_status(cluster_id)
-
-        # Get cluster details from CourtListener API
-        cluster_detail = await get_cluster_details(cluster_id)
-
-        return templates.TemplateResponse(
-            "index.html",
-            {
-                "request": request,
-                "cluster_id": cluster_id,
-                "cluster_status": cluster_status,
-                "cluster": cluster_detail,
-            },
-        )
-    except Exception as e:
-        logger.error(f"Error loading cluster: {e}")
-        return templates.TemplateResponse(
-            "index.html", {"request": request, "error": str(e)}
-        )

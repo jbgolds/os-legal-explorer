@@ -17,7 +17,7 @@ router = APIRouter(
 
 logger = logging.getLogger(__name__)
 
-@router.get("/")
+
 @router.get("")
 async def get_stats(
     db: Session = Depends(get_db),

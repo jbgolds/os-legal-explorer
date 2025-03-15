@@ -36,6 +36,7 @@ View live site [here](https://law.jbgolds.com/)
 
 - Docker
 - Courtlistener database access, E2E script coming soon.
+- uv
 
 
 ### Installation
