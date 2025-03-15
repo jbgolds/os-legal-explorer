@@ -47,6 +47,11 @@
 
                     <!-- Filter Buttons and Search Button -->
                     <div class="flex items-center gap-2 pr-2">
+                        <!-- Search indicator moved to be between input and buttons -->
+                        <div id="search-indicator" class="htmx-indicator mr-2">
+                            <span class="loading loading-spinner loading-md text-primary"></span>
+                        </div>
+
                         <!-- Year Filter -->
                         <div class="dropdown dropdown-end">
                             <button type="button" class="btn btn-ghost btn-sm h-full" tabindex="0">
@@ -150,12 +155,6 @@
                         </button>
                     </div>
                 </form>
-
-                <div class="absolute right-28 top-5">
-                    <div id="search-indicator" class="htmx-indicator">
-                        <span class="loading loading-spinner loading-sm text-primary"></span>
-                    </div>
-                </div>
             </div>
         </div>
     </div>

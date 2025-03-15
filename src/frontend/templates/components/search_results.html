@@ -1,6 +1,6 @@
 <!-- Search Results Component -->
 {% if results is mapping %}
-<div class="fixed inset-x-0 top-16 z-50 px-4">
+<div class="fixed inset-x-0 top-16 z-50 px-4" id="search-results-container">
     <div
         class="bg-base-100 w-full max-w-[1200px] mx-auto shadow-2xl rounded-box max-h-[70vh] overflow-y-auto border border-base-300">
         <div class="sticky top-0 bg-base-100 p-4 border-b">
@@ -54,12 +54,56 @@
         {% endif %}
     </div>
 </div>
+
+<script>
+    // Add event listener to handle clicks outside the search results
+    document.addEventListener('click', function (event) {
+        const searchResultsContainer = document.getElementById('search-results-container');
+        const searchInput = document.querySelector('input[type="search"]'); // Assuming there's a search input
+
+        // Check if the click is outside the search results and search input
+        if (searchResultsContainer &&
+            !searchResultsContainer.contains(event.target) &&
+            (!searchInput || !searchInput.contains(event.target))) {
+
+            // Hide the search results by removing them from the DOM
+            searchResultsContainer.remove();
+
+            // If using HTMX, you might want to trigger an event to update any related state
+            if (typeof htmx !== 'undefined') {
+                htmx.trigger('#search-dropdown', 'search-closed');
+            }
+        }
+    });
+</script>
 {% else %}
-<div class="fixed inset-x-0 top-16 z-50 px-4">
+<div class="fixed inset-x-0 top-16 z-50 px-4" id="search-results-container">
     <div class="bg-base-100 w-full max-w-[1200px] mx-auto shadow-2xl rounded-box p-4 border border-base-300">
         <div class="text-center text-error">
             <p>Error loading results. Please try again.</p>
         </div>
     </div>
 </div>
+
+<script>
+    // Add event listener to handle clicks outside the search results
+    document.addEventListener('click', function (event) {
+        const searchResultsContainer = document.getElementById('search-results-container');
+        const searchInput = document.querySelector('input[type="search"]'); // Assuming there's a search input
+
+        // Check if the click is outside the search results and search input
+        if (searchResultsContainer &&
+            !searchResultsContainer.contains(event.target) &&
+            (!searchInput || !searchInput.contains(event.target))) {
+
+            // Hide the search results by removing them from the DOM
+            searchResultsContainer.remove();
+
+            // If using HTMX, you might want to trigger an event to update any related state
+            if (typeof htmx !== 'undefined') {
+                htmx.trigger('#search-dropdown', 'search-closed');
+            }
+        }
+    });
+</script>
 {% endif %}

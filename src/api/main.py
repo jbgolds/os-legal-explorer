@@ -75,7 +75,6 @@ app.include_router(pipeline_router)
 app.include_router(search_router)
 app.include_router(clusters_router)
 app.include_router(network_router)
-# app.include_router(batch_gemini_router)
 app.include_router(stats_router)
 
 

@@ -40,10 +40,4 @@ ENV PYTHONUNBUFFERED=1
 # Expose port
 EXPOSE ${PORT}
 
-# Use entrypoint script
-# ENTRYPOINT ["/app/docker-entrypoint.sh"]
-
-# Simple development command
-# "--proxy-headers", for when running behind caddy
-# sleep 5 and tthen run
-CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--reload", "--proxy-headers", "--timeout-keep-alive", "43200", "--timeout-graceful-shutdown", "43200"] 
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--proxy-headers", "--timeout-keep-alive", "43200", "--timeout-graceful-shutdown", "43200"] 

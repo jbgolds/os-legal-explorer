@@ -593,7 +593,7 @@ async def check_node_status(cluster_id: str) -> NodeStatus:
         )
 
 
-def run_llm_job(job_id: int, extraction_job_id: int, loop: asyncio.AbstractEventLoop) -> None:
+def run_llm_job(job_id: int, extraction_job_id: int, loop: Optional[asyncio.AbstractEventLoop]) -> None:
     """
     Run an LLM processing job.
 
@@ -633,7 +633,8 @@ def run_llm_job(job_id: int, extraction_job_id: int, loop: asyncio.AbstractEvent
 
         # Initialize already_processed_df with the same columns as cleaned_df
         already_processed_df = pd.DataFrame(columns=cleaned_df.columns)
-        
+        if loop is None:
+            loop = asyncio.new_event_loop()
 
         for _, row in cleaned_df.iterrows():
             cluster_id = row["cluster_id"]
@@ -1115,7 +1116,7 @@ def run_neo4j_job(
             )
             loop.run_until_complete(loader.load_enriched_citations(resolved_citations, data_source="gemini_api"))
         finally:
-            loop.close()
+            loop.close() if loop else None
         
 
         # Update job status

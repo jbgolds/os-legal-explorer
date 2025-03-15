@@ -86,7 +86,7 @@ async def process_opinions_with_llm(
         "llm_process", {"extraction_job_id": job_id}
     )
 
-    background_tasks.add_task(pipeline_service.run_llm_job, llm_job_id, job_id)
+    background_tasks.add_task(pipeline_service.run_llm_job, llm_job_id, job_id, None)
 
     return {"job_id": llm_job_id, "status": "started"}
 

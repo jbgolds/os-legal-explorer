@@ -21,7 +21,7 @@
             <li>This project's goal is to make legal research more accessible to the public.</li>
             <li>A small handful of this type of tool exists today, but are behind <i>expensive</i> paywalls.
                 <ul>
-                    <li>And some even charge per search (I know most readers can believe it). Could you imaginge
+                    <li>And some even charge per search, which is crazy! Could you imaginge
                         paying per Google search?</li>
                 </ul>
             </li>
@@ -151,12 +151,14 @@
                 separately.
             </li>
             <li>
-                Diseenting / Concurring Citation's treatment needs to be treated separately in the INCOMIN network.
+                Diseenting / Concurring Citation's treatment needs to be treated separately in the INCOMING network.
                 When calculating the "INCOMING POSITIVE TREATMENT", we should only consider MAJORITY opinion's for that
                 popup, and note that a dissenting opinion support is less strong.
             </li>
             <li>
-                Stats page does not work.
+                The extraction pipeline had a bug where citations updated existing relationships instead of creating new
+                ones. All of the data persisted on the relationship object, need to finalize script to unpack them. I
+                estimate at least 50k examples of this.
             </li>
         </ul>
 
@@ -165,9 +167,7 @@
     <section></section>
     <p>
         Thank YOU for reading this far! I'm excited to see where this goes. Feel free to leave any feature
-        requests/bugs as an issue on Github,
-        or
-        send me an email to get in touch.
+        requests/bugs as an issue on Github. Or get in touch!
     </p>
     <p>
         - Jacob
