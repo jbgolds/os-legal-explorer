@@ -7,6 +7,29 @@
         Database Statistics</h1>
     <p class="text-center text-base-content/70 mb-8">Insights into our legal document database</p>
 
+    <!-- Bulk Data Download Section -->
+    <div class="card bg-base-200 shadow-lg border border-base-300 mb-8 max-w-4xl mx-auto">
+        <div class="card-body p-6">
+            <div class="flex flex-col items-center mb-4">
+                <div class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center mb-2">
+                    <i class="fa-solid fa-download text-primary"></i>
+                </div>
+                <h2 class="card-title text-2xl text-center">Neo4j Citation Network Dump</h2>
+            </div>
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+                <a href="https://pub-aba4d283d9f14e65a29485de99fe45cb.r2.dev/2025_03_15.dump"
+                    class="btn btn-primary btn-lg gap-2">
+                    <i class="fa-solid fa-file-arrow-down"></i>
+                    Download Latest Dataset
+                </a>
+                <div class="text-sm text-base-content/70 italic">
+                    Last updated: <span id="dataset-last-updated">March 15, 2025</span>
+                </div>
+                <div class="text-sm text-base-content/70 italic">Working on providing CSV exports soon!</div>
+            </div>
+        </div>
+    </div>
+
     <!-- Loading indicator -->
     <div id="loading-indicator" class="flex flex-col items-center justify-center py-12">
         <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-primary mb-4"></div>
@@ -141,7 +164,7 @@
             'judicial_opinion': 'Judicial Opinions',
             'statutes_codes_regulations': 'Statutes, Codes & Regulations',
             'constitution': 'Constitutional Documents',
-            'administrative_agency_ruling': 'Administrative Agency Rulings',
+            'administrative_agency_ruling': 'Agency Rulings',
             'congressional_report': 'Congressional Reports',
             'external_submission': 'External Submissions',
             'electronic_resource': 'Electronic Resources',
