@@ -3,7 +3,7 @@ import json
 import logging
 import os
 from datetime import datetime
-from time import time
+import time
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 import numpy as np
@@ -560,8 +560,6 @@ async def check_node_status(cluster_id: str) -> NodeStatus:
         - has_ai_summary: Whether the node has an ai_summary field filled out
     """
     try:
-        
-        #loader = NeomodelLoader(url=os.environ["DB_NEO4J_URL"], username=os.environ["DB_NEO4J_USER"], password=os.environ["DB_NEO4J_PASSWORD"])
         # Try to find the opinion by primary_id (cluster_id)
         opinion = await Opinion.nodes.first_or_none(primary_id=cluster_id)
 
@@ -595,7 +593,7 @@ async def check_node_status(cluster_id: str) -> NodeStatus:
         )
 
 
-def run_llm_job(job_id: int, extraction_job_id: int) -> None:
+def run_llm_job(job_id: int, extraction_job_id: int, loop: asyncio.AbstractEventLoop) -> None:
     """
     Run an LLM processing job.
 
@@ -635,26 +633,20 @@ def run_llm_job(job_id: int, extraction_job_id: int) -> None:
 
         # Initialize already_processed_df with the same columns as cleaned_df
         already_processed_df = pd.DataFrame(columns=cleaned_df.columns)
-
-        # Create a single event loop for all async operations
-        loop = asyncio.new_event_loop()
         
-        try:
-            # now go through the cleaned df and check if the cluster_id is already in Neo4j with ai_summary
-            for index, row in cleaned_df.iterrows():
-                cluster_id = row["cluster_id"]
-                # Use the same event loop for all async operations
-                node_status = loop.run_until_complete(check_node_status(str(cluster_id)))
-                if node_status.exists and node_status.has_ai_summary:
-                    logger.info(
-                        f"Cluster {cluster_id} already exists in Neo4j with ai_summary. Skipping LLM processing to save API requests."
-                    )
-                    already_processed_df = pd.concat(
-                        [already_processed_df, pd.DataFrame([row])], ignore_index=True
-                    )
-        finally:
-            # Close the event loop when done
-            loop.close()
+
+        for _, row in cleaned_df.iterrows():
+            cluster_id = row["cluster_id"]
+            # Use the same event loop for all async operations
+            node_status = loop.run_until_complete(check_node_status(str(cluster_id)))
+            if node_status.exists and node_status.has_ai_summary:
+                logger.info(
+                    f"Cluster {cluster_id} already exists in Neo4j with ai_summary. Skipping LLM processing to save API requests."
+                )
+                already_processed_df = pd.concat(
+                    [already_processed_df, pd.DataFrame([row])], ignore_index=True
+                )
+       
 
         # drop the already processed rows from the cleaned df
         cleaned_df = cleaned_df[
@@ -1038,7 +1030,7 @@ def run_resolution_job(job_id: int, llm_job_id: int) -> None:
 
 
 def run_neo4j_job(
-    job_id: int, resolution_job_id: Optional[int], file_path: Optional[str]
+    job_id: int, resolution_job_id: Optional[int], file_path: Optional[str], loop: Optional[asyncio.AbstractEventLoop] = None
 ) -> None:
     """
     Run a Neo4j loading job.
@@ -1109,8 +1101,9 @@ def run_neo4j_job(
             message="Initializing Neo4j loader",
         )
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)  # Set the new event loop as the current default
+            if not loop:
+                loop = asyncio.new_event_loop()
+    # Set the new event loop as the current default
             loader = NeomodelLoader(url=os.environ["DB_NEO4J_URL"], username=os.environ["DB_NEO4J_USER"], password=os.environ["DB_NEO4J_PASSWORD"])
             time.sleep(3)
             # Load citations into Neo4j
@@ -1176,9 +1169,9 @@ def run_full_pipeline(
                 f"Extraction job {extraction_job_id} failed, aborting pipeline"
             )
             return
-
+        loop = asyncio.new_event_loop()
         # Run LLM job
-        run_llm_job(llm_job_id, extraction_job_id)
+        run_llm_job(llm_job_id, extraction_job_id, loop)
 
         # Check if LLM job succeeded
         llm_job = get_job(llm_job_id)
@@ -1201,7 +1194,10 @@ def run_full_pipeline(
             return
 
         # Run Neo4j job
-        run_neo4j_job( neo4j_job_id, resolution_job_id, None)
+        run_neo4j_job( neo4j_job_id, resolution_job_id, None, loop)
+
+        if loop.is_running():
+            loop.close()
 
         logger.info("Completed full pipeline")
 

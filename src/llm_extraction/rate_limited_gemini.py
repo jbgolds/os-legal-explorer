@@ -457,16 +457,6 @@ class GlobalRateLimiter:
 
             return cls._instance
 
-    @classmethod
-    def reset_instance(cls):
-        """Reset the global rate limiter instance.
-
-        This is primarily useful for testing purposes.
-        """
-        with cls._lock:
-            cls._instance = None
-            cls._initialized_params = None
-            logging.info("Global rate limiter instance has been reset")
 
 
 class ResponseSerializer:

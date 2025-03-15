@@ -195,7 +195,7 @@ class Opinion(LegalDocument):
         self.primary_table = "opinion_cluster"
 
     @classmethod
-    async def get_or_create_from_cluster_id(cls, cluster_id, citation_string, **kwargs):
+    async def get_or_create_from_cluster_id(cls, cluster_id: Optional[int], citation_string: str, **kwargs) -> "Opinion":
         """Get an Opinion by cluster_id or create it if it doesn't exist
 
         Args:
@@ -224,13 +224,10 @@ class Opinion(LegalDocument):
         
 
         if not opinion:
-            opinion = cls()
-            # Set primary_id if available
-            if primary_id:
-                opinion.primary_id = primary_id
+            opinion = cls(primary_id=primary_id if primary_id else None)
             # Ensure citation_string is set
             opinion.citation_string = citation_string
-    
+
         if not opinion.ai_summary and kwargs.get("ai_summary"):
             opinion.ai_summary = kwargs["ai_summary"]
         if not opinion.date_filed and kwargs.get("date_filed"):

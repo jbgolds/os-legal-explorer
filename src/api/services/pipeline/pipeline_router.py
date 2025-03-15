@@ -176,6 +176,7 @@ async def load_neo4j(
         neo4j_job_id, 
         job_id, 
         file_path,
+        None
     )
 
     return {"job_id": neo4j_job_id, "status": "started"}
@@ -272,12 +273,7 @@ async def run_full_pipeline_endpoint(
         config,
     )
 
-    return [
-        {"job_id": extraction_job_id, "status": "queued"},
-        {"job_id": llm_job_id, "status": "queued"},
-        {"job_id": resolution_job_id, "status": "queued"},
-        {"job_id": neo4j_job_id, "status": "queued"},
-    ]
+    return 
 
 
 @router.post(
