@@ -225,7 +225,12 @@ async def run_full_pipeline_endpoint(
         config,
     )
 
-    return 
+    return [
+        {"job_id": extraction_job_id, "status": "started"},
+        {"job_id": llm_job_id, "status": "queued"},
+        {"job_id": resolution_job_id, "status": "queued"},
+        {"job_id": neo4j_job_id, "status": "queued"}
+    ]
 
 
 @router.post(
