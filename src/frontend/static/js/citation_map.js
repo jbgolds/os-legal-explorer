@@ -49,8 +49,25 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
     // Merge provided options with defaults
     const config = { ...defaults, ...options };
 
+    // Extract direction from API endpoint
+    const direction = apiEndpoint.includes('direction=incoming') ? 'incoming' : 'outgoing';
+    
+    // Create a global storage for the network state
+    if (!window.citationNetworkState) {
+        window.citationNetworkState = {};
+    }
+    
+    // Store the direction in the network state
+    if (!window.citationNetworkState[containerId]) {
+        window.citationNetworkState[containerId] = {};
+    }
+    window.citationNetworkState[containerId].direction = direction;
+
     // Select the container element
     const container = d3.select(`#${containerId}`);
+    
+    // Also get a direct DOM reference to the container
+    const containerDOMElement = document.getElementById(containerId);
 
     // Get container dimensions
     const containerElement = document.getElementById(containerId);
@@ -60,8 +77,26 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
     config.width = containerRect.width;
     config.height = Math.max(500, containerRect.height);
 
-    // Show loading indicator
-    container.html('<div class="network-loading">Loading citation network...</div>');
+    // Clean up any previous network state for this container
+    if (window.citationNetworkState[containerId].simulation) {
+        // Stop any running simulation
+        window.citationNetworkState[containerId].simulation.stop();
+    }
+    if (window.citationNetworkState[containerId].svg) {
+        // Remove any event listeners from old SVG
+        window.citationNetworkState[containerId].svg.on('.zoom', null);
+    }
+
+    // Always clear the container first before adding the loading indicator
+    // Use vanilla JS to completely clear the container
+    if (containerDOMElement) {
+        containerDOMElement.innerHTML = '';
+    }
+    
+    // Show loading indicator using D3
+    container.append('div')
+        .attr('class', 'network-loading')
+        .text('Loading citation network...');
 
     // Fetch data from API
     fetch(apiEndpoint)
@@ -81,17 +116,28 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
         .then(data => {
             console.log(`Citation network data received: ${data.nodes.length} nodes, ${data.links.length} links`);
 
-            // Create a global storage for the network state
-            if (!window.citationNetworkState) {
-                window.citationNetworkState = {};
-            }
-
             // Check for incoming citation treatments
-            if (containerId.includes("incoming") && data.links && data.links.length > 0) {
-                const treatments = data.links.map(link => link.treatment || "").filter(t => t);
+            if (direction === 'incoming') {
+                const treatments = (data.links && data.links.length > 0) 
+                    ? data.links.map(link => link.treatment || "").filter(t => t)
+                    : [];
+                    
+                // Update treatment banner (will hide it if no treatments)
                 updateTreatmentBanner(treatments);
+            } else {
+                // Always hide the treatment banner when viewing outgoing citations
+                const bannerEl = document.getElementById('incoming-treatment-banner');
+                if (bannerEl) {
+                    bannerEl.classList.add('hidden');
+                }
             }
 
+            // Clear the container again before rendering the network
+            // Use vanilla JS to completely clear the container
+            if (containerDOMElement) {
+                containerDOMElement.innerHTML = '';
+            }
+            
             // Process and render the full network with all data
             renderNetwork(containerId, data, config);
         })
@@ -107,21 +153,28 @@ function updateTreatmentBanner(treatments) {
     const textEl = document.getElementById('incoming-treatment-text');
 
     if (bannerEl && textEl) {
-        // Always show banner if there are any incoming citations
+        // Hide the banner if there are no treatments
+        if (!treatments || treatments.length === 0) {
+            bannerEl.classList.add('hidden');
+            return;
+        }
+        
+        // Show banner if there are incoming citations with treatments
         bannerEl.classList.remove('hidden');
 
         // Check for treatments in priority order: POSITIVE > NEGATIVE > CAUTION > NEUTRAL
-        if (treatments.includes("POSITIVE")) {
-            bannerEl.querySelector('.alert').className = "alert alert-success";
-            textEl.textContent = "This case has POSITIVE incoming citations";
-        }
-        else if (treatments.includes("NEGATIVE")) {
+        
+        if (treatments.includes("NEGATIVE")) {
             bannerEl.querySelector('.alert').className = "alert alert-error";
             textEl.textContent = "This case has NEGATIVE incoming citations";
         }
         else if (treatments.includes("CAUTION")) {
             bannerEl.querySelector('.alert').className = "alert alert-warning";
             textEl.textContent = "This case has CAUTION incoming citations";
+        }
+        else if (treatments.includes("POSITIVE")) {
+            bannerEl.querySelector('.alert').className = "alert alert-success";
+            textEl.textContent = "This case has POSITIVE incoming citations";
         }
         else {
             // Default for NEUTRAL or unspecified treatments
@@ -137,11 +190,8 @@ function renderNetwork(containerId, data, config) {
     const match = window.location.pathname.match(/^\/opinion\/([^\/]+)/);
     const clusterId = match ? match[1] : null;
 
-    // Check for incoming citation treatments if this is an incoming network
-    if (containerId.includes("incoming") && data.links && data.links.length > 0) {
-        const treatments = data.links.map(link => link.treatment || "").filter(t => t);
-        updateTreatmentBanner(treatments);
-    }
+    // Get the direction from the network state
+    const direction = window.citationNetworkState[containerId].direction || 'outgoing';
 
     if (data.nodes.length === 1 && data.links.length === 0) {
         console.error('Only one node found with no citation relationships.');
@@ -160,9 +210,6 @@ function renderNetwork(containerId, data, config) {
         container.html(`<div class="flex items-center justify-center h-full"><div class="text-center"><p class="text-xl font-bold text-error">${errorMessage}</p>${subMessage ? `<p class="text-gray-500">${subMessage}</p>` : ''}${processButton}</div></div>`);
         return;
     }
-
-    // Clear container and create SVG
-    container.html('');
 
     // If no data, show a message
     if (!data.nodes.length) {
@@ -1342,12 +1389,13 @@ function renderNetwork(containerId, data, config) {
         yPos += itemHeight;
     });
 
-    // Store the simulation and zoom in a global namespace for use with zoom controls
+    // Store the simulation, zoom, and direction in a global namespace for use with controls
     window.citationNetworkState = window.citationNetworkState || {};
     window.citationNetworkState[containerId] = {
         svg: svg,
         simulation: simulation,
-        zoom: zoom
+        zoom: zoom,
+        direction: direction
     };
 }
 

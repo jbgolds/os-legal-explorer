@@ -165,21 +165,12 @@
 <!-- Main Content Area (Full-Width via parent's override) -->
 <div id="main-content" class="px-16 py-8">
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <!-- Left Column: Citation Networks -->
+        <!-- Left Column: Citation Network -->
         <div class="lg:col-span-2">
             <div class="grid grid-cols-1 gap-8">
-                <!-- Outgoing Citation Network -->
+                <!-- Single Citation Network with toggle -->
                 <div>
-                    {% with network_type='outgoing' %}
                     {% include "components/citation_network.html" %}
-                    {% endwith %}
-                </div>
-
-                <!-- Incoming Citation Network -->
-                <div>
-                    {% with network_type='incoming' %}
-                    {% include "components/citation_network.html" %}
-                    {% endwith %}
                 </div>
             </div>
         </div>
