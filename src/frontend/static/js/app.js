@@ -58,7 +58,7 @@ async function loadClusterDetails(clusterId) {
         const header = document.createElement('div');
         header.className = 'mb-6 pb-4 border-b';
         header.innerHTML = `
-            <h2 class="text-2xl font-bold">${caseData.name}</h2>
+            <h2 class="text-2xl font-bold">${caseData.case_name}</h2>
             <div class="flex flex-wrap gap-2 mt-2">
                 <span class="badge badge-primary">${caseData.court_name || 'Unknown Court'}</span>
                 <span class="badge badge-secondary">${formatDate(caseData.date_filed)}</span>
@@ -83,18 +83,38 @@ async function loadClusterDetails(clusterId) {
         opinionContent.id = 'opinion-content';
         opinionContent.className = 'prose max-w-none';
 
-        if (caseData.opinion_text) {
-            opinionContent.innerHTML = `
-                <div class="mockup-browser border border-base-300">
-                    <div class="mockup-browser-toolbar">
-                        <div class="input border border-base-300">${caseData.name}</div>
+        if (caseData.opinion_text || caseData.download_url) {
+            // Add view toggle buttons if PDF is available
+            let viewToggleHtml = '';
+            if (caseData.download_url) {
+                viewToggleHtml = `
+                    <div class="mb-4 flex justify-between items-center">
+                        <div class="btn-group">
+                            <button id="view-text-btn" class="btn btn-sm btn-active">View Text</button>
+                            <button id="view-pdf-btn" class="btn btn-sm">View PDF</button>
+                        </div>
                     </div>
-                    <div class="px-4 py-8 border-t border-base-300 bg-base-200">
-                        <div class="whitespace-pre-wrap font-serif leading-relaxed">
-                            ${caseData.opinion_text}
+                `;
+            }
+
+            opinionContent.innerHTML = `
+                ${viewToggleHtml}
+                <div id="opinion-text-container">
+                    <div class="mockup-browser border border-base-300">
+                        <div class="mockup-browser-toolbar">
+                            <div class="input border border-base-300">${caseData.case_name}</div>
+                        </div>
+                        <div class="px-4 py-8 border-t border-base-300 bg-base-200">
+                            <div class="whitespace-pre-wrap font-serif leading-relaxed">
+                                ${caseData.opinion_text || 'No opinion text available for this case.'}
+                            </div>
                         </div>
                     </div>
                 </div>
+                ${caseData.download_url ? `
+                <div id="pdf-container" class="hidden">
+                    <iframe id="pdf-iframe" style="width: 100%; height: calc(100vh - 200px); min-height: 1000px;" class="rounded-lg border" src="about:blank"></iframe>
+                </div>` : ''}
             `;
         } else {
             opinionContent.innerHTML = `
@@ -161,6 +181,36 @@ async function loadClusterDetails(clusterId) {
                 }
             });
         });
+
+        // Set up PDF view toggle if available
+        if (caseData.download_url) {
+            const viewTextBtn = document.getElementById('view-text-btn');
+            const viewPdfBtn = document.getElementById('view-pdf-btn');
+            const textContainer = document.getElementById('opinion-text-container');
+            const pdfContainer = document.getElementById('pdf-container');
+            const pdfIframe = document.getElementById('pdf-iframe');
+            
+            if (viewTextBtn && viewPdfBtn) {
+                viewTextBtn.addEventListener('click', function() {
+                    viewTextBtn.classList.add('btn-active');
+                    viewPdfBtn.classList.remove('btn-active');
+                    textContainer.classList.remove('hidden');
+                    pdfContainer.classList.add('hidden');
+                });
+                
+                viewPdfBtn.addEventListener('click', function() {
+                    viewPdfBtn.classList.add('btn-active');
+                    viewTextBtn.classList.remove('btn-active');
+                    pdfContainer.classList.remove('hidden');
+                    textContainer.classList.add('hidden');
+                    
+                    // Load PDF only when button is clicked (if not already loaded)
+                    if (pdfIframe.src === 'about:blank') {
+                        pdfIframe.src = caseData.download_url;
+                    }
+                });
+            }
+        }
 
     } catch (error) {
         console.error('Error loading case details:', error);

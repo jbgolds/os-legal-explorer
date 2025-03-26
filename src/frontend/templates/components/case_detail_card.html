@@ -1,6 +1,6 @@
 <!-- Case Detail Card Component -->
-<div class="card bg-base-100 shadow-xl h-full">
-    <div class="card-body p-4 flex flex-col">
+<div class="card bg-base-100 shadow-xl h-full flex flex-col">
+    <div class="card-body p-4 flex flex-col flex-grow">
         {% if case %}
         <!-- Case information when a case is selected -->
         <div class="flex justify-between items-start mb-4">
@@ -66,59 +66,55 @@
         <div class="divider my-2">Opinion Text</div>
 
         <!-- Opinion Text -->
-        <div class="flex-grow overflow-y-auto">
-            {% if case.opinion_text %}
-            <div class="bg-base-200 p-4 rounded-lg text-sm">
-                <pre class="whitespace-pre-wrap font-sans">{{ case.opinion_text | safe }}</pre>
+        <div class="opinion-container">
+            {% if case.download_url %}
+            <div class="mb-4 flex justify-between items-center">
+                <div class="btn-group">
+                    <button id="view-text-btn" class="btn btn-sm btn-active">View Text</button>
+                    <button id="view-pdf-btn" class="btn btn-sm">View PDF</button>
+                    <a id="open-pdf-btn" href="{{ case.download_url }}" target="_blank" class="btn btn-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                        Open PDF
+                    </a>
+                </div>
             </div>
-
+            <div id="opinion-text-container" class="text-view-container">
+                {% if case.opinion_text %}
+                <div class="bg-base-200 p-4 rounded-lg text-sm h-full">
+                    <pre class="whitespace-pre-wrap font-sans">{{ case.opinion_text | safe }}</pre>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                        class="stroke-current shrink-0 w-6 h-6">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span>Opinion text is not available for this case.</span>
+                </div>
+                {% endif %}
+            </div>
+            <div id="pdf-container" class="hidden">
+                <iframe id="pdf-iframe" class="rounded-lg border w-full h-full" src="about:blank"></iframe>
+            </div>
             {% else %}
-            <div class="alert alert-info">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-                    class="stroke-current shrink-0 w-6 h-6">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
-                <span>Opinion text is not available for this case.</span>
-            </div>
-            {% endif %}
-
-            <!-- Citations -->
-            {% if case.citations and case.citations|length > 0 %}
-            <div class="divider my-2">Citations</div>
-            <div class="overflow-x-auto">
-                <table class="table table-zebra table-sm">
-                    <thead>
-                        <tr>
-                            <th>Case</th>
-                            <th>Citation</th>
-                            <th>Treatment</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for citation in case.citations %}
-                        <tr>
-                            <td>
-                                <a href="/case/{{ citation.id }}/" class="link link-hover text-primary">
-                                    {{ citation.name }}
-                                </a>
-                            </td>
-                            <td>{{ citation.citation or 'N/A' }}</td>
-                            <td>
-                                {% if citation.treatment == 'positive' %}
-                                <span class="badge badge-success">Positive</span>
-                                {% elif citation.treatment == 'negative' %}
-                                <span class="badge badge-error">Negative</span>
-                                {% elif citation.treatment == 'neutral' %}
-                                <span class="badge badge-info">Neutral</span>
-                                {% else %}
-                                <span class="badge badge-ghost">Unknown</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <div id="opinion-text-container" class="text-view-container">
+                {% if case.opinion_text %}
+                <div class="bg-base-200 p-4 rounded-lg text-sm h-full">
+                    <pre class="whitespace-pre-wrap font-sans">{{ case.opinion_text | safe }}</pre>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                        class="stroke-current shrink-0 w-6 h-6">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span>Opinion text is not available for this case.</span>
+                </div>
+                {% endif %}
             </div>
             {% endif %}
         </div>
@@ -148,3 +144,74 @@
         {% endif %}
     </div>
 </div>
+<style>
+    /* Ensure the PDF container expands to full height */
+    #pdf-container {
+        display: flex;
+        flex-direction: column;
+        flex-grow: 1;
+        height: 100%;
+    }
+    
+    #pdf-iframe {
+        flex-grow: 1;
+        height: 500px;
+        overflow: auto;
+    }
+    
+    /* When PDF view is active, make the container take maximum space */
+    #pdf-container:not(.hidden) {
+        display: flex;
+    }
+
+    /* Ensure hidden class works properly */
+    .hidden {
+        display: none !important;
+    }
+
+    /* Opinion container and text view styling */
+    .opinion-container {
+        display: flex;
+        flex-direction: column;
+        flex-grow: 1;
+        height: 100%;
+    }
+
+    .text-view-container {
+        height: 500px;
+        overflow-y: auto;
+        border-radius: 0.5rem;
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const viewTextBtn = document.getElementById('view-text-btn');
+        const viewPdfBtn = document.getElementById('view-pdf-btn');
+        const textContainer = document.getElementById('opinion-text-container');
+        const pdfContainer = document.getElementById('pdf-container');
+        const pdfIframe = document.getElementById('pdf-iframe');
+        
+        // Add event listeners if elements exist
+        if (viewTextBtn && viewPdfBtn) {
+            viewTextBtn.addEventListener('click', function() {
+                viewTextBtn.classList.add('btn-active');
+                viewPdfBtn.classList.remove('btn-active');
+                textContainer.classList.remove('hidden');
+                pdfContainer.classList.add('hidden');
+            });
+            
+            viewPdfBtn.addEventListener('click', function() {
+                viewPdfBtn.classList.add('btn-active');
+                viewTextBtn.classList.remove('btn-active');
+                pdfContainer.classList.remove('hidden');
+                textContainer.classList.add('hidden');
+                
+                // Load PDF only when button is clicked (if not already loaded)
+                if (pdfIframe.src === 'about:blank' && '{{ case.download_url }}') {
+                    pdfIframe.src = '{{ case.download_url }}';
+                }
+            });
+        }
+    });
+</script>

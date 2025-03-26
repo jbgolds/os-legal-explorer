@@ -88,7 +88,7 @@ export async function searchCases(query, filters = {}) {
 /**
  * Get details for a specific case
  * @param {string} clusterId - ID of the case to fetch
- * @returns {Promise<Object>} Case details
+ * @returns {Promise<Object>} Case details including case_name, court_name, date_filed, citation, opinion_text, citations and download_url if available
  */
 export function getOpinionDetails(clusterId) {
     return apiRequest(`/api/opinion/${clusterId}`);

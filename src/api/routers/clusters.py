@@ -61,6 +61,7 @@ class ClusterDetail(BaseModel):
     opinion_text: Optional[str] = None
     citations: Optional[List[Citation]] = None
     ai_summary: Optional[str] = None
+    download_url: Optional[str] = None
 
 
 class ClusterStatus(BaseModel):
@@ -142,7 +143,7 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                 # Get opinion text
                 opinion_text_query = text(
                     """
-                SELECT html_with_citations, html, plain_text
+                SELECT download_url, html_with_citations, html, plain_text
                 FROM search_opinion
                 WHERE cluster_id = :cluster_id
                 ORDER BY 
@@ -163,8 +164,10 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                 if opinion_result:
                     # Prioritize html_with_citations, then html, then plain_text
                     opinion_text = (
-                        opinion_result[0] or opinion_result[1] or opinion_result[2]
+                        opinion_result[1] or opinion_result[2] or opinion_result[3]
                     )
+                    download_url = opinion_result[0]
+                    
 
                 # Get citation
                 citation_query = text(
@@ -253,6 +256,7 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                     opinion_text=opinion_text,
                     citations=citations,
                     ai_summary=getattr(opinion, "ai_summary", None) if opinion else None,
+                    download_url=download_url if 'download_url' in locals() else None,
                 )
 
                 return cluster_detail
@@ -389,6 +393,7 @@ async def get_cluster_details(cluster_id: str) -> Optional[ClusterDetail]:
                 opinion_text=opinion_text,
                 citations=[],  # We'll skip fetching citations for now to simplify the implementation
                 ai_summary=getattr(opinion, "ai_summary", None) if opinion else None,
+                download_url=None,  # CourtListener API doesn't provide direct PDF download links
             )
 
             # Try to create a Neo4j node for this cluster for future use
