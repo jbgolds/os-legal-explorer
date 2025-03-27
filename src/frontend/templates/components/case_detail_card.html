@@ -186,14 +186,23 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
+        // Define download URL variable upfront to avoid errors
+        let downloadUrl = "";
+        
+        // Only set download URL if it exists in the case data
+        {% if case is defined and case.download_url %}
+        downloadUrl = "{{ case.download_url }}";
+        {% endif %}
+        
+        // Get DOM elements safely
         const viewTextBtn = document.getElementById('view-text-btn');
         const viewPdfBtn = document.getElementById('view-pdf-btn');
         const textContainer = document.getElementById('opinion-text-container');
         const pdfContainer = document.getElementById('pdf-container');
         const pdfIframe = document.getElementById('pdf-iframe');
         
-        // Add event listeners if elements exist
-        if (viewTextBtn && viewPdfBtn) {
+        // Add event listeners only if all elements exist
+        if (viewTextBtn && viewPdfBtn && textContainer && pdfContainer && pdfIframe) {
             viewTextBtn.addEventListener('click', function() {
                 viewTextBtn.classList.add('btn-active');
                 viewPdfBtn.classList.remove('btn-active');
@@ -208,8 +217,8 @@
                 textContainer.classList.add('hidden');
                 
                 // Load PDF only when button is clicked (if not already loaded)
-                if (pdfIframe.src === 'about:blank' && '{{ case.download_url }}') {
-                    pdfIframe.src = '{{ case.download_url }}';
+                if (pdfIframe.src === 'about:blank' && downloadUrl) {
+                    pdfIframe.src = downloadUrl;
                 }
             });
         }

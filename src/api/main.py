@@ -56,7 +56,8 @@ app.mount("/static", StaticFiles(directory="src/frontend/static"), name="static"
 # Home page route
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    # Pass empty case object to avoid undefined variable errors in template
+    return templates.TemplateResponse("index.html", {"request": request, "case": {}})
 
 
 # Health check endpoint

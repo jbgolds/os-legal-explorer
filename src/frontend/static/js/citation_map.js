@@ -8,6 +8,10 @@
 
 // Main function to render the citation network
 function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
+    // Debug logs to help identify container issues
+    console.log("renderCitationNetwork called with containerId:", containerId);
+    console.log("API endpoint:", apiEndpoint);
+    
     // Default options
     const defaults = {
         width: 800,
@@ -51,6 +55,7 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
 
     // Extract direction from API endpoint
     const direction = apiEndpoint.includes('direction=incoming') ? 'incoming' : 'outgoing';
+    console.log("Network direction:", direction);
     
     // Create a global storage for the network state
     if (!window.citationNetworkState) {
@@ -65,17 +70,27 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
 
     // Select the container element
     const container = d3.select(`#${containerId}`);
+    console.log("Container element:", container.node());
     
     // Also get a direct DOM reference to the container
     const containerDOMElement = document.getElementById(containerId);
+    if (!containerDOMElement) {
+        console.error(`Container element with ID "${containerId}" not found in DOM`);
+    }
 
     // Get container dimensions
     const containerElement = document.getElementById(containerId);
-    const containerRect = containerElement.parentElement.getBoundingClientRect();
+    const containerRect = containerElement && containerElement.parentElement ? 
+        containerElement.parentElement.getBoundingClientRect() : 
+        { width: defaults.width, height: defaults.height };
 
-    // Update width and height based on container size
-    config.width = containerRect.width;
-    config.height = Math.max(500, containerRect.height);
+    // Log dimensions before applying
+    console.log("Original container dimensions:", containerRect.width, containerRect.height);
+
+    // CRITICAL FIX: Ensure reasonable height for the network and default to much smaller height
+    config.width = containerRect.width || defaults.width;
+    config.height = Math.min(Math.max(500, containerRect.height || defaults.height), 800); // Cap height at 800px
+    console.log("Adjusted network dimensions:", config.width, config.height);
 
     // Clean up any previous network state for this container
     if (window.citationNetworkState[containerId].simulation) {
@@ -151,6 +166,7 @@ function renderCitationNetwork(containerId, apiEndpoint, options = {}) {
 function updateTreatmentBanner(treatments) {
     const bannerEl = document.getElementById('incoming-treatment-banner');
     const textEl = document.getElementById('incoming-treatment-text');
+    console.log("Updating treatment banner. Banner element:", bannerEl, "Text element:", textEl, "Treatments:", treatments);
 
     if (bannerEl && textEl) {
         // Hide the banner if there are no treatments
@@ -161,6 +177,14 @@ function updateTreatmentBanner(treatments) {
         
         // Show banner if there are incoming citations with treatments
         bannerEl.classList.remove('hidden');
+
+        // Make sure banner doesn't overlap or hide the network
+        bannerEl.style.position = "relative";
+        bannerEl.style.zIndex = "1";  // Lower z-index to ensure it doesn't cover network
+        
+        // IMPORTANT: Set a reasonable height for the banner
+        bannerEl.style.maxHeight = "50px";
+        bannerEl.style.overflow = "hidden";
 
         // Check for treatments in priority order: POSITIVE > NEGATIVE > CAUTION > NEUTRAL
         
@@ -186,12 +210,14 @@ function updateTreatmentBanner(treatments) {
 
 // Function to render the network with the given data and config
 function renderNetwork(containerId, data, config) {
+    console.log("Rendering network in container:", containerId);
     const container = d3.select(`#${containerId}`);
     const match = window.location.pathname.match(/^\/opinion\/([^\/]+)/);
     const clusterId = match ? match[1] : null;
 
     // Get the direction from the network state
     const direction = window.citationNetworkState[containerId].direction || 'outgoing';
+    console.log("Network direction for rendering:", direction);
 
     if (data.nodes.length === 1 && data.links.length === 0) {
         console.error('Only one node found with no citation relationships.');
@@ -261,11 +287,19 @@ function renderNetwork(containerId, data, config) {
         .attr('width', config.width)
         .attr('height', config.height)
         .attr('class', 'citation-network-svg')
+        .style('overflow', 'hidden')  // Changed from 'visible' to 'hidden' to clip content outside the SVG 
+        .style('display', 'block')    
+        .style('margin-top', '10px')  
+        .style('position', 'relative')
+        .style('top', '0')           
         .on('click', function (event) {
             if (event.target === this) {
                 hideDetailsPanel();
             }
         });
+
+    // Remove the extra SVG parent visibility check
+    console.log("Created SVG with dimensions:", config.width, config.height);
 
     // Set default for similarity lines toggle (controlled externally via HTML button)
     if (typeof window.similarityEnabled === 'undefined') {
@@ -338,12 +372,12 @@ function renderNetwork(containerId, data, config) {
             .id(d => d.id)
             .distance(config.linkDistance))
         .force('charge', d3.forceManyBody().strength(config.charge))
-        .force('center', d3.forceCenter(config.width / 2, config.height / 2))
+        .force('center', d3.forceCenter(config.width / 2, config.height / 3)) // Position at 1/3 height for better visibility
         // Add moderate radial force to help distribute nodes
         .force('radial', d3.forceRadial(
             Math.min(config.width, config.height) * 0.2,
             config.width / 2,
-            config.height / 2
+            config.height / 3  // Center at 1/3 height instead of 1/2
         ).strength(0.3))
         .force('collision', d3.forceCollide().radius(d => config.nodeRadius + config.collisionRadius).iterations(3));
 
@@ -835,15 +869,7 @@ function renderNetwork(containerId, data, config) {
             return tooltip;
         });
 
-    // Add click event to links
-    /*
-    link.on('click', function (event, d) {
-        event.stopPropagation(); // Prevent click from propagating to SVG
-        showDetails(d, event);
-    });
-    */
-
-    // Add click handler to SVG to close any open details panel
+    // Add click event to SVG to close any open details panel
     svg.on('click', function () {
         hideDetailsPanel();
     });
@@ -1240,6 +1266,16 @@ function renderNetwork(containerId, data, config) {
 
     // Apply zoom behavior to SVG
     svg.call(zoom);
+    
+    // IMPORTANT FIX: Set initial transform to center the graph properly
+    // and use a reasonable initial scale
+    const initialScale = direction === 'incoming' ? 0.6 : 0.5; // Slightly larger scale for incoming
+    svg.call(zoom.transform, d3.zoomIdentity
+        .translate(config.width/2, config.height/3) // Position at 1/3 height
+        .scale(initialScale)
+        .translate(-config.width/2, -config.height/3));
+    
+    console.log("Applied initial zoom transform with scale:", initialScale);
 
     // Create a group for similarity lines
     const similarityLines = g.append('g')
@@ -1395,8 +1431,973 @@ function renderNetwork(containerId, data, config) {
         svg: svg,
         simulation: simulation,
         zoom: zoom,
-        direction: direction
+        direction: direction,
+        data: data // Store reference to the data for the table
     };
+    
+    // Remove dynamic reset button - already exists in HTML
+    
+    console.log("Network rendering complete. State:", window.citationNetworkState[containerId]);
+    
+    // Render the citation table if it exists
+    if (document.getElementById('citation-table-body')) {
+        renderCitationTable(data, config);
+    }
+
+    // After SVG rendering is complete, add a direct fix to force the containerDOMElement to show the network
+    // Add this code at the end of renderNetwork function, just before the return
+    console.log("Ensuring network visibility for container:", containerId);
+    const networkContainer = document.getElementById(containerId);
+    if (networkContainer) {
+        networkContainer.style.position = 'relative';
+        networkContainer.style.minHeight = '500px';
+        networkContainer.style.visibility = 'visible';
+        networkContainer.style.display = 'block';
+        networkContainer.style.zIndex = '5';  // Make sure it's above other elements
+        console.log("Applied container visibility fixes");
+    }
+}
+
+// Function to reset the network view
+function resetNetworkView(containerId) {
+    console.log("Resetting view for container:", containerId);
+    if (!containerId) {
+        // If no container ID provided, try to use the first one available
+        containerId = Object.keys(window.citationNetworkState)[0];
+    }
+    
+    if (containerId && window.citationNetworkState[containerId]) {
+        const networkState = window.citationNetworkState[containerId];
+        if (networkState.svg && networkState.zoom) {
+            const svg = networkState.svg;
+            const width = parseInt(svg.attr('width'));
+            const height = parseInt(svg.attr('height'));
+            
+            // Get the current direction to apply appropriate scale
+            const direction = networkState.direction || 'outgoing';
+            const scale = direction === 'incoming' ? 0.6 : 0.5;
+            
+            // Reset zoom with animation - position higher in the viewport
+            svg.transition()
+                .duration(750)
+                .call(networkState.zoom.transform, d3.zoomIdentity
+                    .translate(width/2, height/3)
+                    .scale(scale)
+                    .translate(-width/2, -height/3));
+                    
+            console.log("View reset applied for direction:", direction);
+        }
+    }
+}
+
+// Make resetNetworkView available globally
+window.resetNetworkView = resetNetworkView;
+
+// Helper function to consistently determine node type
+function getNodeType(node, config) {
+    const docType = node.type.toLowerCase();
+
+    // Map API document types to our color configuration types
+    const typeMapping = {
+        'opinion_cluster': 'judicial_opinion',
+        'statutes': 'statutes_codes_regulations',
+        'constitutional_documents': 'constitution',
+        'admin_rulings': 'administrative_agency_ruling',
+        'congressional_reports': 'congressional_report',
+        'submissions': 'external_submission',
+        'law_reviews': 'law_review',
+        'other_legal_documents': 'other'
+    };
+
+    // First try mapping the API type to our color configuration
+    if (typeMapping[docType] && config.typeColors[typeMapping[docType]]) {
+        return typeMapping[docType];
+    }
+
+    // Then try exact match
+    if (config.typeColors[docType]) {
+        return docType;
+    }
+
+    // If no exact match, try partial match for backward compatibility
+    for (const type of Object.keys(config.typeColors)) {
+        if (type !== 'other' && docType.includes(type)) {
+            return type;
+        }
+    }
+
+    // Default to 'other' if no match found
+    return 'other';
+}
+
+// Helper function to get human-readable type label
+function getTypeLabel(type) {
+    if (!type) return 'Unknown';
+
+    // Map enum type to human-readable label
+    const enumToLabelMapping = {
+        'judicial_opinion': 'Judicial Opinion',
+        'statutes_codes_regulations': 'Statute/Code/Regulation',
+        'constitution': 'Constitution',
+        'administrative_agency_ruling': 'Administrative/Agency Ruling',
+        'congressional_report': 'Congressional Report',
+        'external_submission': 'External Submission',
+        'electronic_resource': 'Electronic Resource',
+        'law_review': 'Law Review',
+        'legal_dictionary': 'Legal Dictionary',
+        'other': 'Other'
+    };
+
+    // Return the human-readable label, or format the type name if no mapping exists
+    if (enumToLabelMapping[type]) {
+        return enumToLabelMapping[type];
+    } else {
+        // Format the type name for better readability (same as in legend)
+        return type.split('_').map(word =>
+            word.charAt(0).toUpperCase() + word.slice(1)
+        ).join(' ');
+    }
+}
+
+// Calculate similarity score between two strings (0-1)
+function calculateSimilarity(a, b) {
+    if (!a || !b) return 0;
+
+    // Normalize strings for comparison
+    const str1 = a.toLowerCase().trim();
+    const str2 = b.toLowerCase().trim();
+
+    // For very different length strings, return low similarity
+    if (Math.abs(str1.length - str2.length) > str1.length * 0.7) {
+        return 0;
+    }
+
+    // Quick check for exact matches or very similar strings
+    if (str1 === str2) {
+        return 1;
+    }
+
+    // Check if one string contains the other
+    if (str1.includes(str2) || str2.includes(str1)) {
+        return 0.8; // High similarity for containment
+    }
+
+    // Calculate Levenshtein distance between two strings
+    function levenshteinDistance(a, b) {
+        if (a.length === 0) return b.length;
+        if (b.length === 0) return a.length;
+
+        const matrix = Array(a.length + 1).fill().map(() => Array(b.length + 1).fill(0));
+
+        for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+        for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+
+        for (let i = 1; i <= a.length; i++) {
+            for (let j = 1; j <= b.length; j++) {
+                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j] + 1,
+                    matrix[i][j - 1] + 1,
+                    matrix[i - 1][j - 1] + cost
+                );
+            }
+        }
+
+        return matrix[a.length][b.length];
+    }
+
+    const distance = levenshteinDistance(str1, str2);
+    const maxLength = Math.max(str1.length, str2.length);
+
+    if (maxLength === 0) {
+        return 1; // Both empty strings
+    }
+
+    // Convert distance to similarity score (0-1)
+    return 1 - (distance / maxLength);
+}
+
+// Function to prepare table data, combining nodes with their link information
+function prepareTableData(data, direction, config) {
+    const match = window.location.pathname.match(/^\/opinion\/([^\/]+)/);
+    const clusterId = match ? match[1] : null;
+    
+    // Create a map of nodes by id for quick lookup
+    const nodesMap = new Map();
+    data.nodes.forEach(node => {
+        nodesMap.set(node.id, { ...node });
+    });
+    
+    // Process links based on direction
+    const tableData = [];
+    
+    // Skip the central node (the current opinion)
+    data.nodes.forEach(node => {
+        if (node.id !== clusterId) {
+            // Create a fresh copy of node data for this direction
+            const nodeData = { ...node };
+            
+            // Find the link involving this node based on the current direction
+            let link = null;
+            
+            if (direction === 'outgoing') {
+                // For outgoing, look for links where clusterId is the source and node is the target
+                link = data.links.find(l => 
+                    (l.source.id === clusterId && l.target.id === node.id) ||
+                    (typeof l.source === 'string' && l.source === clusterId && l.target.id === node.id));
+                
+                if (link) {
+                    nodeData.treatment = link.treatment || 'NEUTRAL';
+                    nodeData.relevance = link.relevance; // Use relevance exactly as provided by API
+                    nodeData.citation_text = link.metadata?.citation_text || '';
+                    nodeData.section = link.section || link.metadata?.opinion_section || 'MAJORITY';
+                    
+                    // Check all possible locations for reasoning data
+                    nodeData.reasoning = link.reasoning || link.metadata?.reasoning || '';
+                    
+                    // Log the link data to debug
+                    console.log('Link data for outgoing node:', node.id, link);
+                }
+            } else {
+                // For incoming, look for links where node is the source and clusterId is the target
+                link = data.links.find(l => 
+                    (l.target.id === clusterId && l.source.id === node.id) ||
+                    (typeof l.target === 'string' && l.target === clusterId && l.source.id === node.id));
+                
+                if (link) {
+                    nodeData.treatment = link.treatment || 'NEUTRAL';
+                    nodeData.relevance = link.relevance; // Use relevance exactly as provided by API
+                    nodeData.citation_text = link.metadata?.citation_text || '';
+                    nodeData.section = link.section || link.metadata?.opinion_section || 'MAJORITY';
+                    
+                    // Check all possible locations for reasoning data
+                    nodeData.reasoning = link.reasoning || link.metadata?.reasoning || '';
+                    
+                    // Log the link data to debug
+                    console.log('Link data for incoming node:', node.id, link);
+                }
+            }
+            
+            // Only add to table data if we found a link
+            if (link) {
+                // Add standardized type
+                nodeData.standardType = getNodeType(node, config);
+                
+                // Add to table data
+                tableData.push(nodeData);
+            }
+        }
+    });
+    
+    return tableData;
+}
+
+// Function to render citation table
+function renderCitationTable(data, config) {
+    if (!data || !data.nodes || data.nodes.length === 0) {
+        console.log('No citation data to display in table');
+        return;
+    }
+
+    // Get the direction from config, defaulting to outgoing
+    const direction = config.direction || 'outgoing';
+    console.log(`Rendering citation table with direction: ${direction}`);
+
+    // Update table header to show the current direction
+    const tableHeader = document.querySelector('.citation-table-header');
+    if (tableHeader) {
+        const directionText = direction.charAt(0).toUpperCase() + direction.slice(1);
+        tableHeader.textContent = `Citation Table (${directionText})`;
+    }
+
+    // Prepare data for table
+    const tableData = prepareTableData(data, direction, config);
+    
+    // Populate filter options
+    populateFilterOptions(tableData);
+    
+    // Render initial table
+    renderTable(tableData, config);
+    
+    // Set up event listeners for table interactions
+    setupTableEventListeners(data, config);
+}
+
+// Function to populate filter options
+function populateFilterOptions(tableData) {
+    const typeFilterOptions = document.getElementById('type-filter-options');
+    if (!typeFilterOptions) return;
+    
+    // Clear existing options
+    typeFilterOptions.innerHTML = '';
+    
+    // Add "All" option
+    const allOption = document.createElement('li');
+    const allLink = document.createElement('a');
+    allLink.textContent = 'All Types';
+    allLink.setAttribute('data-type', 'all');
+    allLink.classList.add('active');
+    allOption.appendChild(allLink);
+    typeFilterOptions.appendChild(allOption);
+    
+    // Get unique types
+    const types = [...new Set(tableData.map(item => item.standardType))];
+    
+    // Add option for each type
+    types.forEach(type => {
+        const option = document.createElement('li');
+        const link = document.createElement('a');
+        link.textContent = getTypeLabel(type);
+        link.setAttribute('data-type', type);
+        option.appendChild(link);
+        typeFilterOptions.appendChild(option);
+    });
+}
+
+// Function to render the citation table
+function renderTable(tableData, config, sortField = 'citation_string', sortOrder = 'asc', filter = '', filterType = 'all', groupSimilar = false) {
+    const tableBody = document.getElementById('citation-table-body');
+    if (!tableBody) return;
+    
+    // Clear the table body
+    tableBody.innerHTML = '';
+    
+    // Group by type first
+    let groupedData = groupDataByType(tableData);
+    
+    // Sort the groups
+    Object.keys(groupedData).forEach(type => {
+        groupedData[type] = sortData(groupedData[type], sortField, sortOrder);
+    });
+    
+    // If grouping by similarity is enabled, group similar items within each type
+    if (groupSimilar) {
+        Object.keys(groupedData).forEach(type => {
+            groupedData[type] = groupSimilarItems(groupedData[type]);
+        });
+    }
+    
+    // Filter data if needed
+    if (filter || filterType !== 'all') {
+        Object.keys(groupedData).forEach(type => {
+            if (filterType !== 'all' && type !== filterType) {
+                delete groupedData[type];
+            } else if (filter) {
+                groupedData[type] = groupedData[type].filter(item => 
+                    (item.citation_string && item.citation_string.toLowerCase().includes(filter.toLowerCase())) ||
+                    (item.court && item.court.toLowerCase().includes(filter.toLowerCase())) ||
+                    (item.year && String(item.year).includes(filter)) ||
+                    (item.section && item.section.toLowerCase().includes(filter.toLowerCase()))
+                );
+            }
+        });
+    }
+    
+    // Define type order to ensure judicial opinions come first
+    const typeOrder = [
+        'judicial_opinion', // Judicial opinions first
+        'statutes_codes_regulations',
+        'constitution',
+        'administrative_agency_ruling',
+        'congressional_report',
+        'law_review',
+        'external_submission',
+        'electronic_resource',
+        'legal_dictionary',
+        'other'
+    ];
+    
+    // Get available types and sort them according to our preferred order
+    const availableTypes = Object.keys(groupedData).filter(type => groupedData[type].length > 0);
+    availableTypes.sort((a, b) => {
+        const indexA = typeOrder.indexOf(a);
+        const indexB = typeOrder.indexOf(b);
+        
+        // If both types are in our order list, sort by their position
+        if (indexA !== -1 && indexB !== -1) {
+            return indexA - indexB;
+        }
+        
+        // If only one is in the list, prioritize it
+        if (indexA !== -1) return -1;
+        if (indexB !== -1) return 1;
+        
+        // If neither is in the list, maintain alphabetical order
+        return a.localeCompare(b);
+    });
+    
+    // Render the grouped data in the defined order
+    let rowIndex = 0;
+    availableTypes.forEach(type => {
+        // Add type header
+        const typeHeaderRow = document.createElement('tr');
+        typeHeaderRow.className = 'group-header';
+        typeHeaderRow.style.backgroundColor = '#f0f0f0';
+        
+        const typeHeaderCell = document.createElement('td');
+        typeHeaderCell.colSpan = 5; // 5 columns (added Section column)
+        typeHeaderCell.style.fontWeight = 'bold';
+        typeHeaderCell.textContent = getTypeLabel(type);
+        
+        typeHeaderRow.appendChild(typeHeaderCell);
+        tableBody.appendChild(typeHeaderRow);
+        
+        // Add items for this type
+        groupedData[type].forEach((item, index) => {
+            // Handle similarity groups
+            if (item.similarItems) {
+                // This is a group of similar items, render the first one
+                const primaryItem = item.items[0];
+                const row = createTableRow(primaryItem, rowIndex++);
+                row.classList.add('similar-group-primary');
+                
+                // Add expander icon in the first cell
+                const citationCell = row.querySelector('td:first-child');
+                const expanderIcon = document.createElement('span');
+                expanderIcon.innerHTML = '▶';
+                expanderIcon.className = 'expander-icon mr-2 cursor-pointer';
+                expanderIcon.setAttribute('data-expanded', 'false');
+                citationCell.prepend(expanderIcon);
+                
+                tableBody.appendChild(row);
+                
+                // Create container for similar items (initially hidden)
+                const similarContainer = document.createElement('tr');
+                similarContainer.className = 'similar-items-container hidden';
+                const similarCell = document.createElement('td');
+                similarCell.colSpan = 5; // 5 columns (added Section column)
+                similarCell.style.padding = '0';
+                
+                // Create inner table for similar items
+                const similarTable = document.createElement('table');
+                similarTable.className = 'table w-full';
+                const similarBody = document.createElement('tbody');
+                
+                // Add the primary item as the first row in the dropdown with a white background
+                const primaryRow = createTableRow(primaryItem, null, false);
+                primaryRow.style.backgroundColor = 'white';
+                primaryRow.classList.add('similar-group-primary-duplicate');
+
+                // Apply consistent styling to citation cells in the primary row
+                const primaryCitationCell = primaryRow.querySelector('td:first-child');
+                if (primaryCitationCell) {
+                    primaryCitationCell.style.maxWidth = '200px';
+                    primaryCitationCell.style.wordWrap = 'break-word';
+                    primaryCitationCell.style.whiteSpace = 'normal';
+                }
+
+                similarBody.appendChild(primaryRow);
+                
+                // Add click event to highlight node for primary row
+                primaryRow.addEventListener('click', function(event) {
+                    event.stopPropagation(); // Prevent triggering parent row's expander
+                    const nodeId = this.getAttribute('data-citation-id');
+                    highlightNetworkNode(nodeId);
+                });
+                
+                // Add a divider after the primary item
+                const dividerRow = document.createElement('tr');
+                const dividerCell = document.createElement('td');
+                dividerCell.colSpan = 5; // 5 columns (added Section column)
+                dividerCell.style.padding = '0';
+                dividerCell.style.borderBottom = '1px dashed #ccc';
+                dividerRow.appendChild(dividerCell);
+                similarBody.appendChild(dividerRow);
+                
+                // Add the rest of the similar items
+                item.items.slice(1).forEach(similarItem => {
+                    const similarRow = createTableRow(similarItem, null, false);
+                    similarRow.style.backgroundColor = '#f8f8f8';
+                    
+                    // Apply consistent styling to citation cells in the similar items dropdown
+                    const citationCell = similarRow.querySelector('td:first-child');
+                    if (citationCell) {
+                        citationCell.style.maxWidth = '200px';
+                        citationCell.style.wordWrap = 'break-word';
+                        citationCell.style.whiteSpace = 'normal';
+                    }
+                    
+                    // Add click event to highlight node for similar row
+                    similarRow.addEventListener('click', function(event) {
+                        event.stopPropagation(); // Prevent triggering parent row's expander
+                        const nodeId = this.getAttribute('data-citation-id');
+                        highlightNetworkNode(nodeId);
+                    });
+                    
+                    similarBody.appendChild(similarRow);
+                });
+                
+                similarTable.appendChild(similarBody);
+                similarCell.appendChild(similarTable);
+                similarContainer.appendChild(similarCell);
+                tableBody.appendChild(similarContainer);
+                
+                // Store references for toggle functionality
+                row.expanderIcon = expanderIcon;
+                row.similarContainer = similarContainer;
+                
+                // Add click event to expander icon
+                expanderIcon.addEventListener('click', function(event) {
+                    event.stopPropagation(); // Prevent triggering the row click event
+                    toggleExpander(row);
+                });
+                
+                // Add click event to the entire row to toggle expander
+                row.addEventListener('click', function(event) {
+                    // Toggle the expander when clicking anywhere on the row
+                    toggleExpander(row);
+                });
+            } else {
+                // Regular item
+                const row = createTableRow(item, rowIndex++);
+                
+                // Add click event to highlight node for regular rows
+                row.addEventListener('click', function(event) {
+                    const nodeId = this.getAttribute('data-citation-id');
+                    highlightNetworkNode(nodeId);
+                });
+                
+                tableBody.appendChild(row);
+            }
+        });
+    });
+    
+    // Helper function to toggle expander state
+    function toggleExpander(row) {
+        const expanderIcon = row.expanderIcon;
+        const similarContainer = row.similarContainer;
+        
+        const isExpanded = expanderIcon.getAttribute('data-expanded') === 'true';
+        expanderIcon.textContent = isExpanded ? '▶' : '▼';
+        expanderIcon.setAttribute('data-expanded', !isExpanded);
+        similarContainer.classList.toggle('hidden');
+    }
+    
+    // Update sort indicators
+    updateSortIndicators(sortField, sortOrder);
+}
+
+// Function to create a table row for a citation
+function createTableRow(item, rowIndex, includeBgColor = true) {
+    const row = document.createElement('tr');
+    if (rowIndex !== null && rowIndex % 2 === 1 && includeBgColor) {
+        row.classList.add('bg-base-200');
+    }
+    
+    // Citation
+    const citationCell = document.createElement('td');
+    citationCell.textContent = item.citation_string || 'Unknown';
+    citationCell.setAttribute('data-citation-id', item.id);
+    // Add styling to limit width and enable wrapping
+    citationCell.style.maxWidth = '200px';
+    citationCell.style.wordWrap = 'break-word';
+    citationCell.style.whiteSpace = 'normal';
+    row.appendChild(citationCell);
+    
+    // Relevance
+    const relevanceCell = document.createElement('td');
+    relevanceCell.style.width = '60px'; // Narrower width
+    if (typeof item.relevance !== 'undefined' && item.relevance !== null) {
+        // Use the raw relevance value from the API without transformation
+        relevanceCell.textContent = item.relevance;
+    } else {
+        relevanceCell.textContent = '—';
+    }
+    row.appendChild(relevanceCell);
+    
+    // Treatment
+    const treatmentCell = document.createElement('td');
+    treatmentCell.style.width = '90px'; // Narrower width
+    if (item.treatment) {
+        // Create a span with visible background color
+        const treatmentSpan = document.createElement('span');
+        
+        // Normalize the treatment value to handle any casing issues
+        const treatmentValue = item.treatment.toUpperCase();
+        treatmentSpan.textContent = treatmentValue;
+        treatmentSpan.className = 'badge';
+        
+        // Add appropriate class based on treatment with strong colors
+        switch (treatmentValue) {
+            case 'POSITIVE':
+                treatmentSpan.classList.add('badge-success');
+                // Add inline styles to ensure it's completely filled green with no outline
+                treatmentSpan.style.backgroundColor = '#4CAF50';
+                treatmentSpan.style.color = 'white';
+                treatmentSpan.style.border = 'none';
+                break;
+            case 'NEGATIVE':
+                treatmentSpan.classList.add('badge-error');
+                // Add inline styles to ensure it's completely filled red with no outline
+                treatmentSpan.style.backgroundColor = '#F44336';
+                treatmentSpan.style.color = 'white';
+                treatmentSpan.style.border = 'none';
+                break;
+            case 'CAUTION':
+                treatmentSpan.classList.add('badge-warning');
+                // Add inline styles to ensure it's completely filled orange with no outline
+                treatmentSpan.style.backgroundColor = '#FF9800';
+                treatmentSpan.style.color = 'black';
+                treatmentSpan.style.border = 'none';
+                break;
+            default:
+                treatmentSpan.classList.add('badge-neutral');
+        }
+        
+        treatmentCell.appendChild(treatmentSpan);
+    } else {
+        treatmentCell.textContent = '—';
+    }
+    row.appendChild(treatmentCell);
+    
+    // Section
+    const sectionCell = document.createElement('td');
+    sectionCell.style.width = '90px'; // Narrower width
+    if (item.section) {
+        const sectionSpan = document.createElement('span');
+        sectionSpan.textContent = item.section;
+        sectionSpan.className = 'badge';
+        
+        // Add appropriate class based on section
+        switch (item.section.toUpperCase()) {
+            case 'MAJORITY':
+                sectionSpan.classList.add('badge-section-majority');
+                break;
+            case 'CONCURRING':
+                sectionSpan.classList.add('badge-section-concurring');
+                break;
+            case 'DISSENTING':
+                sectionSpan.classList.add('badge-section-dissenting');
+                break;
+            default:
+                sectionSpan.classList.add('badge-section-other');
+        }
+        
+        sectionCell.appendChild(sectionSpan);
+    } else {
+        sectionCell.textContent = '—';
+    }
+    row.appendChild(sectionCell);
+    
+    // Reasoning
+    const reasoningCell = document.createElement('td');
+    reasoningCell.className = 'reasoning-cell';
+    // Remove the max display length limitation and let it flow naturally
+    if (item.reasoning) {
+        reasoningCell.textContent = item.reasoning;
+        // Keep the full text as tooltip for easier reading
+        reasoningCell.title = item.reasoning;
+    } else {
+        reasoningCell.textContent = '—';
+    }
+    row.appendChild(reasoningCell);
+    
+    // Add click event to show citation details (but not for rows in the expander panel)
+    row.style.cursor = 'pointer';
+    
+    // Store the citation ID on the row for easy access
+    row.setAttribute('data-citation-id', item.id);
+    
+    return row;
+}
+
+// Function to highlight a node in the network
+function highlightNetworkNode(nodeId) {
+    // Get the first network container
+    const containerId = Object.keys(window.citationNetworkState)[0];
+    if (!containerId) return;
+    
+    const networkState = window.citationNetworkState[containerId];
+    if (!networkState || !networkState.data) return;
+    
+    // Find the node in the data
+    const node = networkState.data.nodes.find(n => n.id === nodeId);
+    if (!node) return;
+    
+    // Call showDetails (which is defined in renderNetwork)
+    const nodeElement = d3.select(`.nodes g`).filter(d => d.id === nodeId).node();
+    if (nodeElement) {
+        // Scroll to the network visualization
+        document.getElementById(containerId).scrollIntoView({ behavior: 'smooth' });
+        
+        // Highlight the node by triggering a click event
+        nodeElement.dispatchEvent(new MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+        }));
+    }
+}
+
+// Function to sort table data by field and order
+function sortData(data, field, order) {
+    return [...data].sort((a, b) => {
+        // First prioritize by treatment (POSITIVE, NEGATIVE, CAUTION above NEUTRAL)
+        const treatmentPriority = {
+            'POSITIVE': 0,
+            'NEGATIVE': 1,
+            'CAUTION': 2,
+            'NEUTRAL': 3,
+            undefined: 4
+        };
+        
+        const aTreatment = treatmentPriority[a.treatment] !== undefined ? treatmentPriority[a.treatment] : 4;
+        const bTreatment = treatmentPriority[b.treatment] !== undefined ? treatmentPriority[b.treatment] : 4;
+        
+        // If treatments are different, prioritize by treatment
+        if (aTreatment !== bTreatment) {
+            return aTreatment - bTreatment;
+        }
+        
+        // If treatments are the same, prioritize by section (MAJORITY > CONCURRING > DISSENTING > OTHER)
+        const sectionPriority = {
+            'MAJORITY': 0,
+            'CONCURRING': 1,
+            'DISSENTING': 2,
+            'OTHER': 3,
+            undefined: 4
+        };
+        
+        const sectionA = a.section ? a.section.toUpperCase() : 'OTHER';
+        const sectionB = b.section ? b.section.toUpperCase() : 'OTHER';
+        
+        const aSectionPriority = sectionPriority[sectionA] !== undefined ? sectionPriority[sectionA] : 3;
+        const bSectionPriority = sectionPriority[sectionB] !== undefined ? sectionPriority[sectionB] : 3;
+        
+        // If sections are different, prioritize by section
+        if (aSectionPriority !== bSectionPriority) {
+            return aSectionPriority - bSectionPriority;
+        }
+        
+        // If both treatments and sections are the same, sort by the selected field
+        let valueA, valueB;
+        
+        switch (field) {
+            case 'citation_string':
+                valueA = a.citation_string || '';
+                valueB = b.citation_string || '';
+                break;
+            case 'relevance':
+                valueA = a.relevance !== undefined ? a.relevance : -1;
+                valueB = b.relevance !== undefined ? b.relevance : -1;
+                break;
+            case 'treatment':
+                // Sort order: POSITIVE > NEUTRAL > CAUTION > NEGATIVE
+                const treatmentOrder = {
+                    'POSITIVE': 3,
+                    'NEUTRAL': 2,
+                    'CAUTION': 1,
+                    'NEGATIVE': 0
+                };
+                valueA = treatmentOrder[a.treatment] !== undefined ? treatmentOrder[a.treatment] : -1;
+                valueB = treatmentOrder[b.treatment] !== undefined ? treatmentOrder[b.treatment] : -1;
+                break;
+            case 'section':
+                // Sort order: MAJORITY > CONCURRING > DISSENTING > OTHER
+                const sectionOrder = {
+                    'MAJORITY': 3,
+                    'CONCURRING': 2,
+                    'DISSENTING': 1,
+                    'OTHER': 0
+                };
+                valueA = sectionOrder[sectionA] !== undefined ? sectionOrder[sectionA] : -1;
+                valueB = sectionOrder[sectionB] !== undefined ? sectionOrder[sectionB] : -1;
+                break;
+            case 'reasoning':
+                valueA = a.reasoning || '';
+                valueB = b.reasoning || '';
+                break;
+            default:
+                valueA = a[field] || '';
+                valueB = b[field] || '';
+        }
+        
+        // String comparison for strings
+        if (typeof valueA === 'string' && typeof valueB === 'string') {
+            return order === 'asc' ? 
+                valueA.localeCompare(valueB) : 
+                valueB.localeCompare(valueA);
+        }
+        
+        // Numeric comparison for numbers
+        return order === 'asc' ? valueA - valueB : valueB - valueA;
+    });
+}
+
+// Function to group data by type
+function groupDataByType(data) {
+    const grouped = {};
+    
+    data.forEach(item => {
+        if (!grouped[item.standardType]) {
+            grouped[item.standardType] = [];
+        }
+        grouped[item.standardType].push(item);
+    });
+    
+    return grouped;
+}
+
+// Function to group similar items within a type
+function groupSimilarItems(items) {
+    const similarityThreshold = 0.7; // Minimum similarity to group items
+    const processed = new Set();
+    const result = [];
+    
+    for (let i = 0; i < items.length; i++) {
+        if (processed.has(i)) continue;
+        
+        const currentItem = items[i];
+        const similarIndices = [i];
+        processed.add(i);
+        
+        // Find similar items
+        for (let j = i + 1; j < items.length; j++) {
+            if (processed.has(j)) continue;
+            
+            // Use the imported calculateSimilarity function
+            const similarity = calculateSimilarity(
+                currentItem.citation_string || '',
+                items[j].citation_string || ''
+            );
+            
+            if (similarity >= similarityThreshold) {
+                similarIndices.push(j);
+                processed.add(j);
+            }
+        }
+        
+        // If we found similar items, create a group
+        if (similarIndices.length > 1) {
+            const similarItems = similarIndices.map(idx => items[idx]);
+            result.push({
+                similarItems: true,
+                items: similarItems
+            });
+        } else {
+            // Otherwise add as a regular item
+            result.push(currentItem);
+        }
+    }
+    
+    return result;
+}
+
+// Function to update sort indicators
+function updateSortIndicators(sortField, sortOrder) {
+    // Reset all sort icons
+    document.querySelectorAll('th[data-sort] .sort-icon').forEach(icon => {
+        icon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4" />`;
+    });
+    
+    // Update the active sort icon
+    const activeHeader = document.querySelector(`th[data-sort="${sortField}"] .sort-icon`);
+    if (activeHeader) {
+        if (sortOrder === 'asc') {
+            activeHeader.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4" />`;
+        } else {
+            activeHeader.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v12m0 0l4-4m-4 4l-4-4" />`;
+        }
+    }
+}
+
+// Set up event listeners for table interactions
+function setupTableEventListeners(data, config) {
+    // Current state
+    let currentSort = { field: 'citation_string', order: 'asc' };
+    let currentFilter = '';
+    let currentTypeFilter = 'all';
+    let groupSimilar = false;
+    
+    // Sort headers
+    document.querySelectorAll('th[data-sort]').forEach(header => {
+        header.addEventListener('click', function() {
+            const sortField = this.getAttribute('data-sort');
+            let sortOrder = 'asc';
+            
+            // Toggle sort order if clicking the same header
+            if (sortField === currentSort.field) {
+                sortOrder = currentSort.order === 'asc' ? 'desc' : 'asc';
+            }
+            
+            // Update current sort
+            currentSort = { field: sortField, order: sortOrder };
+            
+            // Re-render table
+            const currentDirection = window.citationNetworkState[Object.keys(window.citationNetworkState)[0]].direction;
+            const tableData = prepareTableData(data, currentDirection, config);
+            renderTable(tableData, config, sortField, sortOrder, currentFilter, currentTypeFilter, groupSimilar);
+        });
+    });
+    
+    // Search input
+    const searchInput = document.getElementById('citation-search');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            currentFilter = this.value;
+            
+            // Re-render table
+            const currentDirection = window.citationNetworkState[Object.keys(window.citationNetworkState)[0]].direction;
+            const tableData = prepareTableData(data, currentDirection, config);
+            renderTable(
+                tableData,
+                config,
+                currentSort.field, 
+                currentSort.order, 
+                currentFilter,
+                currentTypeFilter,
+                groupSimilar
+            );
+        });
+    }
+    
+    // Type filter
+    document.querySelectorAll('#type-filter-options a').forEach(option => {
+        option.addEventListener('click', function() {
+            // Update active state
+            document.querySelectorAll('#type-filter-options a').forEach(opt => {
+                opt.classList.remove('active');
+            });
+            this.classList.add('active');
+            
+            // Update filter
+            currentTypeFilter = this.getAttribute('data-type');
+            
+            // Re-render table
+            const currentDirection = window.citationNetworkState[Object.keys(window.citationNetworkState)[0]].direction;
+            const tableData = prepareTableData(data, currentDirection, config);
+            renderTable(
+                tableData,
+                config,
+                currentSort.field, 
+                currentSort.order, 
+                currentFilter,
+                currentTypeFilter,
+                groupSimilar
+            );
+        });
+    });
+    
+    // Group similar toggle
+    const groupSimilarToggle = document.getElementById('group-similar-toggle');
+    if (groupSimilarToggle) {
+        groupSimilarToggle.addEventListener('change', function() {
+            groupSimilar = this.checked;
+            
+            // Re-render table
+            const currentDirection = window.citationNetworkState[Object.keys(window.citationNetworkState)[0]].direction;
+            const tableData = prepareTableData(data, currentDirection, config);
+            renderTable(
+                tableData,
+                config,
+                currentSort.field, 
+                currentSort.order, 
+                currentFilter,
+                currentTypeFilter,
+                groupSimilar
+            );
+        });
+    }
 }
 
 // Modify processCluster function to alert immediately when processButton is clicked

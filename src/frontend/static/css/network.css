@@ -81,9 +81,10 @@
 /* Loading state */
 .network-loading {
     display: flex;
-    align-items: center;
     justify-content: center;
+    align-items: center;
     height: 100%;
+    font-size: 1.2rem;
     color: #666;
 }
 
@@ -92,6 +93,8 @@
     color: #333;
     font-size: 14px;
     line-height: 1.4;
+    max-height: 80vh;
+    overflow-y: auto;
 }
 
 .network-details-panel h3 {
@@ -130,4 +133,197 @@
         left: 5% !important;
         right: 5% !important;
     }
+}
+
+/* Citation Table Styles */
+.sort-icon {
+    transition: transform 0.2s ease;
+}
+
+.group-header {
+    background-color: #f0f0f0;
+    font-weight: bold;
+}
+
+.similar-group-primary {
+    background-color: rgba(33, 150, 243, 0.1);
+}
+
+.similar-group-primary:hover {
+    background-color: rgba(33, 150, 243, 0.2);
+}
+
+.similar-group-primary-duplicate {
+    background-color: white !important;
+    border-left: 3px solid #2196F3;
+}
+
+.similar-items-container.hidden {
+    display: none;
+}
+
+.expander-icon {
+    display: inline-block;
+    width: 16px;
+    text-align: center;
+    transition: transform 0.2s ease;
+}
+
+/* Hover effect for table rows */
+#citation-table-body tr:not(.group-header):not(.similar-items-container):hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* Style for treatment badges */
+.badge {
+    padding: 0.25em 0.5em;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: bold;
+    display: inline-block;
+}
+
+/* Treatment badge styles - make them extra prominent */
+.badge-success {
+    background-color: #4CAF50 !important;
+    color: white !important;
+    font-size: 0.9rem !important;
+    padding: 0.4em 0.8em !important;
+    font-weight: 700 !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+    border: 1px solid #3d9a3d !important;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.1) !important;
+    display: inline-block !important;
+}
+
+.badge-error {
+    background-color: #F44336 !important;
+    color: white !important;
+    font-size: 0.9rem !important;
+    padding: 0.4em 0.8em !important;
+    font-weight: 700 !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+    border: 1px solid #d32f2f !important;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.2) !important;
+    display: inline-block !important;
+}
+
+.badge-warning {
+    background-color: #FF9800 !important;
+    color: white !important;
+    font-size: 0.9rem !important;
+    padding: 0.4em 0.8em !important;
+    font-weight: 700 !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+    border: 1px solid #e68900 !important;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.1) !important;
+    display: inline-block !important;
+}
+
+.badge-neutral {
+    background-color: #9E9E9E !important;
+    color: white !important;
+    font-size: 0.9rem !important;
+    padding: 0.4em 0.8em !important;
+    font-weight: 700 !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+    border: 1px solid #8c8c8c !important;
+    display: inline-block !important;
+}
+
+.similar-items-container table {
+    margin-left: 20px;
+    width: calc(100% - 20px);
+    border-left: 2px solid #e5e7eb;
+}
+
+/* Add styles for table columns to distribute space better */
+#citation-table-body td:first-child {
+    max-width: 300px;
+    min-width: 150px;
+    white-space: normal;
+    word-break: break-word;
+    width: 30%;
+}
+
+#citation-table-body td:nth-child(2) {
+    width: 10%;
+    white-space: nowrap;
+    text-align: center;
+}
+
+#citation-table-body td:nth-child(3) {
+    width: 10%;
+    white-space: nowrap;
+    text-align: center;
+}
+
+#citation-table-body td:nth-child(4) {
+    width: 10%;
+    white-space: nowrap;
+    text-align: center;
+}
+
+#citation-table-body td:nth-child(5) {
+    min-width: 400px;
+    white-space: normal;
+    width: 40%;
+}
+
+/* Section badge styles */
+.badge-section-majority {
+    background-color: #4CAF50;
+    color: white;
+    font-size: 0.8rem;
+    padding: 0.3em 0.6em;
+    font-weight: 700;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.badge-section-concurring {
+    background-color: #2196F3;
+    color: white;
+    font-size: 0.8rem;
+    padding: 0.3em 0.6em;
+    font-weight: 700;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.badge-section-dissenting {
+    background-color: #F44336;
+    color: white;
+    font-size: 0.8rem;
+    padding: 0.3em 0.6em;
+    font-weight: 700;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.badge-section-other {
+    background-color: #9E9E9E;
+    color: white;
+    font-size: 0.8rem;
+    padding: 0.3em 0.6em;
+    font-weight: 700;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.reasoning-cell {
+    max-width: none;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    min-width: 400px;
+    width: 50%;
+    line-height: 1.4;
+}
+
+.reasoning-cell.truncated {
+    cursor: help;
+    border-bottom: 1px dotted #ccc;
+    position: relative;
+    max-height: 2.8em;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
 }
