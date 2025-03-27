@@ -43,6 +43,14 @@
                         <input type="text" id="search-input" name="q"
                             class="input border-0 w-full focus:outline-none h-full text-xl search-filter"
                             placeholder="Search by case name, citation, or keywords..." />
+                        <div id="search-tip" class="absolute left-0 -bottom-8 bg-primary/90 backdrop-blur-sm text-white px-4 py-2 rounded-md shadow-lg text-sm opacity-0 transition-all duration-700 transform translate-y-2 z-[200] font-medium">
+                            <div class="flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span>Pro tip: Use quotes around your search term for exact matches</span>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Filter Buttons and Search Button -->
@@ -185,4 +193,21 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', path='js/filters.js') }}" type="module"></script>
+<script>
+    // Show and hide the search tip when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchTip = document.getElementById('search-tip');
+        
+        // Show the tip after a short delay
+        setTimeout(() => {
+            searchTip.classList.add('opacity-100');
+            searchTip.classList.remove('translate-y-2');
+        }, 700);
+        
+        // Hide the tip after 5 seconds
+        setTimeout(() => {
+            searchTip.classList.add('opacity-0', 'translate-y-2');
+        }, 6000);
+    });
+</script>
 {% endblock %}

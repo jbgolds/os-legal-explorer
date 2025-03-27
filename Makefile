@@ -38,6 +38,9 @@ restore-neo4j:
 backup-neo4j:
 	docker compose run --rm --entrypoint="" neo4j bash -c "neo4j-admin database dump neo4j --to-path=/backups"
 
+# Export Neo4j database to CSV files
+backup-neo4j-csv:
+	docker compose exec neo4j bash -c "echo 'CALL apoc.export.csv.all(\"neo4j-export.csv\", {directory: \"/backups\"})' | cypher-shell -u neo4j -p $${DB_NEO4J_PASSWORD}"
 
 ruff:
 	ruff check .

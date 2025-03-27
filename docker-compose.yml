@@ -36,9 +36,11 @@ services:
     environment:
       - NEO4J_apoc_export_file_enabled=true
       - NEO4J_apoc_import_file_enabled=true
-      - NEO4J_apoc_import_file_use__neo4j__config=true
+      - NEO4J_apoc_import_file_use__neo4j__config=false
       - NEO4J_PLUGINS=["apoc"]
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      - NEO4J_dbms_directories_import=/var/lib/neo4j/import
+      - NEO4J_dbms_directories_data=/data
       # Use environment variables for authentication instead of hardcoding
     ports:
       - "127.0.0.1:7474:7474"
