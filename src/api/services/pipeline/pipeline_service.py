@@ -294,7 +294,7 @@ def update_job_status(
 
 
 # New helper function to clean extracted opinions
-def clean_extracted_opinions(df: pd.DataFrame) -> pd.DataFrame:
+def clean_extracted_opinions(df: pd.DataFrame, skip_filtering: bool = False) -> pd.DataFrame:
     """
     Clean opinions extracted from our internal database.
     
@@ -304,6 +304,8 @@ def clean_extracted_opinions(df: pd.DataFrame) -> pd.DataFrame:
     
     Args:
         df: DataFrame containing opinions extracted from our database
+        skip_filtering: When True, only perform basic cleaning without filtering rows
+                        (used when processing a specific cluster ID)
         
     Returns:
         Cleaned DataFrame with standardized text fields
@@ -353,6 +355,16 @@ def clean_extracted_opinions(df: pd.DataFrame) -> pd.DataFrame:
         else:
             new_df.at[i, "text"] = ""
             new_df.at[i, "text_source"] = "no_text"
+
+    # Skip filtering when processing a specific cluster ID
+    if skip_filtering:
+        logger.info(f"Skipping filtering because skip_filtering=True. Returning {len(new_df)} opinions.")
+        if "soc_date_filed" in new_df.columns:
+            new_df["soc_date_filed"] = pd.to_datetime(
+                new_df["soc_date_filed"], errors="coerce"
+            )
+            new_df = new_df.sort_values(by="soc_date_filed", ascending=False)
+        return new_df
 
     # Filter out rows with no text
     new_df = new_df[new_df["text_source"] != "no_text"]
@@ -457,9 +469,11 @@ def run_extraction_job(job_id: int, config: ExtractionConfig) -> None:
 
         filter_clause = " AND ".join(filters)
         if filter_clause:
-            filter_clause = (
-                f"WHERE {filter_clause} AND soc.precedential_status = 'Published'"
-            )
+            # Only add 'Published' filter if we're not processing a single cluster ID
+            if config.single_cluster_id:
+                filter_clause = f"WHERE {filter_clause}"
+            else:
+                filter_clause = f"WHERE {filter_clause} AND soc.precedential_status = 'Published'"
         else:
             filter_clause = "WHERE soc.precedential_status = 'Published'"
 
@@ -626,8 +640,15 @@ def run_llm_job(job_id: int, extraction_job_id: int, loop: Optional[asyncio.Abst
         # Load and clean data
         df = pd.read_csv(extraction_job["result_path"])
         logger.info(f"Columns in raw DataFrame: {list(df.columns)}")
+        
+        # Check if we're processing a single cluster ID
+        skip_filtering = False
+        if "config" in extraction_job and "single_cluster_id" in extraction_job["config"] and extraction_job["config"]["single_cluster_id"]:
+            skip_filtering = True
+            logger.info(f"Processing single cluster ID: {extraction_job['config']['single_cluster_id']}, will skip filtering")
+        
         cleaned_df = job_step(
-            job_id, "data cleaning", 20.0, lambda: clean_extracted_opinions(df)
+            job_id, "data cleaning", 20.0, lambda: clean_extracted_opinions(df, skip_filtering=skip_filtering)
         )
         logger.info(f"Columns in cleaned DataFrame: {list(cleaned_df.columns)}")
 

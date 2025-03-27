@@ -200,11 +200,7 @@ function updateTreatmentBanner(treatments) {
             bannerEl.querySelector('.alert').className = "alert alert-success";
             textEl.textContent = "This case has POSITIVE incoming citations";
         }
-        else {
-            // Default for NEUTRAL or unspecified treatments
-            bannerEl.querySelector('.alert').className = "alert alert-info";
-            textEl.textContent = "This case has incoming citations";
-        }
+       
     }
 }
 
